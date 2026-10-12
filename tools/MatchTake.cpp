@@ -97,7 +97,19 @@ Check checkTake(const juce::AudioBuffer<float>& recording, double sampleRate,
   for (int c = 0; c < recording.getNumChannels(); ++c)
     peak = std::max(peak, recording.getMagnitude(c, 0, recording.getNumSamples()));
   check.peakDb = peak > 0.0f ? 20.0 * std::log10(static_cast<double>(peak)) : -200.0;
-  check.clipped = check.peakDb >= kClipDb;
+  const float clipLevel = static_cast<float>(std::pow(10.0, kClipDb / 20.0));
+  for (int c = 0; c < recording.getNumChannels() && !check.clipped; ++c) {
+    const float* samples = recording.getReadPointer(c);
+    int run = 0;
+    for (int n = 0; n < recording.getNumSamples(); ++n) {
+      const float magnitude = std::abs(samples[n]);
+      run = magnitude >= clipLevel ? run + 1 : 0;
+      if (magnitude > 1.0f || run >= kClipRun) {
+        check.clipped = true;
+        break;
+      }
+    }
+  }
 
   try {
     const EffectMatch::MatchAnalysis analysis =
@@ -113,9 +125,8 @@ Check checkTake(const juce::AudioBuffer<float>& recording, double sampleRate,
   }
 
   if (check.clipped)
-    check.problems.push_back("the take clips (peak " + dbText(check.peakDb) +
-                             " dBFS, the limit is " + dbText(kClipDb) +
-                             "): lower the unit's output level or the interface input gain");
+    check.problems.push_back("the take clips (it holds full scale, peak " + dbText(check.peakDb) +
+                             " dBFS): lower the unit's output level or the interface input gain");
   if (check.peakDb < kQuietPeakDb)
     check.problems.push_back("the take is silent or far too quiet (peak " + dbText(check.peakDb) +
                              " dBFS): check the cables, the channels and the input gain");

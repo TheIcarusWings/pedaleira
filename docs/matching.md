@@ -97,7 +97,8 @@ PedaleiraMatch record --device "Volt 876" --out-ch 1 --in-ch 1 --name bypass
 ```
 
 Then it checks the take with the analysis and prints the result: both sync markers found, no
-sample at or above -0.1 dBFS (no clipping), the latency, and a plausible level (not silent, the
+clipping (the take never holds full scale: three samples in a row at -0.01 dBFS or above, or
+any sample past it, fail; a clean path touching 0 dBFS at the staircase's top step passes), the latency, and a plausible level (not silent, the
 1 kHz level within -30 and +20 dB of what was played). It exits 0 when everything passes and 3
 when a check fails, so a script can retry:
 

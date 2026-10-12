@@ -54,8 +54,12 @@ struct Check {
   std::vector<std::string> problems;
 };
 
-// A take clips when any sample is at or above this level.
-constexpr double kClipDb = -0.1;
+// A take clips when it holds full scale: kClipRun samples in a row at or
+// above kClipDb, or any sample past full scale. Not just one sample near it:
+// the test signal's own staircase reaches 0 dBFS, so a clean unity path
+// touches full scale for a sample at each peak, while a clipped one sits there.
+constexpr double kClipDb = -0.01;
+constexpr int kClipRun = 3;
 // A take is too quiet when its peak stays under this level, and its level
 // implausible when the 1 kHz level gain falls outside this range.
 constexpr double kQuietPeakDb = -50.0;

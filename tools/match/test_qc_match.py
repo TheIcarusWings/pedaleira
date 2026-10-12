@@ -379,6 +379,11 @@ class MappingTest(unittest.TestCase):
 
 
 class CommandTest(unittest.TestCase):
+    def test_ours_is_fully_wet_unless_the_plan_says_otherwise(self):
+        # A half-wet block (the old default) blended a compressor 50/50 with the dry signal.
+        block = qm.build_preset("c", "dynamics.compressor", {"ratio": 4})["chain"]["children"][0]["children"][0]
+        self.assertEqual(block["mix"], 1.0)
+
     def test_ours_is_rendered_with_as_many_channels_as_are_recorded(self):
         stereo = qm.options_from(qm.parse_args(["--plan", "p.json"]))
         self.assertEqual(stereo.out_channels, 2)

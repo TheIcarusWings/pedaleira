@@ -557,7 +557,9 @@ def build_preset(name: str, kind: Optional[str], params: Dict[str, float]) -> Di
                 "id": "b1",
                 "type": "kind",
                 "enabled": True,
-                "mix": 0.5,
+                # Fully wet, as the app adds a block (BlockKindInfo::defaultMix);
+                # a plan that sets MIX changes it with a command after the load.
+                "mix": 1.0,
                 "children": [
                     {
                         "node": "KindState",

@@ -330,7 +330,7 @@ class MappingTest(unittest.TestCase):
     def test_compressor_threshold(self):
         ours = self.derive(COMP_TAKE)
         self.assertEqual(ours.kind, "dynamics.compressor")
-        self.assertEqual(ours.kind_values(), {"thresholdDb": -30.0})
+        self.assertEqual(ours.kind_values(), {"thresholdDb": -31.28})
         self.assertEqual(ours.unmapped, [])
         self.assertFalse(ours.verified)  # the entry says verified false
 

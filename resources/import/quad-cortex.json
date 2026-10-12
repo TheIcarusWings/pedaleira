@@ -7,10 +7,13 @@
       "kind": "dynamics.compressor",
       "verified": false,
       "params": {
-        "THRESHOLD": { "param": "thresholdDb", "unit": "dB", "transform": "linear" },
-        "RATIO": { "param": "ratio", "transform": "linear" }
+        "THRESHOLD": { "param": "thresholdDb", "unit": "dB", "transform": { "scale": 1, "offset": -1.28 } },
+        "RATIO": { "param": "ratio", "transform": "linear" },
+        "MAKEUP": { "param": "makeupDb", "transform": "linear" },
+        "ATTACK": { "param": "attackMs", "transform": "linear" },
+        "RELEASE": { "param": "releaseMs", "transform": "linear" }
       },
-      "notes": "THRESHOLD in dB is the one name pyquadcortex's documentation gives for this block. The unit runs -60 to +12 dB, ours -60 to 0, so a value above 0 is clamped and reported. Ratio, attack, release and the rest stay at our defaults until their names are known."
+      "notes": "The unit runs THRESHOLD -60 to +12 dB, ours -60 to 0, so a value above 0 is clamped and reported. Measured on a unit (CorOS d14e): the unit compresses from 1.28 dB below the threshold it shows (-1.23 to -1.36 over five takes at -20 and -30), hence the offset; RATIO matches exactly. ATTACK and RELEASE take the dump's real times (quad-cortex-curves.json), but the unit's envelope is shaped differently from ours, so the timing is close, not equal."
     },
     "Simple Gate": {
       "kind": "dynamics.gate",

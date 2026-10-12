@@ -76,6 +76,9 @@ sent on the curve. `resources/import/quad-cortex-curves.json` lists the paramete
 this script and the dump script apply them. A parameter not in it is sent linearly, so a new one is
 worth one timing take before its results are trusted.
 
+Not every difference is a curve. VCA Comp compresses from 1.28 dB below the THRESHOLD it shows, at
+-20 and at -30 alike, so the import table (`quad-cortex.json`) takes that off as an offset instead.
+
 ## Run
 
 ```

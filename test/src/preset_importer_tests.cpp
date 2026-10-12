@@ -837,7 +837,7 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheCategoriesWeHave) {
   ASSERT_TRUE(result.ok) << result.error;
   const juce::var preset = result.preset;
   EXPECT_EQ(kindOf(slotNode(preset, 0, 0)), "dynamics.compressor");
-  EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 0), "thresholdDb")), -24.5, 1e-3);
+  EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 0), "thresholdDb")), -25.78, 1e-3);
   EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "delay.digital");
   EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 1), "feedback")), 45.0, 1e-3);
   EXPECT_NEAR(static_cast<double>(slotNode(preset, 0, 1)["mix"]), 0.3, 1e-6);
@@ -961,7 +961,7 @@ TEST(PresetImporterCommandTest, ImportsIntoTheLibraryAndTheResultLoads) {
   for (const auto& param : *compressor["params"].getArray())
     if (param["id"].toString() == "thresholdDb")
       threshold = static_cast<double>(param["value"]);
-  EXPECT_NEAR(threshold, -20.0, 1e-3);
+  EXPECT_NEAR(threshold, -21.28, 1e-3);
   // The kind's own parameters tell the kind: feedback for the delay, decay for the hall.
   auto hasParam = [&rig](const std::string& blockId, const char* paramId) {
     const juce::var listed = rig.must("block.listParams", "{\"blockId\":" + quote(blockId) + "}");

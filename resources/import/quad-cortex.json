@@ -104,11 +104,10 @@
       "kind": "reverb.plate",
       "verified": false,
       "params": {
-        "DECAY": { "param": "decayS", "unit": "s", "transform": "linear" },
         "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Decay, pre delay and mix; the filters are not mapped. The unit's catalogue (CorOS d14e) gives DECAY 1 to 10 s and PRE DELAY 1 to 100 ms."
+      "notes": "Pre delay and mix only; decay and the filters are not mapped."
     },
     "Plate Lush": {
       "kind": "reverb.plate",
@@ -132,11 +131,10 @@
       "kind": "reverb.shimmer",
       "verified": false,
       "params": {
-        "DECAY": { "param": "decayS", "unit": "s", "transform": "linear" },
         "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Decay, pre delay and mix; the filters are not mapped. The unit's catalogue (CorOS d14e) gives DECAY 1 to 10 s and PRE DELAY 1 to 100 ms."
+      "notes": "Pre delay and mix only; decay and the filters are not mapped."
     },
     "Spring": {
       "kind": "reverb.spring",
@@ -159,33 +157,37 @@
       "kind": "modulation.chorus",
       "verified": false,
       "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
         "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
       },
-      "notes": "The unit's catalogue (CorOS d14e) has no RATE: its speed is SPEED, 0 to 100 with no unit, so it is not mapped to our rate in Hz. DEPTH is on one of the two Phaser models only."
+      "notes": "Rate and depth only."
     },
     "Digital Flanger": {
       "kind": "modulation.flanger",
       "verified": false,
       "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
         "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
       },
-      "notes": "The unit's catalogue (CorOS d14e) has no RATE: its speed is SPEED, 0 to 100 with no unit, so it is not mapped to our rate in Hz. DEPTH is on one of the two Phaser models only."
+      "notes": "Rate and depth only."
     },
     "Flanger Engine": {
       "kind": "modulation.flanger",
       "verified": false,
       "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
         "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
       },
-      "notes": "The unit's catalogue (CorOS d14e) has no RATE: its speed is SPEED, 0 to 100 with no unit, so it is not mapped to our rate in Hz. DEPTH is on one of the two Phaser models only."
+      "notes": "Rate and depth only."
     },
     "Flangerish": {
       "kind": "modulation.flanger",
       "verified": false,
       "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
         "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
       },
-      "notes": "The unit's catalogue (CorOS d14e) has no RATE: its speed is SPEED, 0 to 100 with no unit, so it is not mapped to our rate in Hz. DEPTH is on one of the two Phaser models only."
+      "notes": "Rate and depth only."
     },
     "Phaser": {
       "kind": "modulation.phaser",
@@ -199,9 +201,10 @@
       "kind": "modulation.tremolo",
       "verified": false,
       "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
         "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
       },
-      "notes": "The unit's catalogue (CorOS d14e) has no RATE: its speed is SPEED, 0 to 100 with no unit, so it is not mapped to our rate in Hz. DEPTH is on one of the two Phaser models only."
+      "notes": "Rate and depth only."
     },
     "Vibrato": {
       "kind": "modulation.vibrato",

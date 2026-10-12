@@ -58,6 +58,15 @@ What the script does not touch, because they are settings and not grid edits: th
 output levels, the row's lane volume and its input gate. Leave them at unity and off, and check the
 `bypass` take (the unit's own path) against `identity` first.
 
+### A scratch preset of your own
+
+By default the session borrows a free row of the factory preset `Brit 2203`, which every unit has.
+An empty preset is cleaner: nothing else runs beside the take, and no preset you play is touched.
+The script cannot make one (that would be a save), so make it once yourself: a new empty preset on
+the unit, named for instance `Pedaleira Scratch`, saved to a free slot of My Presets. Then add
+`--scratch-preset "Pedaleira Scratch" --scratch-setlist user` to every run. The script only recalls
+it and edits one row without saving, and the end of the session reloads it empty.
+
 ## Run
 
 ```

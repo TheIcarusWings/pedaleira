@@ -29,7 +29,9 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   shell->setPageComponent(Page::grid, grid.get());
   library = std::make_unique<LibraryPage>(*client);
   importer = std::make_unique<ImportPage>(*client);
+  capturePage = std::make_unique<CapturePage>(*client);
   shell->setPageComponent(Page::library, library.get());
+  shell->setPageComponent(Page::capture, capturePage.get());
   shell->setPageComponent(Page::import, importer.get());
 #if PEDALEIRA_STANDALONE_DEVICE
   device = StandaloneDevice::create(processor);
@@ -38,8 +40,6 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   shell->setPageComponent(Page::settings, settingsPage.get());
   live = std::make_unique<LivePage>(*client);
   shell->setPageComponent(Page::live, live.get());
-  comingSoon.push_back(std::make_unique<ComingSoon>("Capture", "This page comes in a later build."));
-  shell->setPageComponent(Page::capture, comingSoon.back().get());
   modes = std::make_unique<FootswitchModesPage>(*client);
   gig = std::make_unique<GigView>(*client);
   shell->setModesView(modes.get());
@@ -72,6 +72,8 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   shell->onPageShown = [this](Page page) {
     if (page == Page::library)
       library->refresh();
+    else if (page == Page::capture)
+      capturePage->refresh();
     else if (page == Page::import)
       importer->refresh();
     else if (page == Page::settings)
@@ -83,6 +85,11 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
     grid->rigChanged();
   };
   importer->onChanged = [this] {
+    shell->header().refresh();
+    grid->rigChanged();
+  };
+  // A capture was added to the rig or saved to the library.
+  capturePage->onChanged = [this] {
     shell->header().refresh();
     grid->rigChanged();
   };
@@ -114,6 +121,7 @@ PedaleiraEditor::~PedaleiraEditor() {
   gig->onExit = nullptr;
   library->onChanged = nullptr;
   importer->onChanged = nullptr;
+  capturePage->onChanged = nullptr;
   importer->onOpenGrid = nullptr;
   importer->onPickCapture = nullptr;
   grid->onOpenPluginWindow = nullptr;
@@ -123,6 +131,7 @@ PedaleiraEditor::~PedaleiraEditor() {
   removeAllChildren();
   gig.reset();
   modes.reset();
+  capturePage.reset();
   importer.reset();
   // The tuner stops listening as the Live page goes.
   live.reset();

@@ -94,6 +94,8 @@ if (PEDALEIRA_BUILD_UI_TESTBED)
     juce_add_console_app(PedaleiraUiTestbed PRODUCT_NAME "PedaleiraUiTestbed")
     target_sources(PedaleiraUiTestbed PRIVATE
         ../plugin/ui/pedaleira/testbed/Main.cpp
+        ../plugin/ui/pedaleira/testbed/CaptureScenes.cpp
+        ../plugin/ui/pedaleira/testbed/CaptureScenes.h
         ../plugin/ui/pedaleira/testbed/Gallery.cpp
         ../plugin/ui/pedaleira/testbed/Gallery.h
     )

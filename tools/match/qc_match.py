@@ -50,6 +50,9 @@ VERSION = 1
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_MAPPING = REPO / "resources" / "import" / "quad-cortex.json"
+CURVES_PATH = REPO / "resources" / "import" / "quad-cortex-curves.json"
+# Filled at the bottom of the module, once load_curves exists.
+CURVES: Dict[str, Dict[str, float]] = {}
 
 DEFAULT_SCRATCH_PRESET = "Brit 2203"
 DEFAULT_QC_INPUT = "USB_5_6"
@@ -896,7 +899,26 @@ class UnitSetting:
     note: str = ""
 
 
-def plan_setting(spec: Any, shown: Any) -> UnitSetting:
+def load_curves(path: Path = CURVES_PATH) -> Dict[str, Dict[str, float]]:
+    """{model key: {parameter key: exponent}} from resources/import/quad-cortex-curves.json."""
+    if not path.is_file():
+        return {}
+    document = load_json(path)
+    curves: Dict[str, Dict[str, float]] = {}
+    for model, params in (document.get("models") or {}).items():
+        for name, spec in (params or {}).items():
+            curves.setdefault(model_key(model), {})[norm(name)] = float(spec["exponent"])
+    return curves
+
+
+CURVES.update(load_curves())
+
+
+def curve_exponent(curves: Dict[str, Dict[str, float]], model_name: str, param_name: str) -> Optional[float]:
+    return curves.get(model_key(model_name), {}).get(norm(param_name))
+
+
+def plan_setting(spec: Any, shown: Any, exponent: Optional[float] = None) -> UnitSetting:
     units = getattr(spec, "units", "") or ""
     if isinstance(shown, dict):
         return UnitSetting(spec.name, shown["wire"], "wire 0..1", {"value": float(shown["wire"])})
@@ -915,6 +937,13 @@ def plan_setting(spec: Any, shown: Any) -> UnitSetting:
     low, high = float(spec.minimum), float(spec.maximum)
     if not low <= float(shown) <= high:
         note = f"outside the unit's range {fmt(low)} to {fmt(high)} {units}: the library clamps it"
+    if exponent and high > low:
+        # The unit plays min + span * wire ^ exponent; pyquadcortex's own
+        # conversion is linear (resources/import/quad-cortex-curves.json).
+        fraction = min(1.0, max(0.0, (float(shown) - low) / (high - low)))
+        wire = fraction ** (1.0 / exponent)
+        curve = f"on the unit's curve (exponent {fmt(round(exponent, 4))}): wire {wire:.5f}"
+        return UnitSetting(spec.name, shown, units, {"value": wire}, f"{note}; {curve}" if note else curve)
     return UnitSetting(spec.name, shown, units, {"real": float(shown)}, note)
 
 
@@ -938,7 +967,8 @@ def prepare_take(take: Take, catalog: Any, mapping: Dict[str, Any]) -> PreparedT
         prepared.model = resolve_model(catalog, take.model)
         prepared.ours = derive_ours(take, mapping, prepared.model.name)
         for name, shown in take.params.items():
-            prepared.settings.append(plan_setting(find_parameter(prepared.model, name), shown))
+            exponent = curve_exponent(CURVES, prepared.model.name, name)
+            prepared.settings.append(plan_setting(find_parameter(prepared.model, name), shown, exponent))
         entry = mapping_entry(mapping, prepared.model.name)
         table = {norm(k): v for k, v in ((entry or {}).get("params") or {}).items()}
         for setting in prepared.settings:

@@ -379,6 +379,17 @@ class MappingTest(unittest.TestCase):
 
 
 class CommandTest(unittest.TestCase):
+    def test_a_curved_parameter_goes_to_the_unit_on_its_curve(self):
+        # Measured on a unit: wire 0.14614 played 249.4 ms, where linear 250 ms played 35 ms.
+        spec = FakeSpec(0, "DELAY TIME", 7.0, 6000.0, "ms")
+        exponent = qm.curve_exponent(qm.CURVES, "Digital Delay (M)", "DELAY TIME")
+        self.assertAlmostEqual(exponent, 5.0 / 3.0, places=5)
+        setting = qm.plan_setting(spec, 250, exponent)
+        self.assertAlmostEqual(setting.kwargs["value"], 0.14614, places=4)
+        self.assertNotIn("real", setting.kwargs)
+        self.assertIsNone(qm.curve_exponent(qm.CURVES, "VCA Comp (M)", "THRESHOLD"))
+        self.assertEqual(qm.plan_setting(spec, 250).kwargs, {"real": 250.0})
+
     def test_ours_is_fully_wet_unless_the_plan_says_otherwise(self):
         # A half-wet block (the old default) blended a compressor 50/50 with the dry signal.
         block = qm.build_preset("c", "dynamics.compressor", {"ratio": 4})["chain"]["children"][0]["children"][0]

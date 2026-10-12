@@ -67,6 +67,15 @@ the unit, named for instance `Pedaleira Scratch`, saved to a free slot of My Pre
 `--scratch-preset "Pedaleira Scratch" --scratch-setlist user` to every run. The script only recalls
 it and edits one row without saving, and the end of the session reloads it empty.
 
+### Curved parameters
+
+pyquadcortex converts every parameter linearly between its catalogue minimum and maximum, but the
+unit plays some on a power curve: `min + (max - min) * wire ^ exponent`. A real unit (CorOS d14e)
+played Digital Delay's DELAY TIME 250 ms as 35 ms and VCA Comp's RATIO 4 as 2.8 until the values were
+sent on the curve. `resources/import/quad-cortex-curves.json` lists the parameters measured so far;
+this script and the dump script apply them. A parameter not in it is sent linearly, so a new one is
+worth one timing take before its results are trusted.
+
 ## Run
 
 ```

@@ -1,0 +1,19 @@
+{
+  "source": "quad-cortex",
+  "version": 1,
+  "description": "Quad Cortex parameters whose 0..1 wire value is not linear in the screen value. Such a parameter plays min + (max - min) * wire ^ exponent, where min and max are the catalogue's range. pyquadcortex converts every parameter linearly, so the matching script and the dump script apply these curves themselves. Measured on a unit (CorOS d14e) by playing known wire values and timing the result; a parameter not listed is taken as linear. Models are named without the (M), (ST) or (S/C) marker.",
+  "models": {
+    "Digital Delay": {
+      "DELAY TIME": {
+        "exponent": 1.6666667,
+        "measured": "wire 0.04055, 0.08226, 0.14614 played 35.1, 99.7, 249.4 ms (5/3 predicts 35.7, 100.3, 250.0)"
+      }
+    },
+    "VCA Comp": {
+      "RATIO": {
+        "exponent": 1.6666667,
+        "measured": "wire 0.25 played ratio 2.795, wire 0.43528 played 4.000 (5/3 predicts 2.794, 4.000)"
+      }
+    }
+  }
+}

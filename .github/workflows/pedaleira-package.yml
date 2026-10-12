@@ -1,0 +1,98 @@
+# Test builds to download: the Pedaleira app (Standalone) and the VST3, plus
+# the AU on macOS. Run by hand from the Actions tab. The builds are not signed
+# or notarised, so macOS asks before opening the app the first time (README,
+# "Test builds"). Kept separate from upstream's build.yml (the signed release
+# pipeline) so upstream merges never touch it.
+name: Pedaleira test build
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_windows:
+        description: Also build for Windows
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pedaleira-package-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  macos:
+    name: macOS arm64
+    runs-on: macos-14
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Ninja
+        run: brew install ninja
+      - name: Configure
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DBUILD_AAX=OFF -DBUILD_CLAP=OFF -DBUILD_LV2=OFF
+      - name: Build
+        run: cmake --build build --parallel --target TONE3000_Standalone TONE3000_VST3 TONE3000_AU
+      - name: Package
+        run: |
+          set -euo pipefail
+          ARTEFACTS="build/plugin/TONE3000_artefacts/${{ env.BUILD_TYPE }}"
+          STAGE="build/Pedaleira-macos-arm64"
+          mkdir -p "$STAGE"
+          cp -R "$ARTEFACTS/Standalone/Pedaleira.app" "$STAGE/"
+          cp -R "$ARTEFACTS/VST3/Pedaleira.vst3" "$STAGE/"
+          cp -R "$ARTEFACTS/AU/Pedaleira.component" "$STAGE/"
+          # Ad hoc signatures: Apple silicon runs nothing unsigned.
+          for bundle in "$STAGE"/*; do
+            codesign --force --deep --sign - "$bundle"
+          done
+          ditto -c -k --keepParent "$STAGE" "build/Pedaleira-macos-arm64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pedaleira-macos-arm64
+          path: build/Pedaleira-macos-arm64.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    if: inputs.include_windows
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DBUILD_AAX=OFF -DBUILD_CLAP=OFF -DBUILD_LV2=OFF
+      - name: Build
+        run: cmake --build build --parallel --target TONE3000_Standalone TONE3000_VST3
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTEFACTS="build/plugin/TONE3000_artefacts/${{ env.BUILD_TYPE }}"
+          STAGE="build/Pedaleira-windows-x64"
+          mkdir -p "$STAGE"
+          # The app and the plugin scan helper that sits next to it.
+          cp "$ARTEFACTS"/Standalone/*.exe "$STAGE/"
+          cp -r "$ARTEFACTS/VST3/Pedaleira.vst3" "$STAGE/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pedaleira-windows-x64
+          path: build/Pedaleira-windows-x64
+          if-no-files-found: error

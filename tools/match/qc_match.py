@@ -1207,7 +1207,7 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
     results: List[TakeResult] = []
     code = EXIT_OK
     qc: Optional[GuardedClient] = None
-    # The scratch preset this session recalled, recalled again at the end so its
+    # The scratch preset this session recalled, recalled afresh at the end so its
     # edits do not stay on the grid (the next session would refuse to start).
     recalled: Optional[Tuple[Any, Any]] = None
     try:
@@ -1316,8 +1316,14 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
         if qc is not None and recalled is not None:
             # Only the session's own edits are discarded: the unit had none
             # when it started, and the scratch preset was recalled by it.
+            # Recalling the preset that is already loaded does not reload it on
+            # the unit (seen on CorOS d14e: the edits stayed), so another preset
+            # of the same setlist is recalled first, then the scratch one.
+            setlist, position = recalled
+            other = 0 if position != 0 else 1
             try:
-                qc.read_preset(*recalled)
+                qc.read_preset(setlist, other)
+                qc.read_preset(setlist, position)
                 print("\nThe scratch preset was recalled again: the session's edits are gone from the grid.")
             except Exception as error:
                 print(f"\nCould not recall the scratch preset again ({error}); recall any preset on the unit to clear the session's edits.",

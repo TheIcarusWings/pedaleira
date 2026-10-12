@@ -619,7 +619,7 @@ class SessionTest(unittest.TestCase):
         for name, kw in unit.calls:
             by_name.setdefault(name, []).append(kw)
         self.assertEqual([kw["position"] if "position" in kw else kw["name"] for kw in by_name["find_preset"] + by_name["read_preset"]],
-                         ["Brit 2203", 7, 7])
+                         ["Brit 2203", 7, 0, 7])
         # The scratch preset is recalled again at the end, after every grid edit.
         names_in_order = [c[0] for c in unit.calls]
         last_edit = max(i for i, n in enumerate(names_in_order) if n.startswith("set_") or n == "remove_block")

@@ -831,6 +831,18 @@ TEST(IrConvolutionTest, ChunkedCappedConvolverMatchesHostSizedConvolver) {
 int main(int argc, char** argv) {
   // JUCE convolution/format readers want the usual JUCE runtime scaffolding.
   juce::ScopedJuceInitialiser_GUI juceInit;
+  // The per-user app data folder (settings, presets, model stash, plugin
+  // cache, the agent layer's files and the log) is a scratch one: a processor
+  // reads and makes things there as it starts, so this comes before anything
+  // else, and nothing that has no hook of its own can reach the developer's
+  // real folder. The hooks below put one file or folder somewhere more
+  // specific. app_data_isolation_tests.cpp checks the real folders stay as
+  // they were.
+  const juce::File appData =
+      juce::File::getSpecialLocation(juce::File::tempDirectory)
+          .getChildFile("t3k-dsp-tests-appdata-" + juce::Uuid().toString());
+  appData.createDirectory();
+  LibraryPaths::setAppDataDirForTesting(appData);
   // Every processor the tests construct must start at the parameter
   // defaults, whatever calibration/oversampling the developer's own
   // machine-wide settings file holds.
@@ -902,5 +914,7 @@ int main(int argc, char** argv) {
   CommandServer::setConnectionFileForTesting(juce::File());
   LibraryPaths::setScratchDirForTesting(juce::File());
   agentData.deleteRecursively();
+  LibraryPaths::setAppDataDirForTesting(juce::File());
+  appData.deleteRecursively();
   return result;
 }

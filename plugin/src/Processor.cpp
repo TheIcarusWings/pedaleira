@@ -3,6 +3,7 @@
 #include "AgentHub.h"
 #include "EngineCommands.h"
 #include "AppIdentity.h"
+#include "LibraryPaths.h"
 #if !HEADLESS
 #include "NativeEditor.h"
 #if !HEADLESS && !JUCE_IOS
@@ -56,7 +57,9 @@ TONE3000Processor::TONE3000Processor()
   // Heal the per-user app-data folder before anything writes to it: a
   // root-owned folder fails every settings save and drop-stash write while
   // reads keep working (github issue #76; see ensureWritableDir, which logs
-  // whatever it does). Once per process, like the stash GC below.
+  // whatever it does). Once per process, like the stash GC below. The folder
+  // is the one LibraryPaths::appDataDir() names, so a test that redirected it
+  // never makes the user's.
   static std::once_flag appDataHealFlag;
   std::call_once(appDataHealFlag,
                  [] { ensureWritableDir(getSettingsFile().getParentDirectory()); });
@@ -3331,9 +3334,14 @@ juce::var TONE3000Processor::pollAutoOffset() {
 // DIAGNOSTIC LOG FILE
 // #########################
 // Mirrors juce::FileLogger::createDefaultAppLogger's path so the logger and the
-// UI's copy/reveal actions always target the same file.
+// UI's copy/reveal actions always target the same file. A redirected app data
+// folder (tests, headless tools) keeps the log with the rest of its files, so
+// the log is never written in the user's own.
 juce::File TONE3000Processor::getLogFile() {
+  const juce::String name = juce::String(kAppDataFolderName) + ".log";
+  if (LibraryPaths::appDataDirIsOverridden())
+    return LibraryPaths::appDataDir().getChildFile(name);
   return juce::FileLogger::getSystemLogFileFolder()
       .getChildFile(kAppDataFolderName)
-      .getChildFile(juce::String(kAppDataFolderName) + ".log");
+      .getChildFile(name);
 }

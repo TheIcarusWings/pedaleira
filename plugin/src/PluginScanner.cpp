@@ -1,5 +1,5 @@
 #include "PluginScanner.h"
-#include "AppIdentity.h"
+#include "LibraryPaths.h"
 
 #include <algorithm>
 #include <mutex>
@@ -23,21 +23,13 @@ juce::File helperOverride;
 std::atomic<bool> defaultLocationsEnabled{true};
 std::atomic<int> scanTimeoutMs{45000};
 
-juce::File defaultCacheDir() {
-  juce::File base = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
-#if JUCE_MAC
-  base = base.getChildFile("Application Support");
-#endif
-  return base.getChildFile(kAppDataFolderName);
-}
-
 juce::File cacheDir() {
   {
     const std::lock_guard<std::mutex> guard(overrideMutex);
     if (cacheDirOverride != juce::File())
       return cacheDirOverride;
   }
-  return defaultCacheDir();
+  return LibraryPaths::appDataDir();
 }
 
 bool isAudioUnit(const juce::String& formatName) { return formatName == "AudioUnit"; }

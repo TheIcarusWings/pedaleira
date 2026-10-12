@@ -1086,7 +1086,8 @@ public:
 
   // Location of the on-disk diagnostic log. Single source of truth shared by the
   // FileLogger setup and the UI's "copy/reveal logs" actions so they never drift.
-  // macOS: ~/Library/Logs/TONE3000/TONE3000.log, Windows: %APPDATA%/TONE3000/TONE3000.log
+  // macOS: ~/Library/Logs/Pedaleira/Pedaleira.log, Windows: %APPDATA%/Pedaleira/Pedaleira.log;
+  // <app data>/Pedaleira.log while LibraryPaths::setAppDataDirForTesting redirects the folder.
   static juce::File getLogFile();
 
   // Location of the shared machine-wide settings file (the multi-core

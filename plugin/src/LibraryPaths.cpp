@@ -20,6 +20,11 @@ std::mutex& overrideMutex() {
   return mutex;
 }
 
+juce::File& appDataOverride() {
+  static juce::File file;
+  return file;
+}
+
 juce::File& libraryOverride() {
   static juce::File file;
   return file;
@@ -49,12 +54,31 @@ std::filesystem::path canonical(const juce::File& file) {
 
 namespace LibraryPaths {
 
-juce::File appDataDir() {
+juce::File defaultAppDataDir() {
   juce::File base = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
 #if JUCE_MAC
   base = base.getChildFile("Application Support");
 #endif
   return base.getChildFile(kAppDataFolderName);
+}
+
+juce::File appDataDir() {
+  {
+    const std::lock_guard<std::mutex> lock(overrideMutex());
+    if (appDataOverride() != juce::File())
+      return appDataOverride();
+  }
+  return defaultAppDataDir();
+}
+
+juce::File setAppDataDirForTesting(const juce::File& dir) {
+  const std::lock_guard<std::mutex> lock(overrideMutex());
+  return std::exchange(appDataOverride(), dir);
+}
+
+bool appDataDirIsOverridden() {
+  const std::lock_guard<std::mutex> lock(overrideMutex());
+  return appDataOverride() != juce::File();
 }
 
 juce::File libraryRoot() {

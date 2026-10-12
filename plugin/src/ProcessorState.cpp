@@ -1,5 +1,6 @@
 #include "Processor.h"
 #include "AppIdentity.h"
+#include "LibraryPaths.h"
 
 #include <atomic>
 #include <cmath>
@@ -58,12 +59,13 @@ juce::PropertiesFile::Options userSettingsOptions() {
   // PropertiesFile puts a bare folderName directly under ~ on Linux, so pass
   // the XDG config location as an absolute path instead (same root as
   // PresetManager and the logs).
-  options.folderName =
-      juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-          .getChildFile(kAppDataFolderName)
-          .getFullPathName();
+  options.folderName = LibraryPaths::appDataDir().getFullPathName();
 #else
-  options.folderName = kAppDataFolderName;
+  // An absolute folderName is taken as it is (File::getChildFile), which is
+  // how a redirected app data folder reaches the settings file.
+  options.folderName = LibraryPaths::appDataDirIsOverridden()
+                           ? LibraryPaths::appDataDir().getFullPathName()
+                           : juce::String(kAppDataFolderName);
 #endif
   return options;
 }

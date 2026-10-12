@@ -1,5 +1,5 @@
 #include "Processor.h"
-#include "AppIdentity.h"
+#include "LibraryPaths.h"
 #include "json.hpp"
 #include "NAM/wavenet/a2_fast.h"
 #include <algorithm>
@@ -138,11 +138,7 @@ juce::File localModelsDir() {
     if (localModelsOverride != juce::File())
       return localModelsOverride;
   }
-  juce::File base = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
-#if JUCE_MAC
-  base = base.getChildFile("Application Support");
-#endif
-  return base.getChildFile(kAppDataFolderName).getChildFile("LocalModels");
+  return LibraryPaths::appDataDir().getChildFile("LocalModels");
 }
 
 // FNV-1a over the file bytes: stable across sessions and platforms without

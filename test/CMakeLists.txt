@@ -17,6 +17,7 @@ juce_add_console_app(DspTests PRODUCT_NAME "DspTests")
 
 target_sources(DspTests PRIVATE
     src/agent_hub_tests.cpp
+    src/app_data_isolation_tests.cpp
     src/audio_measure_tests.cpp
     src/auto_offset_tests.cpp
     src/block_framework_tests.cpp

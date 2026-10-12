@@ -318,9 +318,10 @@ bool CommandServer::writeConnectionFile() {
   // The application's own data folder is tightened to the user when it was
   // made with a wider mode by an earlier version. Only that folder, and only
   // when it is the user's: a folder the file was redirected to (a test, the
-  // headless host's --data) belongs to whoever made it, and the shared
-  // folder above ours is never touched.
-  if (folder == LibraryPaths::appDataDir()) {
+  // headless host's --data, which is also the app data folder it runs with)
+  // belongs to whoever made it, and the shared folder above ours is never
+  // touched.
+  if (folder == LibraryPaths::defaultAppDataDir()) {
     struct stat status {};
     if (::lstat(folder.getFullPathName().toRawUTF8(), &status) == 0 && S_ISDIR(status.st_mode) &&
         status.st_uid == ::geteuid() && (status.st_mode & (S_IRWXG | S_IRWXO)) != 0) {

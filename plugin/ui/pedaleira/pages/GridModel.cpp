@@ -85,11 +85,17 @@ GridModel GridModel::read(EngineClient& engine) {
             model.legacyEmpty = false;
   }
 
-  // Which switch flips which block.
+  // Which switch flips which block, for the switches that are stomps in the
+  // current mode (in scene or preset mode the letters would say otherwise).
+  juce::StringArray stompSwitches;
+  if (const auto* switches = state["footswitches"]["switches"].getArray())
+    for (const auto& footswitch : *switches)
+      if (footswitch["role"].toString() == "stomp")
+        stompSwitches.add(footswitch["id"].toString());
   std::map<juce::String, juce::String> footswitchOf;
   if (const auto* stomps = state["stomps"].getArray())
     for (const auto& stomp : *stomps)
-      if (const auto* ids = stomp["blockIds"].getArray())
+      if (const auto* ids = stomp["blockIds"].getArray(); ids != nullptr && stompSwitches.contains(stomp["switch"].toString()))
         for (const auto& id : *ids)
           footswitchOf[id.toString()] = stomp["switch"].toString();
 
@@ -117,6 +123,7 @@ GridModel GridModel::read(EngineClient& engine) {
       const GridSplit* into = model.splitInto(r);
       out.inputName = inputNameOf(row["input"], out.source, r);
       out.outputName = outputNameOf(row["output"], out.sink, into != nullptr ? into->row : r);
+      out.inputTrimDb = row["input"]["trimDb"];
       out.outputVolumeDb = row["output"]["volumeDb"];
       out.outputMute = static_cast<bool>(row["output"]["mute"]);
       out.outputSolo = static_cast<bool>(row["output"]["solo"]);

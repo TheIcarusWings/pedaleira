@@ -187,6 +187,77 @@ void GridView::resized() {
   }
 }
 
+void GridView::setLevels(const std::array<RowLevels, 4>& now) {
+  const juce::uint32 time = juce::Time::getMillisecondCounter();
+  for (size_t r = 0; r < 4; ++r) {
+    for (size_t c = 0; c < 2; ++c) {
+      // The peak holds fall about 12 dB a second at twenty readings a second.
+      holds[r].in[c] = juce::jmax(now[r].in[c], holds[r].in[c] - 0.6f);
+      holds[r].out[c] = juce::jmax(now[r].out[c], holds[r].out[c] - 0.6f);
+      // A level at full scale shows as a clip for two seconds.
+      if (now[r].in[c] >= -0.5f)
+        clipUntil[r][0] = time + 2000;
+      if (now[r].out[c] >= -0.5f)
+        clipUntil[r][1] = time + 2000;
+    }
+  }
+  levels = now;
+  const int outputX = kFirstSlotX + 8 * kSlotPitch;
+  for (size_t v = 0; v < shown.size(); ++v) {
+    repaint(kInputX, rowTop(static_cast<int>(v)), kInputWidth, kSlotHeight);
+    repaint(outputX, rowTop(static_cast<int>(v)), kOutputWidth, kSlotHeight);
+  }
+}
+
+juce::Rectangle<float> GridView::inputMeterArea(int visibleIndex) const {
+  return {kInputX + 10.0f, rowTop(visibleIndex) + 54.0f, kInputWidth - 20.0f, 8.0f};
+}
+
+juce::Rectangle<float> GridView::outputMeterArea(int visibleIndex) const {
+  const float x = kFirstSlotX + 8.0f * kSlotPitch + 10.0f;
+  return {x, rowTop(visibleIndex) + 40.0f, kOutputWidth - 20.0f - 72.0f, 8.0f};
+}
+
+juce::Rectangle<float> GridView::faderArea(int visibleIndex) const {
+  const float x = kFirstSlotX + 8.0f * kSlotPitch + 10.0f;
+  return {x, rowTop(visibleIndex) + 52.0f, kOutputWidth - 20.0f - 72.0f, 14.0f};
+}
+
+juce::Rectangle<float> GridView::muteSoloBox(int visibleIndex, int which) const {
+  const float right = kFirstSlotX + 8.0f * kSlotPitch + kOutputWidth - 10.0f;
+  return {right - 54.0f + which * 30.0f, rowTop(visibleIndex) + 10.0f, 24.0f, 24.0f};
+}
+
+std::pair<int, GridView::LevelPart> GridView::levelPartAt(juce::Point<float> position) const {
+  for (size_t v = 0; v < shown.size(); ++v) {
+    const int visible = static_cast<int>(v);
+    const GridRow& row = model.rows[static_cast<size_t>(shown[v])];
+    if (row.source == "device" && inputMeterArea(visible).expanded(0.0f, 6.0f).contains(position))
+      return {row.index, LevelPart::trim};
+    if (row.sink != "device")
+      continue;
+    if (faderArea(visible).expanded(4.0f, 2.0f).contains(position))
+      return {row.index, LevelPart::volume};
+    if (muteSoloBox(visible, 0).contains(position))
+      return {row.index, LevelPart::mute};
+    if (muteSoloBox(visible, 1).contains(position))
+      return {row.index, LevelPart::solo};
+  }
+  return {-1, LevelPart::none};
+}
+
+void GridView::paintMeterPair(juce::Graphics& g, juce::Rectangle<float> area, const std::array<float, 2>& db,
+                              const std::array<float, 2>& hold, bool clipped) const {
+  // Left on top, right under it; a mono row shows the same level twice.
+  for (int c = 0; c < 2; ++c)
+    LevelMeter::paintBar(g, area.withHeight(3.0f).translated(0.0f, c * 5.0f), db[static_cast<size_t>(c)],
+                         hold[static_cast<size_t>(c)]);
+  if (clipped) {
+    g.setColour(colour::clip);
+    g.drawRoundedRectangle(area.expanded(2.0f), 3.0f, 1.0f);
+  }
+}
+
 juce::Point<float> GridView::pointPosition(GridPoint p) const {
   const GridSplit* split = model.splitOf(p.row);
   const int visible = visibleIndexOf(p.row);
@@ -301,7 +372,21 @@ void GridView::paint(juce::Graphics& g) {
                input.reduced(10.0f).withHeight(14.0f), juce::Justification::centredLeft, true);
     g.setFont(type::sans(13.0f, type::Weight::semibold));
     g.setColour(ownInput ? colour::text : colour::muted);
-    g.drawText(row.inputName, input.reduced(10.0f).withTrimmedTop(36.0f), juce::Justification::centredLeft, true);
+    g.drawText(row.inputName, input.reduced(10.0f).withTrimmedTop(16.0f).withHeight(22.0f),
+               juce::Justification::centredLeft, true);
+    // What enters the row, and its trim (drag the meter to change it).
+    const juce::uint32 time = juce::Time::getMillisecondCounter();
+    const auto& level = levels[static_cast<size_t>(row.index)];
+    const auto& hold = holds[static_cast<size_t>(row.index)];
+    paintMeterPair(g, inputMeterArea(static_cast<int>(i)), level.in, hold.in,
+                   time < clipUntil[static_cast<size_t>(row.index)][0]);
+    // The trim shows once it is not 0 dB.
+    if (ownInput && std::abs(row.inputTrimDb) > 0.05) {
+      g.setFont(type::mono(10.0f));
+      g.setColour(colour::iris);
+      g.drawText((row.inputTrimDb > 0.05 ? "+" : "") + juce::String(row.inputTrimDb, 1),
+                 input.reduced(10.0f).withHeight(14.0f), juce::Justification::centredRight, false);
+    }
 
     // The output box: a device pair with mute, solo and volume, or where
     // the row goes instead.
@@ -313,7 +398,7 @@ void GridView::paint(juce::Graphics& g) {
       g.setColour(colour::text);
       g.drawText(row.outputName, inner.withHeight(24.0f), juce::Justification::centredLeft, true);
       for (int b = 0; b < 2; ++b) {
-        const auto box = juce::Rectangle<float>(inner.getRight() - 54.0f + b * 30.0f, inner.getY(), 24.0f, 24.0f);
+        const auto box = muteSoloBox(static_cast<int>(i), b);
         const bool on = b == 0 ? row.outputMute : row.outputSolo;
         g.setColour(on ? (b == 0 ? colour::warn : colour::iris) : colour::raised);
         g.fillRoundedRectangle(box, 6.0f);
@@ -323,18 +408,35 @@ void GridView::paint(juce::Graphics& g) {
         g.setColour(on ? colour::ground : colour::muted);
         g.drawText(b == 0 ? "M" : "S", box, juce::Justification::centred, false);
       }
-      const auto barRow = inner.withTrimmedTop(inner.getHeight() - 14.0f);
       const float textWidth = 64.0f;
-      const auto bar = barRow.withTrimmedRight(textWidth + 8.0f).withSizeKeepingCentre(barRow.getWidth() - textWidth - 8.0f, 4.0f);
+      // What the row sends, with its peak in dB.
+      const auto meter = outputMeterArea(static_cast<int>(i));
+      const bool clipped = time < clipUntil[static_cast<size_t>(row.index)][1];
+      paintMeterPair(g, meter, level.out, hold.out, clipped);
+      const float peak = juce::jmax(hold.out[0], hold.out[1]);
+      g.setFont(type::mono(11.0f));
+      g.setColour(clipped ? colour::clip : colour::muted);
+      g.drawText(clipped ? juce::String("CLIP") : peak <= -60.0f ? juce::String("-inf") : juce::String(peak, 1),
+                 juce::Rectangle<float>(inner.getRight() - textWidth, meter.getCentreY() - 7.0f, textWidth, 14.0f),
+                 juce::Justification::centredRight, false);
+      // The volume, -60 to +12 dB along the fader (drag it; double-click for 0 dB).
+      const auto fader = faderArea(static_cast<int>(i));
+      const auto bar = fader.withSizeKeepingCentre(fader.getWidth(), 4.0f);
       g.setColour(colour::line);
       g.fillRoundedRectangle(bar, 2.0f);
-      // The volume runs -60 to +12 dB along the bar.
       const float filled = juce::jlimit(0.0f, 1.0f, static_cast<float>((row.outputVolumeDb + 60.0) / 72.0));
-      g.setColour(colour::text);
+      g.setColour(colour::muted);
       g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * filled), 2.0f);
+      // The unity mark, then the handle.
+      g.setColour(colour::line);
+      g.fillRect(juce::Rectangle<float>(bar.getX() + bar.getWidth() * (60.0f / 72.0f) - 0.5f, fader.getY() + 2.0f, 1.0f,
+                                        fader.getHeight() - 4.0f));
+      g.setColour(colour::text);
+      g.fillEllipse(juce::Rectangle<float>(10.0f, 10.0f).withCentre({bar.getX() + bar.getWidth() * filled, bar.getCentreY()}));
       g.setFont(type::mono(11.0f));
       g.setColour(colour::muted);
-      g.drawText(signedDb(row.outputVolumeDb), barRow.withLeft(barRow.getRight() - textWidth),
+      g.drawText(row.outputVolumeDb <= -59.95 ? juce::String("Off") : signedDb(row.outputVolumeDb),
+                 juce::Rectangle<float>(inner.getRight() - textWidth, fader.getY(), textWidth, fader.getHeight()),
                  juce::Justification::centredRight, false);
     } else {
       paint::dashedOutline(g, output, size::panelRadius, colour::line);
@@ -469,6 +571,11 @@ void GridView::paintOverChildren(juce::Graphics& g) {
 }
 
 void GridView::mouseMove(const juce::MouseEvent& event) {
+  const LevelPart part = levelPartAt(event.position).second;
+  if (part == LevelPart::trim || part == LevelPart::volume) {
+    setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+    return;
+  }
   const bool onPoint = pointAt(event.position).has_value();
   const Cable cable = onPoint ? Cable{} : cableAt(event.position);
   if (cable.row != hoverCable.row || cable.boundary != hoverCable.boundary) {
@@ -498,6 +605,27 @@ void GridView::mouseDown(const juce::MouseEvent& event) {
   const Cable cable = cableAt(event.position);
   if (cable.row >= 0) {
     showCableMenu(cable);
+    return;
+  }
+  const auto [levelRow, part] = levelPartAt(event.position);
+  if (part != LevelPart::none) {
+    const GridRow& row = model.rows[static_cast<size_t>(levelRow)];
+    if (part == LevelPart::mute || part == LevelPart::solo) {
+      if (onRowMix)
+        onRowMix(levelRow, object({{part == LevelPart::mute ? "mute" : "solo",
+                                    !(part == LevelPart::mute ? row.outputMute : row.outputSolo)}}));
+      return;
+    }
+    const bool trim = part == LevelPart::trim;
+    if (event.getNumberOfClicks() > 1) {
+      // A double-click puts the level back at 0 dB.
+      if (trim && onRowTrim)
+        onRowTrim(levelRow, 0.0);
+      else if (!trim && onRowMix)
+        onRowMix(levelRow, object({{"volumeDb", 0.0}}));
+      return;
+    }
+    levelDrag = LevelDrag{levelRow, part, trim ? row.inputTrimDb : row.outputVolumeDb, event.position.x};
     return;
   }
   juce::Rectangle<int> box;
@@ -541,6 +669,24 @@ std::optional<int> GridView::rowOutputAt(juce::Point<int> position, juce::Rectan
 }
 
 void GridView::mouseDrag(const juce::MouseEvent& event) {
+  if (levelDrag) {
+    // Trim: 48 dB across the meter; volume: 72 dB across the fader. Shift
+    // for fine steps.
+    const bool trim = levelDrag->part == LevelPart::trim;
+    const float width = trim ? kInputWidth - 20.0f : kOutputWidth - 92.0f;
+    const double range = trim ? 48.0 : 72.0;
+    const double fine = event.mods.isShiftDown() ? 0.1 : 1.0;
+    const double moved = (event.position.x - levelDrag->startX) / width * range * fine;
+    const double value = std::round(juce::jlimit(trim ? -24.0 : -60.0, trim ? 24.0 : 12.0, levelDrag->startDb + moved) * 10.0) / 10.0;
+    const GridRow& row = model.rows[static_cast<size_t>(levelDrag->row)];
+    if (std::abs(value - (trim ? row.inputTrimDb : row.outputVolumeDb)) < 0.05)
+      return;
+    if (trim && onRowTrim)
+      onRowTrim(levelDrag->row, value);
+    else if (!trim && onRowMix)
+      onRowMix(levelDrag->row, object({{"volumeDb", value}}));
+    return;
+  }
   if (draggingPoint) {
     dragPosition = event.position;
     repaint();
@@ -548,6 +694,10 @@ void GridView::mouseDrag(const juce::MouseEvent& event) {
 }
 
 void GridView::mouseUp(const juce::MouseEvent& event) {
+  if (levelDrag) {
+    levelDrag.reset();
+    return;
+  }
   if (draggingPoint) {
     const GridPoint p = *draggingPoint;
     draggingPoint.reset();
@@ -574,6 +724,8 @@ bool GridView::keyPressed(const juce::KeyPress& key) {
 }
 
 void GridView::cancelDrags() {
+  if (draggingTile && onTileDrag)
+    onTileDrag(false, false);
   draggingPoint.reset();
   draggingTile.reset();
   repaint();
@@ -624,6 +776,8 @@ void GridView::tileMouseDrag(int row, int slot, const juce::MouseEvent& event) {
     return;
   draggingTile = std::make_pair(row, slot);
   tileDragPosition = event.getEventRelativeTo(this).getPosition();
+  if (onTileDrag)
+    onTileDrag(true, !getLocalBounds().contains(tileDragPosition));
   repaint();
 }
 
@@ -633,10 +787,20 @@ void GridView::tileMouseUp(int, int, const juce::MouseEvent& event) {
   const auto from = *draggingTile;
   draggingTile.reset();
   repaint();
-  const auto target = slotAt(event.getEventRelativeTo(this).getPosition());
+  if (onTileDrag)
+    onTileDrag(false, false);
+  const GridSlot& moving = model.rows[static_cast<size_t>(from.first)].slots[static_cast<size_t>(from.second)];
+  const juce::Point<int> dropped = event.getEventRelativeTo(this).getPosition();
+  // Dropped off the grid (on the remove dock below it, or anywhere else):
+  // the block goes. Undo brings it back.
+  if (!getLocalBounds().contains(dropped)) {
+    if (onRemove)
+      onRemove(moving.blockId);
+    return;
+  }
+  const auto target = slotAt(dropped);
   if (!target || *target == from)
     return;
-  const GridSlot& moving = model.rows[static_cast<size_t>(from.first)].slots[static_cast<size_t>(from.second)];
   if (onMoveBlock)
     onMoveBlock(moving.blockId, target->first, target->second);
 }
@@ -1128,6 +1292,22 @@ GridPage::GridPage(EngineClient& client)
     rigChanged();
   };
   grid.onRowOutput = [this](int row, juce::Rectangle<int> at) { showRowOutputMenu(row, at); };
+  // Trim and volume go to the engine as they are dragged (the history keeps
+  // one step per gesture); the model is read again so the boxes follow.
+  grid.onRowTrim = [this](int row, double trimDb) {
+    engine.run("row.setInputStage", object({{"row", row}, {"trimDb", trimDb}}));
+    rigChanged();
+  };
+  grid.onRowMix = [this](int row, const juce::var& mix) {
+    juce::DynamicObject::Ptr args = new juce::DynamicObject();
+    args->setProperty("row", row);
+    if (const auto* fields = mix.getDynamicObject())
+      for (const auto& field : fields->getProperties())
+        args->setProperty(field.name, field.value);
+    engine.run("row.setMix", juce::var(args.get()));
+    rigChanged();
+  };
+  startTimerHz(20);
   library.onClose = [this] { library.setVisible(false); };
   library.onAdded = [this](const juce::String& blockId) {
     library.setVisible(false);
@@ -1167,6 +1347,13 @@ GridPage::GridPage(EngineClient& client)
     engine.run("chain.removeBlock", object({{"blockId", blockId}}));
     rigChanged();
   };
+  grid.onTileDrag = [this](bool dragging, bool offGrid) {
+    removeDock.setVisible(dragging);
+    removeDock.setArmed(offGrid);
+    if (dragging)
+      removeDock.toFront(false);
+  };
+  addChildComponent(removeDock);
   grid.onAddRow = [this] {
     ensureGrid();
     // The first row that does not run gets the next input and the first
@@ -1221,6 +1408,23 @@ void GridPage::runRouting(const char* command, const juce::var& args, const juce
   options.message = reply.errorMessage;
   options.cancelable = false;
   prompt.show(options, [](bool, const juce::String&) {});
+}
+
+void GridPage::timerCallback() {
+  if (!grid.isShowing())
+    return;
+  std::array<GridView::RowLevels, 4> levels;
+  if (const auto* rows = engine.read("meters.get")["rows"].getArray())
+    for (const auto& row : *rows) {
+      const int index = row["row"];
+      if (index < 0 || index >= 4)
+        continue;
+      for (int c = 0; c < 2; ++c) {
+        levels[static_cast<size_t>(index)].in[static_cast<size_t>(c)] = static_cast<float>(row["in"][c]);
+        levels[static_cast<size_t>(index)].out[static_cast<size_t>(c)] = static_cast<float>(row["out"][c]);
+      }
+    }
+  grid.setLevels(levels);
 }
 
 void GridPage::showRowInputMenu(int row, juce::Rectangle<int> at) {
@@ -1279,6 +1483,19 @@ void GridPage::showRowInputMenu(int row, juce::Rectangle<int> at) {
                            {"fold", summed ? "none" : "sum"}}),
                    "change the input");
       });
+  }
+  if (shownRow.source == "device") {
+    // The row's own share of the input stage.
+    menu.addSeparator();
+    const bool gate = static_cast<bool>(current["gate"]);
+    menu.addItem("Noise gate", true, gate, [this, row, gate] {
+      runRouting("row.setInputStage", object({{"row", row}, {"gate", !gate}}), "change the noise gate");
+    });
+    const double trim = current["trimDb"];
+    menu.addItem("Input trim " + signedDb(trim) + (std::abs(trim) > 0.05 ? ": reset to 0 dB" : " (drag the meter)"),
+                 std::abs(trim) > 0.05, false, [this, row] {
+                   runRouting("row.setInputStage", object({{"row", row}, {"trimDb", 0.0}}), "change the trim");
+                 });
   }
   menu.addSeparator();
   int running = 0;
@@ -1360,6 +1577,51 @@ void GridPage::removeRow(int row) {
     page.engine.run("row.setOutput", object({{"row", row}, {"target", "none"}}));
     page.engine.run("row.setInput", object({{"row", row}, {"source", "none"}}));
     page.rigChanged();
+  });
+}
+
+void RemoveDock::setArmed(bool shouldBeArmed) {
+  if (armed == shouldBeArmed)
+    return;
+  armed = shouldBeArmed;
+  repaint();
+}
+
+void RemoveDock::paint(juce::Graphics& g) {
+  g.fillAll(colour::ground.withAlpha(0.88f));
+  const auto dock = getLocalBounds().toFloat().reduced(24.0f, 20.0f);
+  g.setColour(armed ? colour::clip.withAlpha(0.18f) : colour::surface);
+  g.fillRoundedRectangle(dock, size::panelRadius);
+  paint::dashedOutline(g, dock, size::panelRadius, armed ? colour::clip : colour::line, armed ? 2.0f : 1.0f);
+  const juce::String text = armed ? "Release to remove the block" : "Drop here to remove";
+  g.setFont(type::button());
+  const float width = juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), text) + 30.0f;
+  auto line = dock.withSizeKeepingCentre(width, 24.0f);
+  icons::draw(g, icons::path(icons::Icon::trash), line.removeFromLeft(20.0f), armed ? colour::clip : colour::muted);
+  line.removeFromLeft(10.0f);
+  g.setColour(armed ? colour::clip : colour::muted);
+  g.drawText(text, line, juce::Justification::centredLeft, false);
+}
+
+void GridPage::newPreset(bool askFirst) {
+  const auto start = [self = juce::Component::SafePointer<GridPage>(this)] {
+    if (self == nullptr)
+      return;
+    self->closeEditor();
+    self->engine.run("chain.reset");
+    self->rigChanged();
+  };
+  if (!askFirst) {
+    start();
+    return;
+  }
+  Dialog::Options options;
+  options.title = "Start a new preset?";
+  options.message = "The changes to this preset are not saved. Undo brings them back.";
+  options.confirm = "New preset";
+  prompt.show(options, [start](bool confirmed, const juce::String&) {
+    if (confirmed)
+      start();
   });
 }
 
@@ -1505,6 +1767,7 @@ void GridPage::resized() {
   splitPanel.setBounds(area);
   scenePanel.setBounds(area);
   stompPanel.setBounds(area);
+  removeDock.setBounds(area);
   editor.setBounds(getLocalBounds());
   library.setBounds(getLocalBounds());
   prompt.setBounds(getLocalBounds());

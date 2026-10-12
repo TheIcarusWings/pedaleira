@@ -57,6 +57,13 @@ public:
   // Blocks outlined as selected besides the selected one (a stomp switch's).
   void setHighlighted(const juce::StringArray& blockIds) { highlighted = blockIds; }
 
+  // What entered each row and what it sent, [left, right] in dB (meters.get).
+  struct RowLevels {
+    std::array<float, 2> in{-60.0f, -60.0f};
+    std::array<float, 2> out{-60.0f, -60.0f};
+  };
+  void setLevels(const std::array<RowLevels, 4>& levels);
+
   std::function<void(const juce::String& blockId)> onSelectBlock;
   std::function<void(int row, int slot)> onEmptySlot;
   std::function<void(GridPoint)> onSelectPoint;
@@ -69,6 +76,9 @@ public:
   std::function<void(int row, int slot)> onInsertHere;
   std::function<void(const juce::String& blockId)> onDuplicate;
   std::function<void(const juce::String& blockId)> onRemove;
+  // A block is being dragged (or the drag ended), and whether it is off the
+  // grid, where a drop removes it.
+  std::function<void(bool dragging, bool offGrid)> onTileDrag;
   std::function<void()> onAddRow;
   // A row's input box or output name clicked: the page offers the choices,
   // shown at `at` (in this view's coordinates).
@@ -76,6 +86,11 @@ public:
   std::function<void(int row, juce::Rectangle<int> at)> onRowOutput;
   // A tile's power switch: the block on or off (in the active scene).
   std::function<void(const juce::String& blockId, bool enabled)> onToggleBlock;
+  // A row's input trim dragged on its meter, and its send changed in the
+  // output box (volume dragged on the fader, mute or solo clicked): the
+  // fields of row.setInputStage and row.setMix.
+  std::function<void(int row, double trimDb)> onRowTrim;
+  std::function<void(int row, const juce::var& mix)> onRowMix;
   // A tile double-clicked: open its editor.
   std::function<void(const juce::String& blockId)> onOpenBlock;
 
@@ -122,6 +137,18 @@ private:
   // The row whose input box, or output name line, is under a position.
   std::optional<int> rowInputAt(juce::Point<int> position, juce::Rectangle<int>* box) const;
   std::optional<int> rowOutputAt(juce::Point<int> position, juce::Rectangle<int>* box) const;
+  // The parts of a row's boxes, by visible index: the input meter (drag for
+  // trim), the output meter, the volume fader and the mute (0) and solo (1)
+  // buttons.
+  juce::Rectangle<float> inputMeterArea(int visibleIndex) const;
+  juce::Rectangle<float> outputMeterArea(int visibleIndex) const;
+  juce::Rectangle<float> faderArea(int visibleIndex) const;
+  juce::Rectangle<float> muteSoloBox(int visibleIndex, int which) const;
+  // The level controls under a position: a row and what was hit.
+  enum class LevelPart { none, trim, volume, mute, solo };
+  std::pair<int, LevelPart> levelPartAt(juce::Point<float> position) const;
+  void paintMeterPair(juce::Graphics& g, juce::Rectangle<float> area, const std::array<float, 2>& db,
+                      const std::array<float, 2>& hold, bool clipped) const;
   void tileMouseDown(int row, int slot, const juce::MouseEvent& event);
   void tileMouseDrag(int row, int slot, const juce::MouseEvent& event);
   void tileMouseUp(int row, int slot, const juce::MouseEvent& event);
@@ -129,6 +156,17 @@ private:
 
   GridModel model;
   std::vector<int> shown;
+  std::array<RowLevels, 4> levels, holds;
+  // Until when each row's input (0) and output (1) shows a clip.
+  std::array<std::array<juce::uint32, 2>, 4> clipUntil{};
+  // A trim or volume drag: the row, which, the value and x it started at.
+  struct LevelDrag {
+    int row = 0;
+    LevelPart part = LevelPart::none;
+    double startDb = 0.0;
+    float startX = 0.0f;
+  };
+  std::optional<LevelDrag> levelDrag;
   std::optional<GridPoint> selectedPoint;
   juce::StringArray highlighted;
   std::array<std::array<std::unique_ptr<Tile>, 8>, 4> tiles;
@@ -215,12 +253,27 @@ private:
   std::array<juce::Rectangle<int>, 3> groups;
 };
 
-class GridPage : public juce::Component {
+// Shown under the grid while a block is dragged: dropping it there (or
+// anywhere off the grid) removes it.
+class RemoveDock : public juce::Component {
+public:
+  RemoveDock() { setInterceptsMouseClicks(false, false); }
+  void setArmed(bool shouldBeArmed);
+  void paint(juce::Graphics& g) override;
+
+private:
+  bool armed = false;
+};
+
+class GridPage : public juce::Component, private juce::Timer {
 public:
   explicit GridPage(EngineClient& engine);
 
   // The rig changed: read it again.
   void rigChanged();
+  // Starts an empty preset (chain.reset), asking first when the current one
+  // has unsaved changes.
+  void newPreset(bool askFirst);
   void selectBlock(const juce::String& blockId);
   void selectPoint(GridPoint point);
   // The block library over the page, adding to that slot.
@@ -288,11 +341,14 @@ private:
   juce::String seenMode;
   BlockEditorPage editor;
   BlockPicker library;
+  RemoveDock removeDock;
   Dialog prompt;
   bool editorShown = false;
 
   // Runs a routing command; a refusal is shown with the engine's reason.
   void runRouting(const char* command, const juce::var& args, const juce::String& what);
+  // The row meters, read about twenty times a second while the grid shows.
+  void timerCallback() override;
 };
 
 }  // namespace pedaleira::ui

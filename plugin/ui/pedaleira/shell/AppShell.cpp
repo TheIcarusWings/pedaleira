@@ -106,11 +106,72 @@ void NavRail::setPage(Page newPage) {
   }
 }
 
+void NavRail::setMasterLevels(const std::array<float, 2>& input, const std::array<float, 2>& output) {
+  const juce::uint32 time = juce::Time::getMillisecondCounter();
+  const std::array<std::array<float, 2>, 2> now{input, output};
+  for (size_t m = 0; m < 2; ++m)
+    for (size_t c = 0; c < 2; ++c) {
+      // The peak holds fall about 12 dB a second at ten readings a second.
+      masterHold[m][c] = juce::jmax(now[m][c], masterHold[m][c] - 1.2f);
+      if (now[m][c] >= -0.5f)
+        masterClipUntil[m] = time + 2000;
+    }
+  if (now == master)
+    return;
+  master = now;
+  repaint(meterArea().expanded(4));
+}
+
+juce::Rectangle<int> NavRail::meterArea() const {
+  // Under the last page button, down to the foot of the rail.
+  return {(getWidth() - 48) / 2, juce::jmax(70 + 6 * 60 + 16, getHeight() - 236), 48, 220};
+}
+
 void NavRail::paint(juce::Graphics& g) {
   g.fillAll(colour::surface);
   g.setColour(colour::line);
   g.fillRect(getWidth() - 1, 0, 1, getHeight());
   paintMark(g, juce::Rectangle<float>(36.0f, 36.0f).withCentre({getWidth() * 0.5f, 32.0f}));
+
+  // The master meters: IN (the device input) and OUT (the main output), a
+  // bar per channel from -60 dB at the foot to 0 dB at the top, green into
+  // amber at -12 dB and red at -3 dB, a peak tick, and a red cap that stays
+  // lit for two seconds after a level reaches full scale.
+  const auto area = meterArea().toFloat();
+  const juce::uint32 time = juce::Time::getMillisecondCounter();
+  const auto bars = area.withTrimmedTop(10.0f).withTrimmedBottom(18.0f);
+  const auto yOf = [&bars](float db) {
+    return bars.getBottom() - bars.getHeight() * juce::jlimit(0.0f, 1.0f, (db + 60.0f) / 60.0f);
+  };
+  for (size_t m = 0; m < 2; ++m) {
+    const float x = area.getX() + 4.0f + m * 26.0f;
+    for (size_t c = 0; c < 2; ++c) {
+      const auto bar = juce::Rectangle<float>(x + c * 7.0f, bars.getY(), 5.0f, bars.getHeight());
+      g.setColour(colour::raised);
+      g.fillRoundedRectangle(bar, 2.0f);
+      {
+        juce::Graphics::ScopedSaveState state(g);
+        g.reduceClipRegion(bar.withTop(yOf(master[m][c])).toNearestInt());
+        g.setColour(colour::ok);
+        g.fillRect(bar.withTop(yOf(-12.0f)));
+        g.setColour(colour::warn);
+        g.fillRect(bar.withTop(yOf(-3.0f)).withBottom(yOf(-12.0f)));
+        g.setColour(colour::clip);
+        g.fillRect(bar.withBottom(yOf(-3.0f)));
+      }
+      if (masterHold[m][c] > -60.0f) {
+        g.setColour(colour::text);
+        g.fillRect(bar.withHeight(2.0f).withY(yOf(masterHold[m][c]) - 1.0f));
+      }
+    }
+    const auto cap = juce::Rectangle<float>(x, area.getY(), 12.0f, 5.0f);
+    g.setColour(time < masterClipUntil[m] ? colour::clip : colour::raised);
+    g.fillRoundedRectangle(cap, 2.0f);
+    g.setFont(type::mono(10.0f));
+    g.setColour(colour::muted);
+    g.drawText(m == 0 ? "IN" : "OUT", juce::Rectangle<float>(x - 6.0f, bars.getBottom() + 4.0f, 24.0f, 14.0f),
+               juce::Justification::centred, false);
+  }
 }
 
 void NavRail::resized() {
@@ -146,7 +207,12 @@ Header::Header(EngineClient& client) : engine(client) {
   };
   tuner.onClick = [this] { if (onTuner) onTuner(); };
   gigView.onClick = [this] { if (onGigView) onGigView(); };
-  for (juce::Component* c : std::initializer_list<juce::Component*>{&save, &mode, &tempo, &tuner, &gigView})
+  newPreset.setTitle("New preset");
+  newPreset.onClick = [this] {
+    if (onNewPreset)
+      onNewPreset(unsaved);
+  };
+  for (juce::Component* c : std::initializer_list<juce::Component*>{&save, &newPreset, &mode, &tempo, &tuner, &gigView})
     addAndMakeVisible(c);
 }
 
@@ -195,7 +261,10 @@ void Header::refresh() {
 }
 
 void Header::refreshMeters() {
-  const double load = engine.read("meters.get")["cpu"];
+  const juce::var meters = engine.read("meters.get");
+  if (onMeters)
+    onMeters(meters);
+  const double load = meters["cpu"];
   if (std::abs(load - cpu) < 0.005)
     return;
   cpu = load;
@@ -261,6 +330,7 @@ void Header::resized() {
     unsavedArea = {};
   }
   save.setBounds(x, middle - 16, save.idealWidth(), 32);
+  newPreset.setBounds(save.getRight() + 8, middle - 16, newPreset.idealWidth(), 32);
 }
 
 // ####################
@@ -271,6 +341,12 @@ AppShell::AppShell(EngineClient& client) : engine(client), top(client) {
   addAndMakeVisible(nav);
   addAndMakeVisible(top);
   nav.onSelect = [this](Page selected) { showPage(selected); };
+  top.onMeters = [this](const juce::var& meters) {
+    const auto pairOf = [](const juce::var& pair) {
+      return std::array<float, 2>{static_cast<float>(pair[0]), static_cast<float>(pair[1])};
+    };
+    nav.setMasterLevels(pairOf(meters["input"]), pairOf(meters["output"]));
+  };
   top.onGigView = [this] { showGigView(true); };
   top.onTuner = [this] {
     showPage(Page::live);
@@ -372,13 +448,13 @@ void AppShell::resized() {
 
 void AppShell::timerCallback() {
   // The header follows the rig: a new revision means something changed
-  // (an edit, a preset, a mode); the CPU figure is read twice a second.
+  // (an edit, a preset, a mode); the meters are read every tick.
   if (const juce::uint32 revision = engine.revision(); revision != seenRevision) {
     seenRevision = revision;
     top.refresh();
     if (onRigChanged)
       onRigChanged();
-  } else if (++ticks % 5 == 0) {
+  } else {
     top.refreshMeters();
   }
 }

@@ -181,8 +181,9 @@ void LevelMeter::setLevel(float db, float peakHoldDb) {
   repaint();
 }
 
-void LevelMeter::paint(juce::Graphics& g) {
-  const auto area = getLocalBounds().toFloat();
+void LevelMeter::paint(juce::Graphics& g) { paintBar(g, getLocalBounds().toFloat(), level, hold); }
+
+void LevelMeter::paintBar(juce::Graphics& g, juce::Rectangle<float> area, float level, float hold) {
   const float radius = juce::jmin(4.0f, area.getHeight() * 0.5f);
   g.setColour(colour::raised);
   g.fillRoundedRectangle(area, radius);

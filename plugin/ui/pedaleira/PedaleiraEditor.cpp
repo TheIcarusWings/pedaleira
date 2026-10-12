@@ -60,6 +60,10 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   // The tempo set on the Live page shows in the header at once.
   live->onTempoChanged = [this] { shell->header().refresh(); };
   shell->onTunerRequested = [this] { live->showTab(LivePage::Tab::tuner); };
+  shell->header().onNewPreset = [this](bool unsaved) {
+    shell->showPage(Page::grid);
+    grid->newPreset(unsaved);
+  };
   shell->onRigChanged = [this] {
     grid->rigChanged();
     if (shell->currentPage() == Page::live)
@@ -119,6 +123,7 @@ PedaleiraEditor::~PedaleiraEditor() {
   shell->onRigChanged = nullptr;
   shell->onPageShown = nullptr;
   shell->onTunerRequested = nullptr;
+  shell->header().onNewPreset = nullptr;
   live->onTempoChanged = nullptr;
   gig->onExit = nullptr;
   library->onChanged = nullptr;

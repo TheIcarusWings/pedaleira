@@ -40,6 +40,8 @@ struct GridRow {
   juce::String sink;
   juce::String inputName;
   juce::String outputName;
+  // The row's own input level on top of the rig's (row.setInputStage).
+  double inputTrimDb = 0.0;
   double outputVolumeDb = 0.0;
   bool outputMute = false;
   bool outputSolo = false;

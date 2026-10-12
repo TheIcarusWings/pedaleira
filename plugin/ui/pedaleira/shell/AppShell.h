@@ -25,6 +25,9 @@ public:
 
   void setPage(Page page);
   std::function<void(Page)> onSelect;
+  // The master meters at the foot of the rail: the device input and the
+  // main output, [left, right] in dB (meters.get).
+  void setMasterLevels(const std::array<float, 2>& input, const std::array<float, 2>& output);
 
   void paint(juce::Graphics& g) override;
   void resized() override;
@@ -33,6 +36,11 @@ private:
   struct Item;
   std::array<std::unique_ptr<Item>, 6> items;
   Page page = Page::grid;
+  // Levels, peak holds and until when each shows a clip: input 0, output 1.
+  std::array<std::array<float, 2>, 2> master{{{-60.0f, -60.0f}, {-60.0f, -60.0f}}};
+  std::array<std::array<float, 2>, 2> masterHold{{{-60.0f, -60.0f}, {-60.0f, -60.0f}}};
+  std::array<juce::uint32, 2> masterClipUntil{};
+  juce::Rectangle<int> meterArea() const;
 };
 
 class Header : public juce::Component {
@@ -41,13 +49,18 @@ public:
 
   // Reads the library, the footswitch state and the meters again.
   void refresh();
-  // Reads only the CPU figure (cheap; called more often).
+  // Reads only the meters: the CPU figure, and the master levels for the
+  // rail (cheap; called more often).
   void refreshMeters();
   // The capture wizard shows Save as a secondary button.
   void setSaveIsPrimary(bool primary);
 
   std::function<void()> onTuner;
   std::function<void()> onGigView;
+  std::function<void(const juce::var& meters)> onMeters;
+  // New: start an empty preset; the flag says whether there are unsaved
+  // changes to ask about first.
+  std::function<void(bool unsaved)> onNewPreset;
 
   void paint(juce::Graphics& g) override;
   void resized() override;
@@ -61,6 +74,7 @@ private:
   double cpu = 0.0;
 
   PushButton save{"Save", PushButton::Kind::primary};
+  PushButton newPreset{"New"};
   SegmentedControl mode{{"Preset", "Scene", "Stomp", "Hybrid"}};
   PushButton tempo{"120.0 BPM"};
   PushButton tuner{"Tuner"};
@@ -117,7 +131,6 @@ private:
   juce::Component* modesView = nullptr;
   Page page = Page::grid;
   juce::uint32 seenRevision = 0;
-  int ticks = 0;
 };
 
 }  // namespace pedaleira::ui

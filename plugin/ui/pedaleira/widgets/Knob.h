@@ -62,6 +62,9 @@ class LevelMeter : public juce::Component {
 public:
   void setLevel(float db, float peakHoldDb = -100.0f);
   void paint(juce::Graphics& g) override;
+  // The same bar drawn into any area, for views that meter without a
+  // component per meter.
+  static void paintBar(juce::Graphics& g, juce::Rectangle<float> area, float db, float peakHoldDb);
 
 private:
   float level = -100.0f;

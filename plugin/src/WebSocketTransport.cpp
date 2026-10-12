@@ -205,9 +205,11 @@ public:
     return writeFrame(0x1, message);
   }
 
+  // Called from any thread (see shutDownSocket); the socket itself is
+  // closed as the connection goes.
   void close() override {
     closing.store(true);
-    socket->close();
+    shutDownSocket(*socket);
   }
 
 private:
@@ -563,7 +565,12 @@ public:
       juce::StreamingSocket wake;
       wake.connect("127.0.0.1", bound, 500);
     }
+    shutDownSocket(listener);
+  }
+
+  void releaseListener() override {
     listener.close();
+    bound = 0;
   }
 
   juce::String name() const override { return "websocket"; }

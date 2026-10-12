@@ -15,8 +15,10 @@
 
 #if JUCE_WINDOWS
 #include <process.h>
+#include <winsock2.h>
 #else
 #include <fcntl.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -101,6 +103,21 @@ std::string errorLine(const juce::var& id, const char* code, const juce::String&
 // ####################
 // TCP, ONE JSON OBJECT PER LINE
 // ####################
+}  // namespace
+
+void shutDownSocket(juce::StreamingSocket& socket) {
+  const int handle = socket.getRawSocketHandle();
+  if (handle < 0)
+    return;
+#if JUCE_WINDOWS
+  ::shutdown(static_cast<SOCKET>(handle), SD_BOTH);
+#else
+  ::shutdown(handle, SHUT_RDWR);
+#endif
+}
+
+namespace {
+
 class TcpLineConnection final : public CommandTransport::Connection {
 public:
   explicit TcpLineConnection(std::unique_ptr<juce::StreamingSocket> s) : socket(std::move(s)) {}
@@ -163,9 +180,11 @@ public:
     return true;
   }
 
+  // Called from any thread (see shutDownSocket); the socket itself is
+  // closed as the connection goes.
   void close() override {
     closing.store(true);
-    socket->close();
+    shutDownSocket(*socket);
   }
 
 private:
@@ -209,7 +228,12 @@ public:
       juce::StreamingSocket wake;
       wake.connect("127.0.0.1", bound, 500);
     }
+    shutDownSocket(listener);
+  }
+
+  void releaseListener() override {
     listener.close();
+    bound = 0;
   }
 
   juce::String name() const override { return "tcp-ndjson"; }
@@ -397,6 +421,7 @@ juce::String CommandServer::start(int port) {
   boundPort.store(transport->boundPort());
   if (!writeConnectionFile()) {
     transport->stopListening();
+    transport->releaseListener();
     boundPort.store(0);
     return "could not write the connection file " + connectionFile().getFullPathName();
   }
@@ -412,6 +437,7 @@ void CommandServer::stop() {
   transport->stopListening();
   if (acceptThread.joinable())
     acceptThread.join();
+  transport->releaseListener();
   reapFinishedClients(/*all=*/true);
   boundPort.store(0);
   removeConnectionFile();

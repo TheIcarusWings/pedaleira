@@ -379,6 +379,14 @@ class MappingTest(unittest.TestCase):
 
 
 class CommandTest(unittest.TestCase):
+    def test_ours_is_rendered_with_as_many_channels_as_are_recorded(self):
+        stereo = qm.options_from(qm.parse_args(["--plan", "p.json"]))
+        self.assertEqual(stereo.out_channels, 2)
+        mono = qm.options_from(qm.parse_args(["--plan", "p.json", "--in-ch", "3"]))
+        self.assertEqual(mono.out_channels, 1)
+        given = qm.options_from(qm.parse_args(["--plan", "p.json", "--render-out-channels", "1"]))
+        self.assertEqual(given.out_channels, 1)
+
     def test_record(self):
         self.assertEqual(
             qm.record_cmd("PM", "Quad Cortex", "5,6", "3,4", "delay-250", "/s/ref"),

@@ -1690,7 +1690,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ports.add_argument("--buffer", type=int, help="passed to PedaleiraMatch record --buffer")
     parser.add_argument("--settle", type=float, default=DEFAULT_SETTLE_S, help=f"seconds to wait after the grid edits (default {DEFAULT_SETTLE_S})")
     parser.add_argument("--tail", type=float, default=DEFAULT_TAIL_S, help=f"seconds PedaleiraRender renders past the signal (default {DEFAULT_TAIL_S:g})")
-    parser.add_argument("--render-out-channels", type=int, dest="out_channels", help="PedaleiraRender --out-channels (default: the input's)")
+    parser.add_argument("--render-out-channels", type=int, dest="out_channels", help="PedaleiraRender --out-channels (default: as many as --in-ch records)")
     parser.add_argument("--match-tool", default=str(default_tool("PedaleiraMatch")), help="path of PedaleiraMatch")
     parser.add_argument("--render-tool", default=str(default_tool("PedaleiraRender")), help="path of PedaleiraRender")
     parser.add_argument("--yes", action="store_true", help="do not ask before recalling the scratch preset")
@@ -1719,7 +1719,9 @@ def options_from(args: argparse.Namespace) -> Options:
         buffer=args.buffer,
         settle=args.settle,
         tail=args.tail,
-        out_channels=args.out_channels,
+        # Ours is rendered with as many channels as are recorded, so the
+        # comparison sees stereo on both sides (or mono on both).
+        out_channels=args.out_channels or len([c for c in args.in_ch.split(",") if c.strip()]),
         match_tool=args.match_tool,
         render_tool=args.render_tool,
         yes=args.yes,

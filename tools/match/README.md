@@ -132,9 +132,13 @@ has no mapping and is therefore set on the unit only. The delay time, for instan
 which is why the example gives `timeMs` itself. Keep the mix at 100% wet on the unit (and ours is then
 1.0) for the cleanest delay and decay figures; say so in the take name.
 
-The recording is stereo when `--in-ch` names two channels and ours is rendered with the input's
-channel count; if the comparison complains about channels, record one channel (`--in-ch 3`) or use
-`--render-out-channels 2`.
+The recording is stereo when `--in-ch` names two channels, and ours is rendered with as many
+channels as are recorded, so both sides are compared alike. `--render-out-channels` overrides it.
+
+A bypass take on a real unit (CorOS d14e, over USB) matches our empty chain except for one thing:
+our output's DC blocker (a 5 Hz high-pass) leaves a short tail after the burst (T60 about 0.22 s,
+over in 180 ms) and moves the lowest sweep bands by a quarter of a dB. Expect those two burst rows
+to fail on every take until that is decided.
 
 ## The report
 

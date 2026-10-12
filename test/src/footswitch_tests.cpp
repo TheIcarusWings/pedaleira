@@ -486,18 +486,24 @@ TEST(TapTempoTest, TheCommandAndTheTempoSwitchSetTheRigsTempo) {
   EXPECT_NEAR(static_cast<double>(rig.must("tempo.get")["bpm"]), 150.0, 1e-6);
   EXPECT_NEAR(static_cast<double>(rig.footswitches()["bpm"]), 150.0, 1e-6);
 
-  // The tempo switch, on the wall clock: three presses 300 ms apart are
-  // 200 BPM, give or take the sleeps.
+  // The tempo switch, on the wall clock: three presses about 300 ms apart.
+  // A busy machine can oversleep, so the tempo is checked against the gaps
+  // the presses really had, not against the 300 ms asked for.
   SceneRig second;
+  double firstPress = 0.0, lastPress = 0.0;
   for (int i = 0; i < 3; ++i) {
     if (i > 0)
       juce::Thread::sleep(300);
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (i == 0)
+      firstPress = now;
+    lastPress = now;
     second.press("tempo");
     second.release("tempo");
   }
+  const double expected = 60000.0 / ((lastPress - firstPress) / 2.0);
   const double tapped = static_cast<double>(second.must("tempo.get")["bpm"]);
-  EXPECT_GT(tapped, 160.0);
-  EXPECT_LT(tapped, 215.0);
+  EXPECT_NEAR(tapped, expected, expected * 0.05);
 }
 
 TEST(FootswitchMidiTest, TheFixedControlsWorkThroughProcessBlock) {
@@ -555,17 +561,23 @@ TEST(FootswitchMidiTest, TheFixedControlsWorkThroughProcessBlock) {
   EXPECT_FALSE(rig.proc.isTunerEnabled());
 
   // CC 44: tap tempo. A footswitch sends 127 down and 0 up; only the press
-  // is a tap. Three taps 300 ms apart.
+  // is a tap. Three taps about 300 ms apart, checked against the gaps they
+  // really had: a busy machine can oversleep.
+  double firstTap = 0.0, lastTap = 0.0;
   for (int i = 0; i < 3; ++i) {
     if (i > 0)
       juce::Thread::sleep(300);
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    if (i == 0)
+      firstTap = now;
+    lastTap = now;
     sendCc(rig, 44, 127);
     sendCc(rig, 44, 0);
   }
   pumpMessages();
+  const double expectedBpm = 60000.0 / ((lastTap - firstTap) / 2.0);
   const double tapped = static_cast<double>(rig.must("tempo.get")["bpm"]);
-  EXPECT_GT(tapped, 160.0);
-  EXPECT_LT(tapped, 215.0);
+  EXPECT_NEAR(tapped, expectedBpm, expectedBpm * 0.05);
 
   // Reserved numbers do nothing: gig view and the looper's range.
   const juce::String before = juce::JSON::toString(rig.footswitches());

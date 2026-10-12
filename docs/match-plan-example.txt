@@ -1,0 +1,24 @@
+# An example plan for 'PedaleiraMatch session' (docs/matching.md).
+#
+# One take per line: <file stem> | <instruction shown to the player>
+# The stem becomes <dir>/<stem>.wav. Lines starting with # and blank lines are ignored.
+# Keep every setting that is not named in the instruction where it was in the take before,
+# and keep the amp, cab, gate and every other block off or bypassed.
+# End a stem with -usb for a take recorded over USB (digital), so that it is never
+# compared by mistake with a take that went through the interface converters.
+
+# The unit's own path, the first thing to compare against when something looks off.
+bypass | All blocks bypassed, input and output levels at unity
+
+# A delay at three times, feedback 35%, mix 100% wet.
+delay-analog-250ms-fb35-wet | Delay (analog): time 250 ms, feedback 35%, mix 100%
+delay-analog-500ms-fb35-wet | Delay (analog): time 500 ms, feedback 35%, mix 100%
+delay-analog-750ms-fb35-wet | Delay (analog): time 750 ms, feedback 35%, mix 100%
+
+# A compressor at two ratios, threshold -30 dB.
+comp-ratio4-thr-30 | Compressor: ratio 4:1, threshold -30 dB, attack and release at their defaults, makeup 0 dB
+comp-ratio10-thr-30 | Compressor: ratio 10:1, threshold -30 dB, attack and release at their defaults, makeup 0 dB
+
+# A reverb at two decay times, mix 100% wet.
+reverb-hall-decay2-wet | Reverb (hall): decay 2 s, mix 100%
+reverb-hall-decay3-wet | Reverb (hall): decay 3 s, mix 100%

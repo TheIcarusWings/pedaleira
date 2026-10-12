@@ -29,21 +29,17 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   shell->setPageComponent(Page::grid, grid.get());
   library = std::make_unique<LibraryPage>(*client);
   importer = std::make_unique<ImportPage>(*client);
+  capturePage = std::make_unique<CapturePage>(*client);
   shell->setPageComponent(Page::library, library.get());
+  shell->setPageComponent(Page::capture, capturePage.get());
   shell->setPageComponent(Page::import, importer.get());
 #if PEDALEIRA_STANDALONE_DEVICE
   device = StandaloneDevice::create(processor);
 #endif
   settingsPage = std::make_unique<SettingsPage>(*client, device.get());
   shell->setPageComponent(Page::settings, settingsPage.get());
-  const std::pair<Page, const char*> pending[] = {
-      {Page::capture, "Capture"},
-      {Page::live, "Live"},
-  };
-  for (const auto& [page, name] : pending) {
-    comingSoon.push_back(std::make_unique<ComingSoon>(name, "This page comes in a later build."));
-    shell->setPageComponent(page, comingSoon.back().get());
-  }
+  live = std::make_unique<LivePage>(*client);
+  shell->setPageComponent(Page::live, live.get());
   modes = std::make_unique<FootswitchModesPage>(*client);
   gig = std::make_unique<GigView>(*client);
   shell->setModesView(modes.get());
@@ -54,9 +50,18 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
     modes->grabKeyboardFocus();
   };
   modes->onBack = [this] { shell->showModesView(false); };
-  gig->onExit = [this] { shell->showGigView(false); };
+  gig->onExit = [this] {
+    shell->showGigView(false);
+    // Closing the Gig View stopped the tuner; the Live page may still want it.
+    live->resumeListening();
+  };
+  // The tempo set on the Live page shows in the header at once.
+  live->onTempoChanged = [this] { shell->header().refresh(); };
+  shell->onTunerRequested = [this] { live->showTab(LivePage::Tab::tuner); };
   shell->onRigChanged = [this] {
     grid->rigChanged();
+    if (shell->currentPage() == Page::live)
+      live->rigChanged();
     if (shell->isModesViewShown())
       modes->refresh();
     if (shell->currentPage() == Page::library)
@@ -67,6 +72,8 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   shell->onPageShown = [this](Page page) {
     if (page == Page::library)
       library->refresh();
+    else if (page == Page::capture)
+      capturePage->refresh();
     else if (page == Page::import)
       importer->refresh();
     else if (page == Page::settings)
@@ -78,6 +85,11 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
     grid->rigChanged();
   };
   importer->onChanged = [this] {
+    shell->header().refresh();
+    grid->rigChanged();
+  };
+  // A capture was added to the rig or saved to the library.
+  capturePage->onChanged = [this] {
     shell->header().refresh();
     grid->rigChanged();
   };
@@ -104,8 +116,12 @@ PedaleiraEditor::~PedaleiraEditor() {
   // The pages go before the shell that shows them.
   shell->onRigChanged = nullptr;
   shell->onPageShown = nullptr;
+  shell->onTunerRequested = nullptr;
+  live->onTempoChanged = nullptr;
+  gig->onExit = nullptr;
   library->onChanged = nullptr;
   importer->onChanged = nullptr;
+  capturePage->onChanged = nullptr;
   importer->onOpenGrid = nullptr;
   importer->onPickCapture = nullptr;
   grid->onOpenPluginWindow = nullptr;
@@ -115,7 +131,10 @@ PedaleiraEditor::~PedaleiraEditor() {
   removeAllChildren();
   gig.reset();
   modes.reset();
+  capturePage.reset();
   importer.reset();
+  // The tuner stops listening as the Live page goes.
+  live.reset();
   // The page lets go of the device before the device goes.
   settingsPage.reset();
   device.reset();

@@ -70,6 +70,90 @@ quieter or louder shows up as a flat level offset (`level gain at 1 kHz`); the r
 is normalised to 1 kHz and does not care. Do not let the interface input clip at the
 staircase's 0 dBFS steps.
 
+### Recording without a DAW
+
+`PedaleiraMatch` plays the test signal and records the answer itself, so no DAW and no player
+are needed. It works at 48 kHz only and refuses any other rate (set the interface or the unit
+to 48 kHz first). It generates the version 1 signal in memory, exactly as `signals` does.
+
+**Devices.** `PedaleiraMatch devices` lists the audio device types of the machine, the devices
+of each, their input and output channel names (numbered from 1, the numbers the other commands
+take) and the sample rates they offer. It says `no audio devices found` when there is none.
+
+```
+PedaleiraMatch devices
+```
+
+**One take.** `record` plays the signal on the `--out-ch` channels (the same mono signal on each
+channel listed) and records the `--in-ch` channels for the whole signal plus 2 seconds, into
+`<dir>/<name>.wav` (48 kHz, 32-bit float; mono for one input channel, stereo for two).
+`--device` is the device name or a part of it, `--type` picks the device type when the same
+device shows up under several (CoreAudio, ASIO, WASAPI, ALSA), `--dir` defaults to `match/ref`
+and `--buffer` is the buffer size in samples (default 256; raise it if the take reports buffer
+under or overruns).
+
+```
+PedaleiraMatch record --device "Volt 876" --out-ch 1 --in-ch 1 --name bypass
+```
+
+Then it checks the take with the analysis and prints the result: both sync markers found, no
+sample at or above -0.1 dBFS (no clipping), the latency, and a plausible level (not silent, the
+1 kHz level within -30 and +20 dB of what was played). It exits 0 when everything passes and 3
+when a check fails, so a script can retry:
+
+```sh
+until PedaleiraMatch record --device "Volt 876" --out-ch 1 --in-ch 1 --name bypass; do sleep 2; done
+```
+
+**A session.** `session` records every take of a plan file, one line per take:
+`<file stem> | <instruction for the player>` (lines starting with `#` are comments;
+`docs/match-plan-example.txt` has a bypass take, a delay at three times, a compressor at two
+ratios and a reverb at two decay times). For each take it prints `Set the unit to: ...` and
+waits. Enter records, `s` skips the take, `r` goes back and redoes the previous one, `q` quits.
+After a take it prints the same check as `record`; when the check fails it asks whether to
+redo the take (a declined take is kept as `<stem>.rejected.wav`, so that the next run records
+it again). Takes whose file already exists are skipped, so an interrupted session can be
+resumed; `--overwrite` records them again. The summary at the end lists every take, and the
+exit code is 3 if a take failed.
+
+```
+PedaleiraMatch session --plan match/plan.txt --device "Volt 876" --out-ch 1 --in-ch 1 --dir match/ref
+```
+
+On macOS the terminal needs microphone permission (System Settings, Privacy and Security,
+Microphone), as with any program that records. On Windows the device types are WASAPI and
+DirectSound; use the interface's own driver panel for the sample rate.
+
+**Focusrite Volt 876.** Wire it as in the routing above (line out to the unit's input, the
+unit's output to a line in), set the sample rate to 48 kHz in the Volt's control panel, and run
+`devices` to see the channel numbers. With the unit on output 1 and input 1:
+
+```
+PedaleiraMatch session --plan match/plan.txt --device "Volt 876" --out-ch 1 --in-ch 1
+```
+
+Use `--in-ch 1,2` for a stereo take. Keep the unit's input and output levels as calibrated.
+
+**Quad Cortex over USB.** The Quad Cortex shows up as a USB audio interface with many channels,
+so no analog cable or second interface is needed and the clocks are the same. USB playback
+channels feed the unit's grid input and the grid output goes to USB record channels. Which
+channels those are depends on the unit's USB settings: look in its I/O settings (the USB
+audio routing) and note which USB playback channel is routed to the grid input and which USB
+record channels carry the grid output. Run `devices` to find the unit by name and the channel
+numbers, and set it to 48 kHz. For example, with USB playback 1 feeding the input and the
+output on USB record 1 and 2:
+
+```
+PedaleiraMatch devices
+PedaleiraMatch session --plan match/plan-usb.txt --device "Quad Cortex" --out-ch 1 --in-ch 1,2
+```
+
+(`--in-ch 1,2` gives a stereo take; use one channel for a mono take.) A take recorded over USB
+never went through analog converters, so it is not comparable to a take from the Volt: end
+the stem of every USB take with `-usb` (`bypass-usb`, `delay-analog-250ms-fb35-usb`) and
+compare USB takes with USB takes only. For a USB session, copy the example plan and add `-usb`
+to every stem in the copy (`plan-usb.txt`).
+
 ### What to record
 
 One recording per effect setting. A setting is one position of the effect's controls; the
@@ -287,3 +371,102 @@ passed, 0 to 100. The markdown starts with the failures, then lists every metric
   slightly longer or shorter than the filter that decodes it (at 100 ppm the top of the sweep
   arrives 0.8 ms late against the bottom, a change of phase and not of level). Interfaces are
   well within 50 ppm; if `driftPpm` is far beyond that, fix the clocking and record again.
+
+## Automatic sessions with a Quad Cortex over USB
+
+`tools/match/qc_match.py` does the recording session of this page by itself for your own Quad
+Cortex (QC): for each planned setting it sets up the unit over USB, records its output with
+`PedaleiraMatch record`, renders our equivalent with `PedaleiraRender`, runs `analyse` and
+`compare`, and writes a report. It uses pyquadcortex (MIT), which speaks the protocol the unit
+already speaks to Cortex Control. The details, every option and the tests are in
+`tools/match/README.md`.
+
+### Setup
+
+- `pip install pyquadcortex` and the hidapi library (macOS `brew install hidapi`, Debian and
+  Ubuntu `sudo apt install libhidapi-hidraw0`, Windows: included). Python 3.11 or newer.
+- **Quit Cortex Control**: it holds the USB interface exclusively, and the script refuses to run
+  when it cannot open the unit.
+- 48 kHz, in the operating system's audio settings for the unit and in the recorder.
+- USB routing: the script puts the effect on one free row of a scratch preset, fed from `USB 5/6`
+  and sent to `USB 3/4`. You play the test signal on the QC's USB outputs 5 and 6 (`--out-ch 5,6`)
+  and record its USB inputs 3 and 4 (`--in-ch 3,4`). The ports (`--qc-input`, `--qc-output`) and the
+  channels are options, because the channel layout the computer sees has not been checked on a
+  unit.
+- Leave the unit's USB levels, the row's lane volume and the input gate alone, at unity and off.
+  The script does not change them.
+
+### The never-save rule
+
+The script never stores anything on the unit: no preset, no setlist, no setting, no global. This is
+enforced in code, not left to care: the unit is reached only through an allow-list that lets
+through the reads (version, catalogue, find, read, `preset_dirty`) and the grid edits a take needs
+(`set_block`, `remove_block`, `set_chain_input`, `set_chain_output`, `set_param`, `set_bypass`,
+`switch_scene`) and raises on any other call, `save_current_preset` and `write_preset` first of all.
+Before it touches the grid it asks the unit whether the preset on it has unsaved edits, and if it
+has it stops and tells you to save or discard them on the unit. It then names the preset it
+recalls as scratch (the audio cuts for a moment; a factory preset, `Brit 2203` by default, or the
+current preset with `--use-current`) and edits one free row only. Every change is an unsaved edit
+of the grid. At the end it says that nothing was saved: **recalling any preset on the unit restores
+it.**
+
+### A plan
+
+A plan is a list of takes: the QC model, its parameters in their own units, and optionally our kind
+and parameters (otherwise they come from `resources/import/quad-cortex.json`, and the report says
+when that mapping is unverified or a parameter has no mapping). A delay at three times, a
+compressor at two ratios and a reverb at two decays (`tools/match/example-plan.json` also has a
+bypass take):
+
+```json
+{
+  "format": "pedaleira-match-plan", "version": 1,
+  "takes": [
+    { "name": "delay-digital-250ms-fb35", "model": "Digital Delay",
+      "params": { "TIME": 250, "FEEDBACK": 35, "MIX": 100 }, "ours": { "params": { "timeMs": 250 } } },
+    { "name": "delay-digital-500ms-fb35", "model": "Digital Delay",
+      "params": { "TIME": 500, "FEEDBACK": 35, "MIX": 100 }, "ours": { "params": { "timeMs": 500 } } },
+    { "name": "delay-digital-750ms-fb35", "model": "Digital Delay",
+      "params": { "TIME": 750, "FEEDBACK": 35, "MIX": 100 }, "ours": { "params": { "timeMs": 750 } } },
+    { "name": "comp-vca-ratio4-thr-30", "model": "VCA Comp",
+      "params": { "THRESHOLD": -30, "RATIO": 4 }, "ours": { "params": { "ratio": 4 } } },
+    { "name": "comp-vca-ratio10-thr-30", "model": "VCA Comp",
+      "params": { "THRESHOLD": -30, "RATIO": 10 }, "ours": { "params": { "ratio": 10 } } },
+    { "name": "reverb-hall-decay2", "model": "Hall",
+      "params": { "DECAY": 2, "PRE DELAY": 0, "MIX": 100 }, "ours": { "params": { "decayS": 2 } } },
+    { "name": "reverb-hall-decay4", "model": "Hall",
+      "params": { "DECAY": 4, "PRE DELAY": 0, "MIX": 100 }, "ours": { "params": { "decayS": 4 } } }
+  ]
+}
+```
+
+The QC parameter names above (`TIME`, `DECAY`, `RATIO`) are guesses until `--catalog` has been run
+on the unit. A dry run (the default without `--go`) prints every grid edit, recording and render
+without contacting the unit; the real session needs `--go`:
+
+```
+python3 tools/match/qc_match.py --plan plan.json
+python3 tools/match/qc_match.py --plan plan.json --go --dir match
+```
+
+The session folder gets `signal/`, `ref/` (the recordings), `ours/`, `analysis/`, `presets/` (the
+presets and command scripts rendered) and `report.md`: for each take the QC settings, our settings,
+whether the mapping is verified, the score per group and overall, the metrics out of tolerance, and
+the takes that failed.
+
+### Catalogue and mapping check
+
+```
+python3 tools/match/qc_match.py --catalog --out qc-reports
+python3 tools/match/qc_match.py --check-mapping --out qc-reports
+```
+
+`--catalog` reads the unit's block catalogue (read only) and writes every model with its parameter
+names, ranges and units to `qc-reports/qc-catalog.json`. `--check-mapping` compares it with
+`resources/import/quad-cortex.json` and writes `qc-reports/mapping-check.md` and `.json`: which
+mapped models and parameter names exist on the unit and which do not, unit and range mismatches,
+and the parameters the unit has that the mapping does not use. It does not change the mapping file.
+
+**What to send back:** `qc-reports/qc-catalog.json`, `qc-reports/mapping-check.md` and, after a
+session, `match/report.md`. With the catalogue the mapping can be completed and its entries marked
+verified one by one.

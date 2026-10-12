@@ -25,12 +25,14 @@ public:
   explicit GigView(EngineClient& engine);
   ~GigView() override;
 
-  // The tuner reading as the strip draws it: the nearest note, how far off
-  // it is in cents and the frequency. Public for the tests.
+  // The tuner reading as the strip draws it: the nearest note (with its
+  // octave, C4 being middle C), how far off it is in cents and the
+  // frequency. Public for the tests, and for the Live page's tuner.
   struct Reading {
     bool valid = false;
     juce::String note;
     bool sharp = false;
+    int octave = 0;
     double cents = 0.0;
     double hz = 0.0;
   };

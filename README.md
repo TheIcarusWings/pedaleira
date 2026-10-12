@@ -20,8 +20,8 @@ code or models.
 
 Work in progress, not released. The engine is built and tested, and the standalone app now
 opens Pedaleira's own window: the grid editor, the block editors, scenes and footswitches,
-Gig View, the library and the preset importer are in, as first passes. Settings, the capture
-wizard and the TONE3000 page are next. The plugin formats still show upstream's screen.
+Gig View, the library, the preset importer and the capture wizard are in, as first passes.
+Settings and the TONE3000 page are next. The plugin formats still show upstream's screen.
 There is no installer and no release yet.
 
 ## Features
@@ -61,6 +61,21 @@ Planned:
 - A capture wizard that trains NAM A2 captures from your own gear.
 - A phone remote.
 - Windows and Linux releases, after the Mac version is in daily use.
+
+## Test builds
+
+The "Pedaleira test build" workflow (Actions tab, Run workflow) builds the
+app, the VST3 and, on macOS, the AU, and attaches them to the run as
+`Pedaleira-macos-arm64` and `Pedaleira-windows-x64`. They are for testing:
+not signed or notarised.
+
+- macOS (Apple silicon): unzip, move `Pedaleira.app` to Applications, then
+  right-click it and choose Open the first time (or run
+  `xattr -dr com.apple.quarantine /Applications/Pedaleira.app`). Plugins go to
+  `~/Library/Audio/Plug-Ins/VST3` and `~/Library/Audio/Plug-Ins/Components`.
+- Windows: keep `Pedaleira.exe` next to `PedaleiraPluginScan.exe`. SmartScreen
+  warns about an unknown publisher: More info, then Run anyway. The VST3 goes
+  to `C:\Program Files\Common Files\VST3`.
 
 ## Building
 

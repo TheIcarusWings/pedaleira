@@ -2,6 +2,7 @@
 
 #include "../Paint.h"
 #include "../Type.h"
+#include "TempoNotes.h"
 
 #include <cmath>
 
@@ -26,51 +27,10 @@ constexpr int kChoiceHeight = 60;
 // The tail switch of kinds that ring out (kinds.list, spillover).
 const char* const kSpilloverId = "spillover";
 
-// The straight, dotted and triplet forms of the six note values, in the
-// order the engine numbers its divisions (3 per base: 1/1, 1/1D, 1/1T, 1/2...).
-const juce::StringArray& noteBases() {
-  static const juce::StringArray bases{"1/1", "1/2", "1/4", "1/8", "1/16", "1/32"};
-  return bases;
-}
-
+// The forms a note value takes (the note values themselves are in TempoNotes).
 const juce::StringArray& noteVariants() {
   static const juce::StringArray variants{"Straight", "Dotted", "Triplet"};
   return variants;
-}
-
-// How long a note lasts at a tempo, in milliseconds.
-double noteMs(int division, double bpm) {
-  const int base = division / 3;
-  const int variant = division % 3;
-  const double whole = 4.0 * 60000.0 / juce::jmax(20.0, bpm);
-  const double straight = whole / static_cast<double>(1 << base);
-  return variant == 1 ? straight * 1.5 : variant == 2 ? straight * 2.0 / 3.0 : straight;
-}
-
-juce::String noteName(int division) {
-  const int base = juce::jlimit(0, noteBases().size() - 1, division / 3);
-  const int variant = division % 3;
-  return noteBases()[base] + (variant == 1 ? " dotted" : variant == 2 ? " triplet" : "");
-}
-
-// The id of the sync switch and the division that go with a time or rate
-// parameter (fx::appendTimeParams and appendRateParams name them from the
-// same prefix), or empty when the id is not one of those.
-bool tempoNeighbours(const juce::String& id, juce::String& syncId, juce::String& divisionId) {
-  for (const char* suffix : {"timeMs", "TimeMs", "rateHz", "RateHz"}) {
-    if (!id.endsWith(suffix))
-      continue;
-    juce::String prefix = id.dropLastCharacters(juce::String(suffix).length());
-    if (prefix.isEmpty()) {
-      syncId = "sync";
-      divisionId = "division";
-    } else {
-      syncId = prefix + "Sync";
-      divisionId = prefix + "Division";
-    }
-    return true;
-  }
-  return false;
 }
 
 const KnobParam* findSpec(const std::vector<KnobParam>& specs, const juce::String& id) {

@@ -630,7 +630,12 @@ TEST(WideIoTest, ChainEditFadeGivesEveryChannelTheSameGains) {
         glidingBlocks.fetch_add(1);
       else
         fullBlocks.fetch_add(1);
-      juce::Thread::sleep(1);  // a few times real time; keeps the mutex uncontended
+      // A few times real time keeps the mutex uncontended. While an edit
+      // waits for silence the pump runs flat out: the edit's wait is
+      // bounded, and a slow machine could otherwise let it run out before
+      // the glide lands.
+      if (!proc.isChainEditFadeHeld())
+        juce::Thread::sleep(1);
     }
   });
   const auto settle = [&proc](int ms) {

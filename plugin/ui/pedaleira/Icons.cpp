@@ -20,6 +20,7 @@ const char* source(Icon icon) {
              "0a2 2 0 1 0-4 0";
     case Icon::check: return "M5 12l5 5 9-10";
     case Icon::plus: return "M12 5v14M5 12h14";
+    case Icon::minus: return "M5 12h14";
     case Icon::close: return "M6 6l12 12M18 6L6 18";
     case Icon::chevronUp: return "M6 15l6-6 6 6";
     case Icon::chevronDown: return "M6 9l6 6 6-6";
@@ -43,6 +44,21 @@ const char* source(Icon icon) {
     case Icon::document: return "M7 3h7l5 5v13H7zM14 3v5h5M10 14h6M10 17.5h4";
     case Icon::pedaleiraPresets:
       return "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM15.5 17h5M18 14.5l2.5 2.5-2.5 2.5";
+    case Icon::capturePedal:
+      return "M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 7a1 1 0 1 0 2 "
+             "0a1 1 0 1 0-2 0M14 7a1 1 0 1 0 2 0a1 1 0 1 0-2 0M9.5 16.5a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 "
+             "0-5 0M2 10h2M20 10h2";
+    case Icon::captureAmpHead:
+      return "M3 9h18v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM8 9V6.5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1V9M7 "
+             "14h.01M10.5 14h.01M14 14h.01M17.5 14h.01";
+    case Icon::captureAmpCab:
+      return "M4 6h10a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zM5.5 15a3.5 "
+             "3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0M6 9h.01M9 9h.01M12 9h.01M19 3a2 2 0 0 1 2 2v3a2 2 0 0 "
+             "1-4 0V5a2 2 0 0 1 2-2zM19 12v7M16.5 20h5";
+    case Icon::captureModeller:
+      return "M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM6 8.5h12v4H6zM7.5 "
+             "10.5l1.5-1 1.5 2 1.5-2 1.5 1M7 16h.01M11 16h.01M15 16h.01";
+    case Icon::play: return "M8 5v14l11-7z";
   }
   return "";
 }

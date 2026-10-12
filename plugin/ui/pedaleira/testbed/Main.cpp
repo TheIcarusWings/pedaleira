@@ -14,14 +14,17 @@
 #include "PluginScanner.h"
 #include "Processor.h"
 #include "SetlistLibrary.h"
+#include "CaptureScenes.h"
 #include "FakeDevice.h"
 #include "Gallery.h"
+#include "pages/CapturePage.h"
 #include "pages/ComingSoon.h"
 #include "pages/FootswitchModesPage.h"
 #include "pages/GigView.h"
 #include "pages/GridPage.h"
 #include "pages/ImportPage.h"
 #include "pages/LibraryPage.h"
+#include "pages/LivePage.h"
 #include "pages/SettingsPage.h"
 #include "shell/AppShell.h"
 
@@ -93,6 +96,13 @@ struct Scenario {
   // Starts with the plugin cache of the board and a scan helper that exists (it is
   // never run); without, the scan is unavailable and the list empty.
   bool plugins = false;
+  // The Live page, several with ";": "tab:tuner" (tempo, looper), "tap:<ms>" (a
+  // tap at that time on the page's clock; the tuner tab listens to the tone
+  // played first) and "bpm:<value>" (typed into the tempo).
+  const char* live = "";
+  // The capture wizard, steps separated by ";" (CaptureScenes.h): the engine is
+  // brought into a state with commands, a simulated device and a stand-in trainer.
+  const char* capture = "";
 };
 
 // Joins command scripts (JSON arrays) into one.
@@ -284,6 +294,18 @@ const char* kMidiRig = R"([
     {"command":"midi.setCc","args":{"targetId":"presetNext","cc":22}},
     {"command":"midi.setChannelFilter","args":{"channel":2}}])";
 
+// The Live boards' rig: Glass Cleans of Friday Covers in Scene mode, the
+// tuner listening.
+const char* kLiveRig = joined({kStageRig, R"([{"command":"footswitch.setMode","args":{"mode":"scene"}},
+    {"command":"tuner.setEnabled","args":{"enabled":true}}])"});
+
+// The Tempo board's rig: the stage rig's tape echo follows the tempo in dotted
+// eighths (kEditorRig), and a tremolo is added to follow it in eighths.
+const char* kLiveTempoRig = joined({kStageRig, R"([{"command":"footswitch.setMode","args":{"mode":"scene"}},
+    {"command":"chain.addBlock","args":{"kind":"modulation.tremolo","row":0,"slot":6}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:6","param":"sync","value":1}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:6","param":"division","value":9}}])"});
+
 const std::vector<Scenario>& scenarios() {
   static const std::vector<Scenario> list = {
       {"gallery", "Every widget in every state, beside the board Design system", Page::grid, "[]", true},
@@ -463,6 +485,93 @@ const std::vector<Scenario>& scenarios() {
        .settings = "part:remote"},
       {.name = "settings-about", .description = "Settings, about: version, licences and credits", .page = Page::settings,
        .script = "[]", .settings = "part:about"},
+      {.name = "live-tuner", .description = "Live, Tuner: an E2 eight cents flat, the sixth string marked, settings beside it",
+       .page = Page::live, .script = kLiveRig, .audio = true, .toneHz = 82.03, .live = "tab:tuner"},
+      {.name = "live-tuner-intune", .description = "Live, Tuner: a D3 in tune, the band and the needle green",
+       .page = Page::live, .script = kLiveRig, .audio = true, .toneHz = 146.83, .live = "tab:tuner"},
+      {.name = "live-tuner-idle", .description = "Live, Tuner: nothing played, a fresh rig",
+       .page = Page::live, .script = R"([{"command":"tuner.setEnabled","args":{"enabled":true}}])", .live = "tab:tuner"},
+      {.name = "live-tempo", .description = "Live, Tempo: four taps, 120 typed in, two synced blocks, the metronome and clock later",
+       .page = Page::live, .script = kLiveTempoRig, .live = "tab:tempo;tap:10000;tap:10512;tap:11008;tap:11512;tap:12012;bpm:120"},
+      {.name = "live-tempo-fresh", .description = "Live, Tempo: a fresh rig, no taps and no synced block",
+       .page = Page::live, .script = "[]", .live = "tab:tempo"},
+      {.name = "live-looper", .description = "Live, Looper: the tab says it comes in a later build",
+       .page = Page::live, .script = "[]", .live = "tab:looper"},
+      // The capture wizard. kReampLevels brings a re-amp to the levels step with the tone in range;
+      // kReampRecord to the record step with a stand-in input file.
+      {.name = "capture-source", .description = "Capture, step 1: what are you capturing, nothing typed yet",
+       .page = Page::capture, .script = "[]"},
+      {.name = "capture-source-filled", .description = "Capture, step 1: Amp Head chosen, a name typed",
+       .page = Page::capture, .script = "[]", .capture = "name:Brit 800 Crunch;source:1"},
+      {.name = "capture-source-pedal", .description = "Capture, step 1: a pedal chosen",
+       .page = Page::capture, .script = "[]", .capture = "name:Tube Screamer;source:0"},
+      {.name = "capture-wiring-box", .description = "Capture, step 2: amp head through a re-amp box",
+       .page = Page::capture, .script = "[]", .capture = "new:ampHead:reamp;goto:wiring"},
+      {.name = "capture-wiring-nobox", .description = "Capture, step 2: without a re-amp box, the send starts at -30 dB",
+       .page = Page::capture, .script = "[]", .capture = "new:ampHead:reamp;goto:wiring;variant:1"},
+      {.name = "capture-wiring-drywet", .description = "Capture, step 2: play it in, dry and wet recorded together",
+       .page = Page::capture, .script = "[]", .capture = "new:ampHead:dryWet;goto:wiring"},
+      {.name = "capture-wiring-pedal", .description = "Capture, step 2: a pedal through a re-amp box, outputs 2 and inputs 1",
+       .page = Page::capture, .script = "[]", .capture = "new:pedal:reamp;goto:wiring;channels:1:0"},
+      {.name = "capture-wiring-cab", .description = "Capture, step 2: amp and cab with a microphone",
+       .page = Page::capture, .script = "[]", .capture = "new:ampCab:reamp;goto:wiring"},
+      {.name = "capture-wiring-modeller", .description = "Capture, step 2: another modeller, without a box",
+       .page = Page::capture, .script = "[]", .capture = "new:modeller:reamp;goto:wiring;variant:1"},
+      {.name = "capture-levels-idle", .description = "Capture, step 3: the tone off, nothing measured yet",
+       .page = Page::capture, .script = "[]", .capture = "new:ampHead:reamp;goto:wiring:levels"},
+      {.name = "capture-levels-inrange", .description = "Capture, step 3: the tone playing, the return in range, the noise floor measured",
+       .page = Page::capture, .script = "[]", .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;noise"},
+      {.name = "capture-levels-low", .description = "Capture, step 3: the return too low",
+       .page = Page::capture, .script = "[]", .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:0.8"},
+      {.name = "capture-levels-clipping", .description = "Capture, step 3: the return clipping",
+       .page = Page::capture, .script = "[]", .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:40"},
+      {.name = "capture-levels-drywet", .description = "Capture, step 3: dry/wet, both inputs metered while the guitar is played",
+       .page = Page::capture, .script = "[]", .capture = "new:ampHead:dryWet;goto:wiring:levels;listen:2.5"},
+      {.name = "capture-record-nofile", .description = "Capture, step 4: no standard input file chosen yet",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:none;open"},
+      {.name = "capture-record-unrecognised", .description = "Capture, step 4: a file the trainer would not recognise",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;open"},
+      {.name = "capture-record-running", .description = "Capture, step 4: recording, a third of the way in",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:38:2.5"},
+      {.name = "capture-record-complete", .description = "Capture, step 4: the recording is done",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:2.5"},
+      {.name = "capture-check-pass", .description = "Capture, step 5: the checks all pass, the trainer is ready",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:2.5;python:ok;trainer;checks"},
+      {.name = "capture-check-warn", .description = "Capture, step 5: a warning (level a little low)",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:1.6;python:ok;trainer;checks"},
+      {.name = "capture-check-fail", .description = "Capture, step 5: the recording clipped, the trainer is not installed",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:40;python:none;trainer;checks"},
+      {.name = "capture-train-running", .description = "Capture, step 6: epoch 46 of 100",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:2.5;python:ok;trainer;checks;"
+                  "train:running:46"},
+      {.name = "capture-train-failed", .description = "Capture, step 6: the trainer's own data checks failed",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:2.5;python:ok;trainer;checks;"
+                  "train:fail:12"},
+      {.name = "capture-train-stopped", .description = "Capture, step 6: training stopped, the trainer cannot be found",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:2.5;python:ok;trainer;checks;"
+                  "train:running:8;cancel;python:none;trainer;input:missing;open"},
+      {.name = "capture-review", .description = "Capture, step 7: trained, ESR 0.008, ready to save",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:2.5;python:ok;trainer;checks;"
+                  "train:done:100"},
+      {.name = "capture-review-rig", .description = "Capture, step 7: added to the rig to play it",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:2.5;python:ok;trainer;checks;"
+                  "train:done:100;rig"},
+      {.name = "capture-review-saved", .description = "Capture, step 7: saved to the library",
+       .page = Page::capture, .script = "[]",
+       .capture = "new:ampHead:reamp;goto:wiring:levels;send:-20;tone:2.5;goto:record;input:wav;record:100:2.5;python:ok;trainer;checks;"
+                  "train:done:100;press:primary"},
   };
   return list;
 }
@@ -869,6 +978,21 @@ void driveSettings(pedaleira::ui::EngineClient& client, pedaleira::ui::SettingsP
   }
 }
 
+// Plays the Live scenario's choices.
+void driveLive(pedaleira::ui::LivePage& page, const juce::String& drive) {
+  using Tab = pedaleira::ui::LivePage::Tab;
+  for (const auto& step : juce::StringArray::fromTokens(drive, ";", "")) {
+    const juce::String key = step.upToFirstOccurrenceOf(":", false, false);
+    const juce::String value = step.fromFirstOccurrenceOf(":", false, false);
+    if (key == "tab")
+      page.showTab(value == "tempo" ? Tab::tempo : value == "looper" ? Tab::looper : Tab::tuner);
+    else if (key == "tap")
+      page.tempoView().tap(value.getDoubleValue());
+    else if (key == "bpm")
+      page.tempoView().setBpm(value.getDoubleValue());
+  }
+}
+
 int capture(const juce::File& folder, float scale, const juce::StringArray& only) {
   if (!folder.createDirectory()) {
     std::cerr << "cannot make " << folder.getFullPathName() << "\n";
@@ -942,8 +1066,12 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
         pages.push_back(std::move(grid));
       } else if (page == Page::library) {
         pages.push_back(std::make_unique<pedaleira::ui::LibraryPage>(*engine.client));
+      } else if (page == Page::capture) {
+        pages.push_back(std::make_unique<pedaleira::ui::CapturePage>(*engine.client));
       } else if (page == Page::import) {
         pages.push_back(std::make_unique<pedaleira::ui::ImportPage>(*engine.client));
+      } else if (page == Page::live) {
+        pages.push_back(std::make_unique<pedaleira::ui::LivePage>(*engine.client));
       } else if (page == Page::settings) {
         pages.push_back(std::make_unique<pedaleira::ui::SettingsPage>(*engine.client, device.get()));
       } else
@@ -976,8 +1104,18 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
       driveLibrary(*engine.client, static_cast<pedaleira::ui::LibraryPage&>(*pages[1]), scenario.library);
     if (!juce::String(scenario.importer).isEmpty())
       driveImport(*engine.client, static_cast<pedaleira::ui::ImportPage&>(*pages[3]), scenario.importer);
+    if (!juce::String(scenario.capture).isEmpty()) {
+      const juce::String problem = pedaleira::ui::testbed::driveCapture(
+          *engine.client, *engine.processor, engine.data, static_cast<pedaleira::ui::CapturePage&>(*pages[2]), scenario.capture);
+      if (problem.isNotEmpty()) {
+        std::cerr << scenario.name << ": " << problem << "\n";
+        ++failures;
+      }
+    }
     if (!juce::String(scenario.settings).isEmpty())
       driveSettings(*engine.client, static_cast<pedaleira::ui::SettingsPage&>(*pages[5]), scenario.settings);
+    if (!juce::String(scenario.live).isEmpty())
+      driveLive(static_cast<pedaleira::ui::LivePage&>(*pages[4]), scenario.live);
     shell.header().refresh();
     const juce::Image image = shell.createComponentSnapshot(shell.getLocalBounds(), true, scale);
     const juce::File out = folder.getChildFile(juce::String(scenario.name) + ".png");

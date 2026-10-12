@@ -34,6 +34,7 @@ GigView::Reading GigView::analyse(double frequency, double confidence) {
   out.valid = true;
   out.note = kNotes[index];
   out.sharp = kSharp[index];
+  out.octave = midi / 12 - 1;
   out.cents = (exact - midi) * 100.0;
   out.hz = frequency;
   return out;

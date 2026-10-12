@@ -12,11 +12,13 @@
 #include "DeviceSettings.h"
 #include "EngineClient.h"
 #include "pages/ComingSoon.h"
+#include "pages/CapturePage.h"
 #include "pages/FootswitchModesPage.h"
 #include "pages/GigView.h"
 #include "pages/GridPage.h"
 #include "pages/ImportPage.h"
 #include "pages/LibraryPage.h"
+#include "pages/LivePage.h"
 #include "pages/SettingsPage.h"
 #include "PluginWindow.h"
 #include "shell/AppShell.h"
@@ -53,7 +55,9 @@ private:
   std::unique_ptr<GridPage> grid;
   std::unique_ptr<LibraryPage> library;
   std::unique_ptr<ImportPage> importer;
+  std::unique_ptr<CapturePage> capturePage;
   std::unique_ptr<SettingsPage> settingsPage;
+  std::unique_ptr<LivePage> live;
   std::unique_ptr<FootswitchModesPage> modes;
   std::unique_ptr<GigView> gig;
   std::vector<std::unique_ptr<juce::Component>> comingSoon;

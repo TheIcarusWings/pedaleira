@@ -48,6 +48,26 @@ BlockPicker::BlockPicker(EngineClient& client) : engine(client) {
       onClose();
   };
   addAndMakeVisible(close);
+  loadFile.onClick = [this] { chooseFile(); };
+  addAndMakeVisible(loadFile);
+}
+
+void BlockPicker::chooseFile() {
+  chooser = std::make_unique<juce::FileChooser>(
+      "Choose a NAM capture or an impulse response",
+      juce::File::getSpecialLocation(juce::File::userHomeDirectory), "*.nam;*.wav");
+  juce::Component::SafePointer<BlockPicker> self(this);
+  chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                       [self](const juce::FileChooser& picked) {
+                         const juce::File file = picked.getResult();
+                         if (self == nullptr || !file.existsAsFile())
+                           return;
+                         Item item;
+                         item.id = file.getFullPathName();
+                         item.name = file.getFileNameWithoutExtension();
+                         item.source = file.hasFileExtension("nam") ? captures : irs;
+                         self->add(item);
+                       });
 }
 
 void BlockPicker::openFor(int row, int slot) {
@@ -352,7 +372,9 @@ void BlockPicker::paintOverChildren(juce::Graphics& g) {
 void BlockPicker::resized() {
   const auto frame = getLocalBounds().reduced(kMargin);
   const int x = frame.getX() + kSidebarWidth + 20;
-  search.setBounds(x, frame.getY() + 76, frame.getRight() - 20 - x, 40);
+  const int loadWidth = loadFile.idealWidth() + 8;
+  search.setBounds(x, frame.getY() + 76, frame.getRight() - 20 - x - loadWidth - 12, 40);
+  loadFile.setBounds(frame.getRight() - 20 - loadWidth, frame.getY() + 76, loadWidth, 40);
   close.setBounds(frame.getRight() - 20 - close.idealWidth(), frame.getY() + 18, close.idealWidth(), 32);
 }
 

@@ -114,6 +114,11 @@ GridView::GridView() {
           onSelectBlock(slot.blockId);
         }
       };
+      tile->onPower = [this, r, s] {
+        const GridSlot& slot = model.rows[static_cast<size_t>(r)].slots[static_cast<size_t>(s)];
+        if (!slot.empty && onToggleBlock)
+          onToggleBlock(slot.blockId, !slot.enabled);
+      };
       auto mouse = std::make_unique<TileMouse>(*this, r, s);
       tile->addMouseListener(mouse.get(), false);
       tileMice.push_back(std::move(mouse));
@@ -491,8 +496,48 @@ void GridView::mouseDown(const juce::MouseEvent& event) {
     return;
   }
   const Cable cable = cableAt(event.position);
-  if (cable.row >= 0)
+  if (cable.row >= 0) {
     showCableMenu(cable);
+    return;
+  }
+  juce::Rectangle<int> box;
+  if (const auto row = rowInputAt(event.getPosition(), &box)) {
+    if (onRowInput)
+      onRowInput(*row, box);
+  } else if (const auto outRow = rowOutputAt(event.getPosition(), &box)) {
+    if (onRowOutput)
+      onRowOutput(*outRow, box);
+  }
+}
+
+std::optional<int> GridView::rowInputAt(juce::Point<int> position, juce::Rectangle<int>* box) const {
+  for (size_t v = 0; v < shown.size(); ++v) {
+    const juce::Rectangle<int> input(kInputX, rowTop(static_cast<int>(v)), kInputWidth, kSlotHeight);
+    if (input.contains(position)) {
+      *box = input;
+      return shown[v];
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<int> GridView::rowOutputAt(juce::Point<int> position, juce::Rectangle<int>* box) const {
+  // The name line only: the mute and solo boxes sit at its right end.
+  const int outputX = kFirstSlotX + 8 * kSlotPitch;
+  for (size_t v = 0; v < shown.size(); ++v) {
+    const int row = shown[v];
+    const juce::String sink = model.rows[static_cast<size_t>(row)].sink;
+    if (sink == "mix")
+      continue;
+    const int top = rowTop(static_cast<int>(v));
+    const juce::Rectangle<int> output(outputX, top, kOutputWidth, kSlotHeight);
+    const juce::Rectangle<int> name = sink == "device" ? output.reduced(10).withHeight(24).withTrimmedRight(64) : output;
+    if (name.contains(position)) {
+      *box = output;
+      return row;
+    }
+  }
+  return std::nullopt;
 }
 
 void GridView::mouseDrag(const juce::MouseEvent& event) {
@@ -1076,6 +1121,13 @@ GridPage::GridPage(EngineClient& client)
   grid.onEmptySlot = [this](int row, int slot) { openPicker(row, slot); };
   grid.onInsertHere = [this](int row, int slot) { openPicker(row, slot); };
   addChildComponent(library);
+  addChildComponent(prompt);
+  grid.onRowInput = [this](int row, juce::Rectangle<int> at) { showRowInputMenu(row, at); };
+  grid.onToggleBlock = [this](const juce::String& blockId, bool enabled) {
+    engine.run("block.setEnabled", object({{"blockId", blockId}, {"enabled", enabled}}));
+    rigChanged();
+  };
+  grid.onRowOutput = [this](int row, juce::Rectangle<int> at) { showRowOutputMenu(row, at); };
   library.onClose = [this] { library.setVisible(false); };
   library.onAdded = [this](const juce::String& blockId) {
     library.setVisible(false);
@@ -1154,6 +1206,161 @@ void GridPage::ensureGrid() {
     return;
   engine.run("grid.convert", object({{"to", "grid"}}));
   model = GridModel::read(engine);
+}
+
+// ####################
+// ROW INPUTS AND OUTPUTS
+// ####################
+void GridPage::runRouting(const char* command, const juce::var& args, const juce::String& what) {
+  const EngineReply reply = engine.run(command, args);
+  rigChanged();
+  if (reply.ok)
+    return;
+  Dialog::Options options;
+  options.title = "Could not " + what;
+  options.message = reply.errorMessage;
+  options.cancelable = false;
+  prompt.show(options, [](bool, const juce::String&) {});
+}
+
+void GridPage::showRowInputMenu(int row, juce::Rectangle<int> at) {
+  const GridRow& shownRow = model.rows[static_cast<size_t>(row)];
+  const juce::var gridState = engine.read("grid.get");
+  juce::var current;
+  if (const auto* rows = gridState["rows"].getArray())
+    if (row < rows->size())
+      current = (*rows)[row]["input"];
+  const bool none = current["type"].toString() != "device";
+  const int channel = current["channel"];
+  const bool stereo = static_cast<bool>(current["stereo"]);
+  const bool summed = current["fold"].toString() == "sum";
+
+  // The device's inputs by name, or eight plain ones.
+  juce::StringArray names;
+  if (deviceState != nullptr)
+    if (const auto* channels = deviceState()["inputChannels"].getArray())
+      for (const auto& c : *channels)
+        names.add(c["name"].toString().isNotEmpty() ? c["name"].toString() : "Input " + juce::String(names.size() + 1));
+  if (names.isEmpty())
+    for (int i = 1; i <= 8; ++i)
+      names.add("Input " + juce::String(i));
+
+  juce::PopupMenu menu;
+  menu.addSectionHeader("Row " + juce::String(row + 1) + " input");
+  if (shownRow.source == "split" || shownRow.source == "rows") {
+    menu.addItem(shownRow.source == "split" ? "Fed by the split above" : "Fed by another row", false, false, [] {});
+  } else {
+    menu.addItem("No input", true, none, [this, row] {
+      runRouting("row.setInput", object({{"row", row}, {"source", "none"}}), "change the input");
+    });
+    menu.addSeparator();
+    for (int i = 0; i < names.size(); ++i) {
+      const int ch = i + 1;
+      menu.addItem(names[i], true, !none && !stereo && channel == ch, [this, row, ch] {
+        runRouting("row.setInput", object({{"row", row}, {"source", "device"}, {"channel", ch}}), "change the input");
+      });
+    }
+    if (names.size() >= 2) {
+      juce::PopupMenu pairs;
+      for (int ch = 1; ch < names.size(); ch += 2)
+        pairs.addItem("In " + juce::String(ch) + "/" + juce::String(ch + 1), true, !none && stereo && channel == ch,
+                      [this, row, ch, summed] {
+                        runRouting("row.setInput",
+                                   object({{"row", row}, {"source", "device"}, {"channel", ch}, {"stereo", true},
+                                           {"fold", summed ? "sum" : "none"}}),
+                                   "change the input");
+                      });
+      menu.addSubMenu("Stereo pair", pairs);
+    }
+    if (!none && stereo)
+      menu.addItem("Sum the pair to mono", true, summed, [this, row, channel, summed] {
+        runRouting("row.setInput",
+                   object({{"row", row}, {"source", "device"}, {"channel", channel}, {"stereo", true},
+                           {"fold", summed ? "none" : "sum"}}),
+                   "change the input");
+      });
+  }
+  menu.addSeparator();
+  int running = 0;
+  for (const auto& r : model.rows)
+    if (r.routed || model.splitInto(r.index) != nullptr)
+      ++running;
+  const bool lowerOfSplit = shownRow.source == "split";
+  menu.addItem(lowerOfSplit ? "Remove row (remove the split instead)" : "Remove row", !lowerOfSplit && running > 1, false,
+               [this, row] { removeRow(row); });
+  menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(grid.localAreaToGlobal(at)));
+}
+
+void GridPage::showRowOutputMenu(int row, juce::Rectangle<int> at) {
+  const juce::var gridState = engine.read("grid.get");
+  juce::var current;
+  if (const auto* rows = gridState["rows"].getArray())
+    if (row < rows->size())
+      current = (*rows)[row]["output"];
+  const juce::String type = current["type"].toString();
+  const int pair = current["pair"];
+  const int toRow = current.hasProperty("toRow") ? static_cast<int>(current["toRow"]) : -1;
+
+  juce::StringArray pairs;
+  if (deviceState != nullptr)
+    if (const auto* list = deviceState()["outputPairs"].getArray())
+      for (const auto& p : *list)
+        pairs.add(p.toString());
+  if (pairs.isEmpty())
+    for (int p = 1; p <= 4; ++p)
+      pairs.add("Out " + juce::String(p * 2 - 1) + "/" + juce::String(p * 2));
+
+  juce::PopupMenu menu;
+  menu.addSectionHeader("Row " + juce::String(row + 1) + " output");
+  menu.addItem("Not routed", true, type != "device" && type != "row", [this, row] {
+    runRouting("row.setOutput", object({{"row", row}, {"target", "none"}}), "change the output");
+  });
+  menu.addSeparator();
+  for (int p = 0; p < juce::jmin(4, pairs.size()); ++p) {
+    const int number = p + 1;
+    menu.addItem(pairs[p], true, type == "device" && pair == number, [this, row, number] {
+      runRouting("row.setOutput", object({{"row", row}, {"target", "device"}, {"pair", number}}), "change the output");
+    });
+  }
+  menu.addSeparator();
+  for (const auto& other : model.rows) {
+    if (other.index == row || !(other.routed || model.splitInto(other.index) != nullptr))
+      continue;
+    const int target = other.index;
+    menu.addItem("Into row " + juce::String(target + 1), true, type == "row" && toRow == target, [this, row, target] {
+      runRouting("row.setOutput", object({{"row", row}, {"target", "row"}, {"toRow", target}}), "change the output");
+    });
+  }
+  menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(grid.localAreaToGlobal(at)));
+}
+
+void GridPage::removeRow(int row) {
+  Dialog::Options options;
+  options.title = "Remove row " + juce::String(row + 1) + "?";
+  options.message = "Its blocks are removed and the row stops running. Undo brings them back.";
+  options.confirm = "Remove row";
+  juce::Component::SafePointer<GridPage> self(this);
+  prompt.show(options, [self, row](bool confirmed, const juce::String&) {
+    if (self == nullptr || !confirmed)
+      return;
+    GridPage& page = *self;
+    // A split that starts on this row goes first: its lower path is part of it.
+    if (page.model.splitOf(row) != nullptr)
+      page.engine.run("split.remove", object({{"row", row}}));
+    for (const auto& slot : page.model.rows[static_cast<size_t>(row)].slots)
+      if (!slot.empty)
+        page.engine.run("chain.removeBlock", object({{"blockId", slot.blockId}}));
+    // Rows that fed this one go to the first output pair instead.
+    if (const auto* rows = page.engine.read("grid.get")["rows"].getArray())
+      for (int other = 0; other < rows->size(); ++other) {
+        const juce::var output = (*rows)[other]["output"];
+        if (other != row && output["type"].toString() == "row" && static_cast<int>(output["toRow"]) == row)
+          page.engine.run("row.setOutput", object({{"row", other}, {"target", "device"}, {"pair", 1}}));
+      }
+    page.engine.run("row.setOutput", object({{"row", row}, {"target", "none"}}));
+    page.engine.run("row.setInput", object({{"row", row}, {"source", "none"}}));
+    page.rigChanged();
+  });
 }
 
 void GridPage::rigChanged() {
@@ -1300,6 +1507,7 @@ void GridPage::resized() {
   stompPanel.setBounds(area);
   editor.setBounds(getLocalBounds());
   library.setBounds(getLocalBounds());
+  prompt.setBounds(getLocalBounds());
 }
 
 }  // namespace pedaleira::ui

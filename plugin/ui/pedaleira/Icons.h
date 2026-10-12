@@ -17,6 +17,8 @@ enum class Icon {
   star, search, warning, info, attention, ear, lock, device, helix, document, pedaleiraPresets,
   // The capture wizard.
   capturePedal, captureAmpHead, captureAmpCab, captureModeller, play,
+  // A block's on and off switch on its tile.
+  power,
 };
 
 const juce::Path& path(Icon icon);

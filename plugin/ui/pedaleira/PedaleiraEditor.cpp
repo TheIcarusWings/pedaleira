@@ -37,6 +37,8 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   device = StandaloneDevice::create(processor);
 #endif
   settingsPage = std::make_unique<SettingsPage>(*client, device.get());
+  // The row menus name the device's inputs and outputs.
+  grid->deviceState = [this] { return device != nullptr ? device->state() : juce::var(); };
   shell->setPageComponent(Page::settings, settingsPage.get());
   live = std::make_unique<LivePage>(*client);
   shell->setPageComponent(Page::live, live.get());
@@ -126,6 +128,7 @@ PedaleiraEditor::~PedaleiraEditor() {
   importer->onPickCapture = nullptr;
   grid->onOpenPluginWindow = nullptr;
   grid->onOpenModes = nullptr;
+  grid->deviceState = nullptr;
   // The tuner stops listening with the Gig View.
   shell->showGigView(false);
   removeAllChildren();

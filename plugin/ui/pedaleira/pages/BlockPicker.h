@@ -76,6 +76,10 @@ private:
   int scroll = 0;
   juce::TextEditor search;
   PushButton close{"Close"};
+  // A capture or IR from anywhere on the computer, without adding its folder.
+  PushButton loadFile{juce::String::fromUTF8("Load a file\xe2\x80\xa6")};
+  std::unique_ptr<juce::FileChooser> chooser;
+  void chooseFile();
 };
 
 }  // namespace pedaleira::ui

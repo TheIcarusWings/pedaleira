@@ -6,6 +6,7 @@
 // through the engine's commands.
 #pragma once
 
+#include "../widgets/Dialog.h"
 #include "../EngineClient.h"
 #include "../widgets/Controls.h"
 #include "../widgets/Knob.h"
@@ -69,6 +70,12 @@ public:
   std::function<void(const juce::String& blockId)> onDuplicate;
   std::function<void(const juce::String& blockId)> onRemove;
   std::function<void()> onAddRow;
+  // A row's input box or output name clicked: the page offers the choices,
+  // shown at `at` (in this view's coordinates).
+  std::function<void(int row, juce::Rectangle<int> at)> onRowInput;
+  std::function<void(int row, juce::Rectangle<int> at)> onRowOutput;
+  // A tile's power switch: the block on or off (in the active scene).
+  std::function<void(const juce::String& blockId, bool enabled)> onToggleBlock;
   // A tile double-clicked: open its editor.
   std::function<void(const juce::String& blockId)> onOpenBlock;
 
@@ -112,6 +119,9 @@ private:
   // The slot under a position, as row and slot.
   std::optional<std::pair<int, int>> slotAt(juce::Point<int> position) const;
   void showCableMenu(Cable cable);
+  // The row whose input box, or output name line, is under a position.
+  std::optional<int> rowInputAt(juce::Point<int> position, juce::Rectangle<int>* box) const;
+  std::optional<int> rowOutputAt(juce::Point<int> position, juce::Rectangle<int>* box) const;
   void tileMouseDown(int row, int slot, const juce::MouseEvent& event);
   void tileMouseDrag(int row, int slot, const juce::MouseEvent& event);
   void tileMouseUp(int row, int slot, const juce::MouseEvent& event);
@@ -242,6 +252,18 @@ public:
   // window's title. False (no plugin editor) opens the generated one.
   std::function<bool(const juce::String& blockId, const juce::String& title)> onOpenPluginWindow;
 
+  // The audio device as DeviceSettings::state() gives it (inputChannels,
+  // outputPairs), for the row input and output menus. Unset (the plugin, the
+  // testbed): the menus offer eight inputs and four output pairs.
+  std::function<juce::var()> deviceState;
+
+  // The row menus, public for the testbed.
+  void showRowInputMenu(int row, juce::Rectangle<int> at);
+  void showRowOutputMenu(int row, juce::Rectangle<int> at);
+  // Asks first, then removes the row's blocks and stops it running.
+  void removeRow(int row);
+  Dialog& dialog() { return prompt; }
+
   void paint(juce::Graphics& g) override;
   void resized() override;
 
@@ -266,7 +288,11 @@ private:
   juce::String seenMode;
   BlockEditorPage editor;
   BlockPicker library;
+  Dialog prompt;
   bool editorShown = false;
+
+  // Runs a routing command; a refusal is shown with the engine's reason.
+  void runRouting(const char* command, const juce::var& args, const juce::String& what);
 };
 
 }  // namespace pedaleira::ui

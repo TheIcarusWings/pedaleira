@@ -9,6 +9,13 @@
 //   PedaleiraMatch compare --reference <a.json|a.wav> --candidate <b.json|b.wav>
 //                          [--out <comparison.json>] [--markdown <file.md>]
 //                          [--rate <hz>] [--strict]
+//   PedaleiraMatch devices
+//   PedaleiraMatch record --device <name> [--type <device type>] --out-ch <a[,b]>
+//                         --in-ch <c[,d]> --name <file stem> [--dir match/ref]
+//                         [--rate 48000] [--buffer 256]
+//   PedaleiraMatch session --plan <plan.txt> --device <name> [--type <device type>]
+//                          --out-ch <a[,b]> --in-ch <c[,d]> [--dir match/ref]
+//                          [--rate 48000] [--buffer 256] [--overwrite]
 //
 // signals writes pedaleira-test-signal-v<N>.wav (mono, 32-bit float) and
 // pedaleira-test-signal-v<N>.json (the manifest of its segments) into the
@@ -23,14 +30,23 @@
 // PedaleiraRender (--run commands.json --in the signal --out ours.wav
 // --tail 4).
 //
+// devices lists the audio devices with their channels and sample rates. record
+// plays the test signal on the given output channels (1-based) of a device and
+// records the given input channels into <dir>/<name>.wav, then checks the take
+// (both sync markers, no clipping, latency, plausible level). session does that
+// for every line of a plan file, prompting the player between takes. Both work
+// at 48 kHz only (match_record.cpp, MatchRecorder.h).
+//
 // Diagnostics go to stderr. Exit code 0 on success, 1 with a one-line error
 // otherwise; with --strict, compare exits 2 when any judged metric is out of
-// tolerance.
+// tolerance; record and session exit 3 when a take failed its check.
 //
 // Build: cmake --build build --target PedaleiraMatch
 #include "EffectMatch.h"
+#include "match_record.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <juce_events/juce_events.h>
 
 #include <algorithm>
 #include <cmath>
@@ -56,17 +72,30 @@ constexpr const char* kUsage =
     "       PedaleiraMatch compare --reference <a.json|a.wav> --candidate <b.json|b.wav>\n"
     "                              [--out <comparison.json>] [--markdown <file.md>]\n"
     "                              [--rate <hz>] [--strict]\n"
-    "  signals  write the test signal (WAV) and its manifest (JSON) into <dir>\n"
+    "       PedaleiraMatch devices\n"
+    "       PedaleiraMatch record --device <name> [--type <device type>] --out-ch <a[,b]>\n"
+    "                             --in-ch <c[,d]> --name <file stem> [--dir match/ref]\n"
+    "                             [--rate 48000] [--buffer 256]\n"
+    "       PedaleiraMatch session --plan <plan.txt> --device <name> [--type <device type>]\n"
+    "                              --out-ch <a[,b]> --in-ch <c[,d]> [--dir match/ref]\n"
+    "                              [--rate 48000] [--buffer 256] [--overwrite]\n"
+    "  signals write the test signal (WAV) and its manifest (JSON) into <dir>\n"
     "  analyse  measure a recording of the test signal; JSON on stdout or in --out\n"
     "  compare  compare two analyses (or recordings, analysed first); JSON on stdout\n"
     "  --rate   the rate the test signal is made at; a recording must be at that rate\n"
-    "  --strict compare exits 2 when any judged metric is out of tolerance";
+    "  --strict compare exits 2 when any judged metric is out of tolerance\n"
+    "  devices list audio devices, their channels and sample rates\n"
+    "  record   play the test signal and record one take (48 kHz) into <dir>/<name>.wav\n"
+    "  session  record the takes of a plan file, one prompt per take\n"
+    "  --out-ch, --in-ch  1-based channel numbers; the same signal plays on each --out-ch,\n"
+    "                     one or two --in-ch make a mono or stereo take";
 
 struct Options {
   std::string command;
   juce::File outDir, input, output, reference, candidate, markdown;
   double rate = 0.0;
   bool strict = false;
+  MatchRecord::Options record;
 };
 
 Options parseOptions(int argc, char** argv) {
@@ -103,10 +132,36 @@ Options parseOptions(int argc, char** argv) {
       opts.rate = text.getDoubleValue();
     } else if (flag == "--strict") {
       opts.strict = true;
+    } else if (flag == "--device") {
+      opts.record.device = value(i).toStdString();
+    } else if (flag == "--type") {
+      opts.record.type = value(i).toStdString();
+    } else if (flag == "--out-ch") {
+      opts.record.outChannels = value(i).toStdString();
+    } else if (flag == "--in-ch") {
+      opts.record.inChannels = value(i).toStdString();
+    } else if (flag == "--name") {
+      opts.record.name = value(i).toStdString();
+    } else if (flag == "--dir") {
+      opts.record.dir = absolute(value(i));
+    } else if (flag == "--plan") {
+      opts.record.plan = absolute(value(i));
+    } else if (flag == "--buffer") {
+      const juce::String text = value(i);
+      if (text.isEmpty() || !text.containsOnly("0123456789") || text.getIntValue() < 16 ||
+          text.getIntValue() > 16384)
+        throw UsageError("bad value for --buffer: " + text.toStdString() + " (16 to 16384 samples)");
+      opts.record.bufferSize = text.getIntValue();
+    } else if (flag == "--overwrite") {
+      opts.record.overwrite = true;
     } else {
       throw UsageError("unknown option: " + flag);
     }
   }
+  if (opts.rate > 0.0)
+    opts.record.rate = opts.rate;
+  if (opts.record.dir == juce::File())
+    opts.record.dir = absolute("match/ref");
   return opts;
 }
 
@@ -248,6 +303,25 @@ int run(int argc, char** argv) {
     return runAnalyse(opts);
   if (opts.command == "compare")
     return runCompare(opts);
+  if (opts.command == "devices" || opts.command == "record" || opts.command == "session") {
+    // Audio devices need JUCE initialised on some platforms (CoreAudio, device
+    // change notifications). This creates the message manager but opens no
+    // window, and the recorder itself never uses the message thread: waiting for
+    // Enter happens on this thread while the audio runs on the device's own.
+#if JUCE_MAC
+    juce::Process::setDockIconVisible(false);
+#endif
+    const juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    try {
+      if (opts.command == "devices")
+        return MatchRecord::runDevices();
+      if (opts.command == "record")
+        return MatchRecord::runRecord(opts.record);
+      return MatchRecord::runSession(opts.record);
+    } catch (const std::invalid_argument& e) {
+      throw UsageError(e.what());
+    }
+  }
   throw UsageError("unknown command: " + opts.command);
 }
 

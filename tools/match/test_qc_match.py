@@ -797,6 +797,25 @@ class CatalogTest(unittest.TestCase):
         self.assertIn("NOT ON THE UNIT", text)
         self.assertIn("unit mismatch", text)
 
+    def test_mono_and_stereo_models_are_one_mapping_entry(self):
+        # A real unit names many blocks "Digital Delay (M)" and "Digital Delay (ST)"; the
+        # importer looks both up as "Digital Delay", and so does the check.
+        self.assertEqual(qm.model_key("Digital Delay (M)"), qm.model_key("Digital Delay"))
+        self.assertEqual(qm.model_key("VCA Comp (S/C)"), qm.model_key("vca comp"))
+        self.assertNotEqual(qm.model_key("Plate (Lush)"), qm.model_key("Plate"))
+        models = [
+            fake_model(6005, "Digital Delay (M)", "Delay", FakeSpec(0, "FEEDBACK", 0.0, 100.0, "%")),
+            fake_model(6011, "Digital Delay (ST)", "Delay", FakeSpec(0, "FEEDBACK", 0.0, 100.0, "%")),
+        ]
+        doc = qm.catalog_to_doc(NS(models={m.id: m for m in models}), "CorOS d14e")
+        mapping = {"models": {"Digital Delay": {"kind": "delay.digital", "verified": False, "params": {
+            "FEEDBACK": {"param": "feedback", "unit": "%", "transform": "linear"}}}}}
+        result = qm.check_mapping(doc, mapping)
+        self.assertEqual(result["summary"]["modelsFound"], 1)
+        self.assertEqual([m["id"] for m in result["models"][0]["matches"]], [6005, 6011])
+        self.assertEqual(result["models"][0]["params"][0]["foundOn"], [6005, 6011])
+        self.assertIs(qm.mapping_entry(mapping, "Digital Delay (ST)"), mapping["models"]["Digital Delay"])
+
     def test_real_mapping_runs_and_is_not_modified(self):
         before = hashlib.sha256(MAPPING_PATH.read_bytes()).hexdigest()
         with tempfile.TemporaryDirectory() as temp:

@@ -215,6 +215,21 @@ def norm(text: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(text).lower())
 
 
+FORMAT_MARKERS = ("m", "st", "s/c", "sc", "mono", "stereo")
+
+
+def model_key(name: Any) -> str:
+    """A model name as the importer looks it up in the mapping table: "Digital Delay (M)" and
+    "Digital Delay (ST)" are one model, so a trailing parenthesis holding only a mono or stereo
+    marker is dropped first (stripFormatSuffix in plugin/src/PresetImporter.cpp)."""
+    text = str(name).strip()
+    if text.endswith(")"):
+        open_at = text.rfind("(")
+        if open_at > 0 and text[open_at + 1 : -1].strip().lower() in FORMAT_MARKERS:
+            text = text[:open_at].strip()
+    return norm(text)
+
+
 def clean_number(value: float) -> float:
     return float(f"{value:.6g}")
 
@@ -245,9 +260,9 @@ def load_json(path: Path) -> Any:
 def mapping_entry(mapping: Dict[str, Any], model_name: Optional[str]) -> Optional[Dict[str, Any]]:
     if not model_name:
         return None
-    wanted = norm(model_name)
+    wanted = model_key(model_name)
     for name, entry in (mapping.get("models") or {}).items():
-        if norm(name) == wanted:
+        if model_key(name) == wanted:
             return entry
     return None
 
@@ -1449,13 +1464,13 @@ def check_mapping(doc: Dict[str, Any], mapping: Dict[str, Any]) -> Dict[str, Any
     unit_models = doc.get("models", [])
     by_name: Dict[str, List[Dict[str, Any]]] = {}
     for model in unit_models:
-        by_name.setdefault(norm(model["name"]), []).append(model)
+        by_name.setdefault(model_key(model["name"]), []).append(model)
 
     report_models = []
     counts = {"modelsMapped": 0, "modelsFound": 0, "paramsMapped": 0, "paramsFound": 0, "issues": 0}
     for name, entry in (mapping.get("models") or {}).items():
         counts["modelsMapped"] += 1
-        matches = by_name.get(norm(name), [])
+        matches = by_name.get(model_key(name), [])
         item: Dict[str, Any] = {
             "mappingName": name,
             "kind": entry.get("kind"),

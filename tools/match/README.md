@@ -24,7 +24,8 @@ written, no global is changed (no I/O or USB levels, no global EQ, no MIDI, no t
   overwritten.
 - It then tells you which preset is recalled as the scratch preset (the audio cuts for a moment),
   and works on one **free row** of it only. Every change is an unsaved edit of the grid.
-- When it ends, it says that nothing was saved. **Recalling any preset on the unit restores it.**
+- When it ends, it recalls the scratch preset again, which discards its own edits (the unit had none of
+  yours when it started), and says that nothing was saved. **Recalling any preset on the unit restores it.**
 
 ## Set up
 

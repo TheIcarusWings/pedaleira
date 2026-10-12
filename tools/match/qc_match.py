@@ -1207,6 +1207,9 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
     results: List[TakeResult] = []
     code = EXIT_OK
     qc: Optional[GuardedClient] = None
+    # The scratch preset this session recalled, recalled again at the end so its
+    # edits do not stay on the grid (the next session would refuse to start).
+    recalled: Optional[Tuple[Any, Any]] = None
     try:
         check_files(opts)
         in_port = port_value(kit.inputs, opts.qc_input, "input")
@@ -1235,6 +1238,7 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
             setlist = kit.setlists.FACTORY if opts.scratch_setlist == "factory" else kit.setlists.USER
             position = opts.scratch_slot or qc.find_preset(opts.scratch_preset, setlist).index
             preset = qc.read_preset(setlist, position)
+            recalled = (setlist, position)
         info.scratch = f"{getattr(preset, 'name', '') or info.scratch} ({scratch_description(opts)})"
 
         free = list(kit.free_rows(preset))
@@ -1309,6 +1313,15 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
         else:
             raise
     finally:
+        if qc is not None and recalled is not None:
+            # Only the session's own edits are discarded: the unit had none
+            # when it started, and the scratch preset was recalled by it.
+            try:
+                qc.read_preset(*recalled)
+                print("\nThe scratch preset was recalled again: the session's edits are gone from the grid.")
+            except Exception as error:
+                print(f"\nCould not recall the scratch preset again ({error}); recall any preset on the unit to clear the session's edits.",
+                      file=sys.stderr)
         if qc is not None:
             try:
                 qc.close()

@@ -2,9 +2,10 @@
 
 The engine side of the capture wizard (Phase 4). A capture session is the state of one
 capture; the audio, the data checks, the trainer and the review hang off it. The wizard
-screens (the boards in the design canvas, "Capture 1" to "Capture 7") are not built: they
-drive the `capture.*` commands below. Everything here is tested without hardware, against a
-simulated device and a stand-in trainer (`test/src/capture_tests.cpp`).
+screens (`plugin/ui/pedaleira/pages/Capture*`, the boards "Capture 1" to "Capture 7" of the
+design canvas) drive the `capture.*` commands below and nothing else. Everything here is
+tested without hardware, against a simulated device and a stand-in trainer
+(`test/src/capture_tests.cpp`).
 
 | Piece | File | What it is |
 |---|---|---|

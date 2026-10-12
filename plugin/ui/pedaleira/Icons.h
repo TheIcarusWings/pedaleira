@@ -15,6 +15,8 @@ enum class Icon {
   check, plus, close, chevronUp, chevronDown, chevronRight, arrowLeft,
   // The library and the importer.
   star, search, warning, info, attention, ear, lock, device, helix, document, pedaleiraPresets,
+  // The capture wizard.
+  capturePedal, captureAmpHead, captureAmpCab, captureModeller, play,
 };
 
 const juce::Path& path(Icon icon);

@@ -29,7 +29,9 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   shell->setPageComponent(Page::grid, grid.get());
   library = std::make_unique<LibraryPage>(*client);
   importer = std::make_unique<ImportPage>(*client);
+  capturePage = std::make_unique<CapturePage>(*client);
   shell->setPageComponent(Page::library, library.get());
+  shell->setPageComponent(Page::capture, capturePage.get());
   shell->setPageComponent(Page::import, importer.get());
 #if PEDALEIRA_STANDALONE_DEVICE
   device = StandaloneDevice::create(processor);
@@ -37,7 +39,6 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   settingsPage = std::make_unique<SettingsPage>(*client, device.get());
   shell->setPageComponent(Page::settings, settingsPage.get());
   const std::pair<Page, const char*> pending[] = {
-      {Page::capture, "Capture"},
       {Page::live, "Live"},
   };
   for (const auto& [page, name] : pending) {
@@ -67,6 +68,8 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   shell->onPageShown = [this](Page page) {
     if (page == Page::library)
       library->refresh();
+    else if (page == Page::capture)
+      capturePage->refresh();
     else if (page == Page::import)
       importer->refresh();
     else if (page == Page::settings)
@@ -78,6 +81,11 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
     grid->rigChanged();
   };
   importer->onChanged = [this] {
+    shell->header().refresh();
+    grid->rigChanged();
+  };
+  // A capture was added to the rig or saved to the library.
+  capturePage->onChanged = [this] {
     shell->header().refresh();
     grid->rigChanged();
   };
@@ -106,6 +114,7 @@ PedaleiraEditor::~PedaleiraEditor() {
   shell->onPageShown = nullptr;
   library->onChanged = nullptr;
   importer->onChanged = nullptr;
+  capturePage->onChanged = nullptr;
   importer->onOpenGrid = nullptr;
   importer->onPickCapture = nullptr;
   grid->onOpenPluginWindow = nullptr;
@@ -115,6 +124,7 @@ PedaleiraEditor::~PedaleiraEditor() {
   removeAllChildren();
   gig.reset();
   modes.reset();
+  capturePage.reset();
   importer.reset();
   // The page lets go of the device before the device goes.
   settingsPage.reset();

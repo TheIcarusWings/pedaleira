@@ -12,6 +12,7 @@
 #include "DeviceSettings.h"
 #include "EngineClient.h"
 #include "pages/ComingSoon.h"
+#include "pages/CapturePage.h"
 #include "pages/FootswitchModesPage.h"
 #include "pages/GigView.h"
 #include "pages/GridPage.h"
@@ -53,6 +54,7 @@ private:
   std::unique_ptr<GridPage> grid;
   std::unique_ptr<LibraryPage> library;
   std::unique_ptr<ImportPage> importer;
+  std::unique_ptr<CapturePage> capturePage;
   std::unique_ptr<SettingsPage> settingsPage;
   std::unique_ptr<FootswitchModesPage> modes;
   std::unique_ptr<GigView> gig;

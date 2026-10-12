@@ -20,8 +20,8 @@ code or models.
 
 Work in progress, not released. The engine is built and tested, and the standalone app now
 opens Pedaleira's own window: the grid editor, the block editors, scenes and footswitches,
-Gig View, the library and the preset importer are in, as first passes. Settings, the capture
-wizard and the TONE3000 page are next. The plugin formats still show upstream's screen.
+Gig View, the library, the preset importer and the capture wizard are in, as first passes.
+Settings and the TONE3000 page are next. The plugin formats still show upstream's screen.
 There is no installer and no release yet.
 
 ## Features

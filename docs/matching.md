@@ -287,3 +287,102 @@ passed, 0 to 100. The markdown starts with the failures, then lists every metric
   slightly longer or shorter than the filter that decodes it (at 100 ppm the top of the sweep
   arrives 0.8 ms late against the bottom, a change of phase and not of level). Interfaces are
   well within 50 ppm; if `driftPpm` is far beyond that, fix the clocking and record again.
+
+## Automatic sessions with a Quad Cortex over USB
+
+`tools/match/qc_match.py` does the recording session of this page by itself for your own Quad
+Cortex (QC): for each planned setting it sets up the unit over USB, records its output with
+`PedaleiraMatch record`, renders our equivalent with `PedaleiraRender`, runs `analyse` and
+`compare`, and writes a report. It uses pyquadcortex (MIT), which speaks the protocol the unit
+already speaks to Cortex Control. The details, every option and the tests are in
+`tools/match/README.md`.
+
+### Setup
+
+- `pip install pyquadcortex` and the hidapi library (macOS `brew install hidapi`, Debian and
+  Ubuntu `sudo apt install libhidapi-hidraw0`, Windows: included). Python 3.11 or newer.
+- **Quit Cortex Control**: it holds the USB interface exclusively, and the script refuses to run
+  when it cannot open the unit.
+- 48 kHz, in the operating system's audio settings for the unit and in the recorder.
+- USB routing: the script puts the effect on one free row of a scratch preset, fed from `USB 5/6`
+  and sent to `USB 3/4`. You play the test signal on the QC's USB outputs 5 and 6 (`--out-ch 5,6`)
+  and record its USB inputs 3 and 4 (`--in-ch 3,4`). The ports (`--qc-input`, `--qc-output`) and the
+  channels are options, because the channel layout the computer sees has not been checked on a
+  unit.
+- Leave the unit's USB levels, the row's lane volume and the input gate alone, at unity and off.
+  The script does not change them.
+
+### The never-save rule
+
+The script never stores anything on the unit: no preset, no setlist, no setting, no global. This is
+enforced in code, not left to care: the unit is reached only through an allow-list that lets
+through the reads (version, catalogue, find, read, `preset_dirty`) and the grid edits a take needs
+(`set_block`, `remove_block`, `set_chain_input`, `set_chain_output`, `set_param`, `set_bypass`,
+`switch_scene`) and raises on any other call, `save_current_preset` and `write_preset` first of all.
+Before it touches the grid it asks the unit whether the preset on it has unsaved edits, and if it
+has it stops and tells you to save or discard them on the unit. It then names the preset it
+recalls as scratch (the audio cuts for a moment; a factory preset, `Brit 2203` by default, or the
+current preset with `--use-current`) and edits one free row only. Every change is an unsaved edit
+of the grid. At the end it says that nothing was saved: **recalling any preset on the unit restores
+it.**
+
+### A plan
+
+A plan is a list of takes: the QC model, its parameters in their own units, and optionally our kind
+and parameters (otherwise they come from `resources/import/quad-cortex.json`, and the report says
+when that mapping is unverified or a parameter has no mapping). A delay at three times, a
+compressor at two ratios and a reverb at two decays (`tools/match/example-plan.json` also has a
+bypass take):
+
+```json
+{
+  "format": "pedaleira-match-plan", "version": 1,
+  "takes": [
+    { "name": "delay-digital-250ms-fb35", "model": "Digital Delay",
+      "params": { "TIME": 250, "FEEDBACK": 35, "MIX": 100 }, "ours": { "params": { "timeMs": 250 } } },
+    { "name": "delay-digital-500ms-fb35", "model": "Digital Delay",
+      "params": { "TIME": 500, "FEEDBACK": 35, "MIX": 100 }, "ours": { "params": { "timeMs": 500 } } },
+    { "name": "delay-digital-750ms-fb35", "model": "Digital Delay",
+      "params": { "TIME": 750, "FEEDBACK": 35, "MIX": 100 }, "ours": { "params": { "timeMs": 750 } } },
+    { "name": "comp-vca-ratio4-thr-30", "model": "VCA Comp",
+      "params": { "THRESHOLD": -30, "RATIO": 4 }, "ours": { "params": { "ratio": 4 } } },
+    { "name": "comp-vca-ratio10-thr-30", "model": "VCA Comp",
+      "params": { "THRESHOLD": -30, "RATIO": 10 }, "ours": { "params": { "ratio": 10 } } },
+    { "name": "reverb-hall-decay2", "model": "Hall",
+      "params": { "DECAY": 2, "PRE DELAY": 0, "MIX": 100 }, "ours": { "params": { "decayS": 2 } } },
+    { "name": "reverb-hall-decay4", "model": "Hall",
+      "params": { "DECAY": 4, "PRE DELAY": 0, "MIX": 100 }, "ours": { "params": { "decayS": 4 } } }
+  ]
+}
+```
+
+The QC parameter names above (`TIME`, `DECAY`, `RATIO`) are guesses until `--catalog` has been run
+on the unit. A dry run (the default without `--go`) prints every grid edit, recording and render
+without contacting the unit; the real session needs `--go`:
+
+```
+python3 tools/match/qc_match.py --plan plan.json
+python3 tools/match/qc_match.py --plan plan.json --go --dir match
+```
+
+The session folder gets `signal/`, `ref/` (the recordings), `ours/`, `analysis/`, `presets/` (the
+presets and command scripts rendered) and `report.md`: for each take the QC settings, our settings,
+whether the mapping is verified, the score per group and overall, the metrics out of tolerance, and
+the takes that failed.
+
+### Catalogue and mapping check
+
+```
+python3 tools/match/qc_match.py --catalog --out qc-reports
+python3 tools/match/qc_match.py --check-mapping --out qc-reports
+```
+
+`--catalog` reads the unit's block catalogue (read only) and writes every model with its parameter
+names, ranges and units to `qc-reports/qc-catalog.json`. `--check-mapping` compares it with
+`resources/import/quad-cortex.json` and writes `qc-reports/mapping-check.md` and `.json`: which
+mapped models and parameter names exist on the unit and which do not, unit and range mismatches,
+and the parameters the unit has that the mapping does not use. It does not change the mapping file.
+
+**What to send back:** `qc-reports/qc-catalog.json`, `qc-reports/mapping-check.md` and, after a
+session, `match/report.md`. With the catalogue the mapping can be completed and its entries marked
+verified one by one.

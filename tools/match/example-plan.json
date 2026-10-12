@@ -1,0 +1,31 @@
+{
+  "format": "pedaleira-match-plan",
+  "version": 1,
+  "takes": [
+    { "name": "bypass", "bypass": true, "notes": "The unit's own path: the first thing to compare against when something looks off." },
+
+    { "name": "delay-digital-250ms-fb35", "model": "Digital Delay",
+      "params": { "TIME": 250, "FEEDBACK": 35, "MIX": 100 },
+      "ours": { "params": { "timeMs": 250 } } },
+    { "name": "delay-digital-500ms-fb35", "model": "Digital Delay",
+      "params": { "TIME": 500, "FEEDBACK": 35, "MIX": 100 },
+      "ours": { "params": { "timeMs": 500 } } },
+    { "name": "delay-digital-750ms-fb35", "model": "Digital Delay",
+      "params": { "TIME": 750, "FEEDBACK": 35, "MIX": 100 },
+      "ours": { "params": { "timeMs": 750 } } },
+
+    { "name": "comp-vca-ratio4-thr-30", "model": "VCA Comp",
+      "params": { "THRESHOLD": -30, "RATIO": 4 },
+      "ours": { "params": { "ratio": 4 } } },
+    { "name": "comp-vca-ratio10-thr-30", "model": "VCA Comp",
+      "params": { "THRESHOLD": -30, "RATIO": 10 },
+      "ours": { "params": { "ratio": 10 } } },
+
+    { "name": "reverb-hall-decay2", "model": "Hall",
+      "params": { "DECAY": 2, "PRE DELAY": 0, "MIX": 100 },
+      "ours": { "params": { "decayS": 2 } } },
+    { "name": "reverb-hall-decay4", "model": "Hall",
+      "params": { "DECAY": 4, "PRE DELAY": 0, "MIX": 100 },
+      "ours": { "params": { "decayS": 4 } } }
+  ]
+}

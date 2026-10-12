@@ -272,6 +272,11 @@ AppShell::AppShell(EngineClient& client) : engine(client), top(client) {
   addAndMakeVisible(top);
   nav.onSelect = [this](Page selected) { showPage(selected); };
   top.onGigView = [this] { showGigView(true); };
+  top.onTuner = [this] {
+    showPage(Page::live);
+    if (onTunerRequested)
+      onTunerRequested();
+  };
   top.refresh();
   seenRevision = engine.revision();
   startTimerHz(10);

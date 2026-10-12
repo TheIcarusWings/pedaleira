@@ -36,14 +36,10 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
 #endif
   settingsPage = std::make_unique<SettingsPage>(*client, device.get());
   shell->setPageComponent(Page::settings, settingsPage.get());
-  const std::pair<Page, const char*> pending[] = {
-      {Page::capture, "Capture"},
-      {Page::live, "Live"},
-  };
-  for (const auto& [page, name] : pending) {
-    comingSoon.push_back(std::make_unique<ComingSoon>(name, "This page comes in a later build."));
-    shell->setPageComponent(page, comingSoon.back().get());
-  }
+  live = std::make_unique<LivePage>(*client);
+  shell->setPageComponent(Page::live, live.get());
+  comingSoon.push_back(std::make_unique<ComingSoon>("Capture", "This page comes in a later build."));
+  shell->setPageComponent(Page::capture, comingSoon.back().get());
   modes = std::make_unique<FootswitchModesPage>(*client);
   gig = std::make_unique<GigView>(*client);
   shell->setModesView(modes.get());
@@ -54,9 +50,18 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
     modes->grabKeyboardFocus();
   };
   modes->onBack = [this] { shell->showModesView(false); };
-  gig->onExit = [this] { shell->showGigView(false); };
+  gig->onExit = [this] {
+    shell->showGigView(false);
+    // Closing the Gig View stopped the tuner; the Live page may still want it.
+    live->resumeListening();
+  };
+  // The tempo set on the Live page shows in the header at once.
+  live->onTempoChanged = [this] { shell->header().refresh(); };
+  shell->onTunerRequested = [this] { live->showTab(LivePage::Tab::tuner); };
   shell->onRigChanged = [this] {
     grid->rigChanged();
+    if (shell->currentPage() == Page::live)
+      live->rigChanged();
     if (shell->isModesViewShown())
       modes->refresh();
     if (shell->currentPage() == Page::library)
@@ -104,6 +109,9 @@ PedaleiraEditor::~PedaleiraEditor() {
   // The pages go before the shell that shows them.
   shell->onRigChanged = nullptr;
   shell->onPageShown = nullptr;
+  shell->onTunerRequested = nullptr;
+  live->onTempoChanged = nullptr;
+  gig->onExit = nullptr;
   library->onChanged = nullptr;
   importer->onChanged = nullptr;
   importer->onOpenGrid = nullptr;
@@ -116,6 +124,8 @@ PedaleiraEditor::~PedaleiraEditor() {
   gig.reset();
   modes.reset();
   importer.reset();
+  // The tuner stops listening as the Live page goes.
+  live.reset();
   // The page lets go of the device before the device goes.
   settingsPage.reset();
   device.reset();

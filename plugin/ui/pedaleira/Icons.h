@@ -12,7 +12,7 @@ enum class Icon {
   // The navigation rail.
   grid, library, capture, import, live, settings,
   // Small actions.
-  check, plus, close, chevronUp, chevronDown, chevronRight, arrowLeft,
+  check, plus, minus, close, chevronUp, chevronDown, chevronRight, arrowLeft,
   // The library and the importer.
   star, search, warning, info, attention, ear, lock, device, helix, document, pedaleiraPresets,
 };

@@ -94,6 +94,9 @@ public:
   std::function<void()> onRigChanged;
   // A page was chosen on the rail (or by showPage): it can read its data again.
   std::function<void(Page)> onPageShown;
+  // The header's Tuner button opened the Live page (after onPageShown): the
+  // page can put its Tuner tab up.
+  std::function<void()> onTunerRequested;
 
   Header& header() { return top; }
   NavRail& rail() { return nav; }

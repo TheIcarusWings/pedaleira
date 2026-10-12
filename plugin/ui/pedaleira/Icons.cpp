@@ -20,6 +20,7 @@ const char* source(Icon icon) {
              "0a2 2 0 1 0-4 0";
     case Icon::check: return "M5 12l5 5 9-10";
     case Icon::plus: return "M12 5v14M5 12h14";
+    case Icon::minus: return "M5 12h14";
     case Icon::close: return "M6 6l12 12M18 6L6 18";
     case Icon::chevronUp: return "M6 15l6-6 6 6";
     case Icon::chevronDown: return "M6 9l6 6 6-6";

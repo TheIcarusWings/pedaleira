@@ -20,12 +20,16 @@
 // Run locally:  ./script/test-dsp.sh          (configures/builds/runs)
 // or manually:  cmake --build build --target DspTests
 //               ctest --test-dir build -R Dsp --output-on-failure
+#include "AgentHub.h"
 #include "ChainBlock.h"
 #include "ChainOversampler.h"
+#include "CommandServer.h"
+#include "LibraryPaths.h"
 #include "NamEngine.h"
 #include "Processor.h"
 #include "RtWorkerPool.h"
 #include "test_helpers.h"
+#include "test_block_kinds.h"
 
 #include <gtest/gtest.h>
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -831,6 +835,72 @@ int main(int argc, char** argv) {
   // defaults, whatever calibration/oversampling the developer's own
   // machine-wide settings file holds.
   TONE3000Processor::disableMachineDefaultParametersForTesting();
+  // Drop-loaded files (loadLocalTone and friends) stash into a per-process
+  // scratch folder instead of the developer's real app-data LocalModels.
+  // Set before any processor exists: the constructor starts the stash GC.
+  const juce::File localModels =
+      juce::File::getSpecialLocation(juce::File::tempDirectory)
+          .getChildFile("t3k-dsp-tests-models-" + juce::Uuid().toString());
+  localModels.createDirectory();
+  TONE3000Processor::setLocalModelsDirForTesting(localModels);
+  // The footswitch mode is a machine-wide setting kept in the user's settings
+  // file; here it lives in a scratch file, so no test reads the developer's
+  // mode or writes one. Before any processor exists: the constructor reads it.
+  const juce::File footswitchSettings =
+      juce::File::getSpecialLocation(juce::File::tempDirectory)
+          .getChildFile("t3k-dsp-tests-footswitch-" + juce::Uuid().toString() + ".settings");
+  TONE3000Processor::setFootswitchSettingsFileForTesting(footswitchSettings);
+  // The library (setlists, assets, guitar profiles) lives in the user's
+  // Documents; here every processor gets a scratch one (a test that wants
+  // its own calls setPresetStoreForTesting), and what a test moves "to the
+  // trash" goes to a scratch folder instead of the developer's real trash.
+  // One root for all of it: LibraryPaths::libraryRoot() is this override.
+  const juce::File libraryRoot =
+      juce::File::getSpecialLocation(juce::File::tempDirectory)
+          .getChildFile("t3k-dsp-tests-library-" + juce::Uuid().toString());
+  TONE3000Processor::setLibraryRootForTesting(libraryRoot.getChildFile("Library"));
+  SetlistLibrary::setTrashDirForTesting(libraryRoot.getChildFile("Trash"));
+  // The plugin scanner keeps its cache in a scratch folder and never looks
+  // in the formats' default locations: no test reads or writes the
+  // developer's plugin cache, or scans the plugins installed on the machine.
+  // Tests name the folders they scan (the build tree's test plugin).
+  const juce::File pluginCache =
+      juce::File::getSpecialLocation(juce::File::tempDirectory)
+          .getChildFile("t3k-dsp-tests-plugins-" + juce::Uuid().toString());
+  pluginCache.createDirectory();
+  PluginScanner::setCacheDirForTesting(pluginCache);
+  PluginScanner::setDefaultLocationsEnabled(false);
+  // The agent layer (every EngineCommands has one) keeps its settings, the
+  // command server's connection file and the scratch folder in a
+  // per-process temp folder: no test reads the developer's permissions, or
+  // leaves a connection file behind. (Its guitar profiles are in the library
+  // set up above.)
+  const juce::File agentData =
+      juce::File::getSpecialLocation(juce::File::tempDirectory)
+          .getChildFile("t3k-dsp-tests-agents-" + juce::Uuid().toString());
+  agentData.createDirectory();
+  AgentSettings::setFileForTesting(agentData.getChildFile("agents.settings"));
+  CommandServer::setConnectionFileForTesting(agentData.getChildFile("command-server.json"));
+  LibraryPaths::setScratchDirForTesting(agentData.getChildFile("Scratch"));
+  // The test-only block kinds, before any test restores a state naming one.
+  registerTestBlockKinds();
   ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  const int result = RUN_ALL_TESTS();
+  // Hosted plugin instances are destroyed on a later turn of the message
+  // loop; give the last ones theirs before JUCE shuts down.
+  juce::MessageManager::getInstance()->runDispatchLoopUntil(50);
+  TONE3000Processor::setLocalModelsDirForTesting(juce::File());
+  localModels.deleteRecursively();
+  PluginScanner::setCacheDirForTesting(juce::File());
+  pluginCache.deleteRecursively();
+  TONE3000Processor::setFootswitchSettingsFileForTesting(juce::File());
+  footswitchSettings.deleteFile();
+  TONE3000Processor::setLibraryRootForTesting(juce::File());
+  SetlistLibrary::setTrashDirForTesting(juce::File());
+  libraryRoot.deleteRecursively();
+  AgentSettings::setFileForTesting(juce::File());
+  CommandServer::setConnectionFileForTesting(juce::File());
+  LibraryPaths::setScratchDirForTesting(juce::File());
+  agentData.deleteRecursively();
+  return result;
 }

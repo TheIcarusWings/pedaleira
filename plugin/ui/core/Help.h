@@ -26,9 +26,7 @@ enum class Key {
   presetPrev, presetNext, presetBrowse, presetSave, presetNew, presetRename, presetDelete,
   presetReorder, presetDrag, presetPcToggle, presetPc,
   // Tone browser
-  browserSearch, browserSearchProfile, browserMoreFilters, browserFewerFilters, browserVerified, browserProfile, browserGear,
-  browserSort, browserFormat, browserTags, browserMakes, browserCreators, browserCalibrated,
-  browserClearFilter, browserProfileLocked, browserCalibratedIr, browserBackToTrending,
+  browserProfile, browserGear, browserClearFilter, browserBackToTrending,
   // Sign-in screen
   signInBack, signInCopyLink, signInPhone, signInNewCode, signInRetry, signInDismiss,
   // Chain gallery
@@ -38,7 +36,7 @@ enum class Key {
   // Block card
   blockIn, blockOut, blockOutIr, blockMix, blockNormalize, blockNormalizeOverridden, blockSize,
   blockSizeChip, blockCalibrated, blockUncalibrated, eqToggle, toneInfo, toneInfoLogin, viewOnT3k,
-  favoriteTone, unfavoriteTone, eqSlidersView, eqCurveView, eqReset, eqPre, eqPower, shareTone,
+  eqSlidersView, eqCurveView, eqReset, eqPre, eqPower, shareTone,
   modelSelectSignedOut, backToChain,
   // EQ editor
   eqFader, eqFaderPass, eqDot, eqFreqChip, eqGainChip, eqQChip,

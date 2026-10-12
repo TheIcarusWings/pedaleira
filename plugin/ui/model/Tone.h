@@ -63,9 +63,6 @@ struct Tone {
   int catalogModelCount() const { return isNam() ? a2ModelsCount : modelsCount; }
 
   static Tone parse(const juce::var& v);
-  // A copy with the favourite fields patched (the optimistic toggle), raw
-  // included so the pushed metadata agrees with what the card shows.
-  Tone withFavorite(bool favorite, int count) const;
   // A copy carrying `models` (the Select flow's `{ ...tone, models }`), raw
   // included: native reads the active model from the payload it is handed.
   Tone withModels(std::vector<Model> models) const;

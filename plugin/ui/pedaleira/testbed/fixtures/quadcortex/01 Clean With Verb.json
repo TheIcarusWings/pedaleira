@@ -1,0 +1,36 @@
+{
+  "format": "pedaleira-foreign-preset",
+  "version": 1,
+  "source": "quad-cortex",
+  "sourceVersion": "CorOS 4.0.1",
+  "name": "Clean With Verb",
+  "tempo": 96,
+  "defaultScene": 0,
+  "rows": [
+    { "index": 0, "blocks": [
+      { "position": 0, "model": "VCA Comp (M)", "category": "Compressor", "enabled": true,
+        "params": { "THRESHOLD": { "value": -20.0, "unit": "dB" } } },
+      { "position": 2, "model": "Brit 2203", "category": "Guitar Amplifier", "enabled": true,
+        "params": { "GAIN": { "value": 5.5 } } },
+      { "position": 3, "model": "4x12 Closed (M)", "category": "Cabsim Guitar (M)", "enabled": true, "params": {} },
+      { "position": 4, "model": "Digital Delay (ST)", "category": "Delay", "enabled": true,
+        "params": { "FEEDBACK": { "value": 30.0, "unit": "%" }, "MIX": { "value": 25.0, "unit": "%" },
+                    "TIME": { "value": 350.0, "unit": "ms" } } },
+      { "position": 5, "model": "Hall", "category": "Reverb", "enabled": true,
+        "params": { "PRE DELAY": { "value": 20.0, "unit": "ms" }, "MIX": { "value": 30.0, "unit": "%" } } }
+    ] }
+  ],
+  "routing": {
+    "rows": [
+      { "index": 0,
+        "input": { "type": "device", "channel": 1, "stereo": false, "name": "INPUT_1" },
+        "output": { "type": "device", "pair": 1, "name": "XLR_1_2" } }
+    ],
+    "splits": []
+  },
+  "scenes": [
+    { "name": "Clean", "enabled": { "0:4": false, "0:5": false }, "params": {} },
+    { "name": "Wet", "enabled": { "0:4": true, "0:5": true }, "params": { "0:4": { "FEEDBACK": 55.0 } } }
+  ],
+  "warnings": []
+}

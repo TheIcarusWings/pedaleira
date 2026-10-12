@@ -1,4 +1,5 @@
 #include "Processor.h"
+#include "AppIdentity.h"
 #include "json.hpp"
 #include "NAM/wavenet/a2_fast.h"
 #include <algorithm>
@@ -34,12 +35,12 @@ constexpr double kMaxIrSeconds = 10.0;
 
 // The short/long cutoff: cab IRs top out around 0.5 s, reverbs start well
 // above 1 s; nothing meaningful lives at the boundary. IRs always convolve
-// at the base rate (see ChainBlock::irBaseRateIsland), so the sample
+// at the base rate (see BlockProcessor::runsAtBaseRate), so the sample
 // threshold is a constant.
 constexpr double kShortIrMaxSeconds = 1.0;
 constexpr int kShortIrMaxBaseSamples = static_cast<int>(kShortIrMaxSeconds * kChainBaseSampleRate);
 
-// The cab-like / reverb-like verdict for a loaded IR (ChainBlock::irIsLong),
+// The cab-like / reverb-like verdict for a loaded IR (IrBlockProcessor::isLong),
 // from the tone's catalog gear and the kernel-length fallback. The gear tag
 // wins where it is unambiguous: a "cab" is a cab however much room tail or
 // trailing noise floor the file carries, and a "space" is a reverb however
@@ -126,12 +127,22 @@ bool namConfigIsA2(const nlohmann::json& modelJson) {
 // file; stale entries age out (see cleanLocalModelStash). Same app-data
 // root as PresetManager. Persisted URLs are resolved back to this folder by
 // resolveLocalModelFile, which is what survives the iOS container rotating.
+// Test / offline override of the folder below (setLocalModelsDirForTesting).
+// Loads and the GC thread read it from several threads, hence the lock.
+std::mutex localModelsOverrideMutex;
+juce::File localModelsOverride;
+
 juce::File localModelsDir() {
+  {
+    const std::lock_guard<std::mutex> lock(localModelsOverrideMutex);
+    if (localModelsOverride != juce::File())
+      return localModelsOverride;
+  }
   juce::File base = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
 #if JUCE_MAC
   base = base.getChildFile("Application Support");
 #endif
-  return base.getChildFile("TONE3000").getChildFile("LocalModels");
+  return base.getChildFile(kAppDataFolderName).getChildFile("LocalModels");
 }
 
 // FNV-1a over the file bytes: stable across sessions and platforms without
@@ -353,7 +364,7 @@ float TONE3000Processor::computeIrNormalizationGain(const juce::File& irFile,
   }
 
   // The convolver resamples the IR to the base rate (IR convolution always
-  // runs there, see ChainBlock::irBaseRateIsland) and, with Normalise::no,
+  // runs there, see BlockProcessor::runsAtBaseRate) and, with Normalise::no,
   // scales it by fileRate/baseRate to preserve the filter's magnitude
   // response; the net effect on kernel *energy* is one factor of
   // fileRate/baseRate. Fold that in so the gain matches what the engine
@@ -579,6 +590,15 @@ juce::var TONE3000Processor::finishLocalToneLoad(const juce::String& title,
   juce::DynamicObject::Ptr ok = new juce::DynamicObject();
   ok->setProperty("blockId", juce::String(blockId));
   return juce::var(ok.get());
+}
+
+juce::File TONE3000Processor::getLocalModelsDir() { return localModelsDir(); }
+
+juce::File TONE3000Processor::setLocalModelsDirForTesting(const juce::File& dir) {
+  const std::lock_guard<std::mutex> lock(localModelsOverrideMutex);
+  const juce::File previous = localModelsOverride;
+  localModelsOverride = dir;
+  return previous;
 }
 
 void TONE3000Processor::cleanLocalModelStash() {
@@ -852,7 +872,8 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
     ChainBlockType type,
     const std::vector<uint8_t>& modelData,
     const juce::String& filename,
-    double namSlimSize) {
+    double namSlimSize,
+    int namVoices) {
   PreparedBlockModel out;
 
   if (modelData.empty()) {
@@ -865,7 +886,6 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
                            filename + " (" + juce::String((juce::int64)modelData.size()) + " bytes)");
 
   const int domainBlockSize = chainDomainBlockSize();
-  out.preparedBlockSize = domainBlockSize;
 
   try {
     if (type == ChainBlockType::NAM) {
@@ -879,11 +899,13 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
       // Oversampling: phase-safe architectures get one native-rate instance
       // per phase (see NamEngine.h); anything else runs a single instance
       // time-scaled at the full chain rate. Dual mono doubles the set: one
-      // independent voice per channel (voice-major layout). Both counts are
-      // read once here and baked into the engine; the apply path re-queues
-      // the build if either requirement moved while it was in flight.
+      // independent voice per channel (voice-major layout). The factor is
+      // read once here and the voice count is the caller's reading for the
+      // block's row (wantedNamVoices); both are baked into the engine, and
+      // the apply path re-queues the build if either requirement moved
+      // while it was in flight.
       const int oversampleFactor = chainOversampleFactor.load();
-      const int voices = wantedNamVoices();
+      const int voices = juce::jlimit(1, 2, namVoices);
       const bool phaseSafe = oversampleFactor > 1 && namConfigIsPhaseSafe(config);
       const int phaseCount = phaseSafe ? oversampleFactor : 1;
       const int instanceCount = phaseCount * voices;
@@ -931,13 +953,13 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
       engine->setSlimmableSize(namSlimSize);
       engine->prepare(domainBlockSize);
 
-      out.namEngine = std::move(engine);
       juce::Logger::writeToLog(
           "[ModelLoader] NAM model prepared, model sample rate: " +
-          juce::String(out.namEngine->getModelSampleRate()) +
+          juce::String(engine->getModelSampleRate()) +
           (phaseSafe ? " (" + juce::String(phaseCount) + " phase instances)" : "") +
           (voices > 1 ? " (" + juce::String(voices) + " voices)" : ""));
 
+      out.processor = std::make_unique<NamBlockProcessor>(std::move(engine), domainBlockSize);
       out.success = true;
     } else {
       // IRs go through the JUCE convolution/format-reader API, which wants a
@@ -998,12 +1020,13 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
       };
 
       // IR convolution always runs at the base rate: when the chain is
-      // oversampled, the block's island (ChainBlock::irBaseRateIsland) hands
+      // oversampled, the block's island (BlockProcessor::runsAtBaseRate) hands
       // the convolver base-rate frames, and the RT path never passes more
       // than kIrConvolverMaxBlockSize of them per call. So the spec is
       // factor-independent: base rate, base block size capped at that.
       const int irBlockSize = irConvolverBlockSize();
-      out.preparedIrBlockSize = irBlockSize;
+      IrBlockProcessor::Engine ir;
+      ir.preparedBlockSize = irBlockSize;
       juce::dsp::ProcessSpec spec{kChainBaseSampleRate, static_cast<juce::uint32>(irBlockSize),
                                   2};
 
@@ -1041,7 +1064,7 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
                                          juce::dsp::Convolution::Normalise::no);
       convolverMono->prepare(spec);
       elapseConvolverInstallFade(*convolverMono);
-      out.convolverMono = std::move(convolverMono);
+      ir.mono = std::move(convolverMono);
 
       // True-stereo convolver: only meaningful when the file actually has 2 channels.
       if (irNumChannels > 1) {
@@ -1051,7 +1074,7 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
                                              juce::dsp::Convolution::Normalise::no);
         convolverStereo->prepare(spec);
         elapseConvolverInstallFade(*convolverStereo);
-        out.convolverStereo = std::move(convolverStereo);
+        ir.stereo = std::move(convolverStereo);
       }
 
       // The engine was built synchronously above, so it can report the real
@@ -1060,28 +1083,27 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
       // defensively. (The block's final cab/reverb classification also
       // weighs the tone's gear, which only the apply step knows; see
       // irIsLongFor.)
-      const int engineIrSamples = out.convolverMono->getCurrentIRSize();
+      const int engineIrSamples = ir.mono->getCurrentIRSize();
       const int irLengthBaseSamples = engineIrSamples > 0 ? engineIrSamples : irLengthUpperBound;
 
-      out.irNumChannels = irNumChannels;
-      out.irLengthBaseSamples = irLengthBaseSamples;
-      out.irIsLongByLength = irLengthBaseSamples > kShortIrMaxBaseSamples;
-      out.irNormalizationGainLinear = computeIrNormalizationGain(tempFile, maxIrFileSamples);
+      ir.numChannels = irNumChannels;
+      ir.lengthBaseSamples = irLengthBaseSamples;
+      ir.isLongByLength = irLengthBaseSamples > kShortIrMaxBaseSamples;
+      ir.normalizationGainLinear = computeIrNormalizationGain(tempFile, maxIrFileSamples);
 
       juce::Logger::writeToLog(
           "[ModelLoader] IR prepared: " + juce::String(irNumChannels) + " ch, " +
           juce::String(irLengthBaseSamples / kChainBaseSampleRate, 2) + " s (" +
-          (out.irIsLongByLength ? "long" : "short") + ", norm " +
-          juce::String(juce::Decibels::gainToDecibels(out.irNormalizationGainLinear), 1) + " dB)");
+          (ir.isLongByLength ? "long" : "short") + ", norm " +
+          juce::String(juce::Decibels::gainToDecibels(ir.normalizationGainLinear), 1) + " dB)");
+      out.processor = std::make_unique<IrBlockProcessor>(std::move(ir));
       out.success = true;
     }
   } catch (const std::exception& e) {
     juce::Logger::writeToLog("[ModelLoader] Error preparing model '" + filename +
                              "': " + e.what());
     out.success = false;
-    out.namEngine.reset();
-    out.convolverMono.reset();
-    out.convolverStereo.reset();
+    out.processor.reset();
   }
 
   return out;
@@ -1101,8 +1123,14 @@ void TONE3000Processor::requestSwapFadeAndWait(const std::string& blockId, bool 
       return;
     // Nothing audible to fade: fresh block, failed/unloaded block, powered
     // off, or no engine yet. The change can splice in directly.
-    const bool audible = block->loaded && block->enabled &&
-                         (block->namEngine != nullptr || block->convolverMono != nullptr);
+    // A powered-off block whose tail is still ringing out (spillover, see
+    // ChainBlock.h) is audible too. The tail gain is audio-thread state, but
+    // that thread only touches it under this lock; it never moves for a
+    // kind without the capability.
+    const bool tailOpen =
+        block->spillTailGain.isSmoothing() || block->spillTailGain.getCurrentValue() > 0.0f;
+    const bool audible = block->loaded && (block->enabled || tailOpen) &&
+                         block->processor != nullptr && block->processor->hasEngine();
     if (!audible)
       return;
     block->swapMuteWet.store(muteWetOnly);
@@ -1122,6 +1150,28 @@ void TONE3000Processor::requestSwapFadeAndWait(const std::string& blockId, bool 
     if (block == nullptr || block->swapFadeDone.load())
       return;
   }
+}
+
+std::unique_ptr<TONE3000Processor::ChainEditFade>
+TONE3000Processor::fadeForModelInstall(const std::string& blockId, int modelId,
+                                       bool muteWetOnly) {
+  bool timingMoves = false;
+  {
+    juce::ScopedLock lock(chainMutex);
+    const ChainBlock* block = findBlockById(blockId);
+    if (block == nullptr || block->activeModelId != modelId)
+      return nullptr;
+    timingMoves = block->dryDelay.delaySamples() > 0;
+  }
+  if (timingMoves) {
+    // Already muted by a restore that is waiting for this very load: its
+    // session owns the release, and a second one would end the mute early.
+    if (chainEditFadePending.load())
+      return nullptr;
+    return std::make_unique<ChainEditFade>(*this);
+  }
+  requestSwapFadeAndWait(blockId, muteWetOnly);
+  return nullptr;
 }
 
 void TONE3000Processor::requestChainEditFadeAndWait() {
@@ -1274,21 +1324,33 @@ void TONE3000Processor::applyPreparedModelToChainBlock(ChainBlock& block, ChainB
     return;
   }
 
+  // The build is typed by the tone's format, so a mismatch here means the
+  // caller and the prepare disagree about what this block is.
+  if (prepared.processor == nullptr || prepared.processor->kind() != newType) {
+    DBG("Prepared model type/engine mismatch; dropping block from processing");
+    block.loaded = false;
+    block.loadFailed = true;
+    return;
+  }
+
   // An oversampling or input-mode change can race an in-flight load: the
   // engine was built with the old factor's phase count or the old mode's
   // voice count, and neither can be re-prepared into the new one. Drop it
   // and re-queue; the rebuild reads the settled requirements and reuses the
-  // block's in-memory model cache (no network).
-  if (newType == ChainBlockType::NAM && prepared.namEngine != nullptr) {
-    const int liveFactor = chainOversampleFactor.load();
-    const int liveVoices = wantedNamVoices();
-    if (prepared.namEngine->getOversampleFactor() != liveFactor ||
-        prepared.namEngine->getVoiceCount() != liveVoices) {
+  // block's in-memory model cache (no network). The requirements are those
+  // of the row the block sits in now.
+  const BlockPrepareSpec spec = blockPrepareSpecFor(juce::jmax(0, rowOfBlock(block)));
+  const NamEngine* engine = newType == ChainBlockType::NAM
+                                ? static_cast<NamBlockProcessor&>(*prepared.processor).engine()
+                                : nullptr;
+  if (engine != nullptr) {
+    if (engine->getOversampleFactor() != spec.oversampleFactor ||
+        engine->getVoiceCount() != spec.voiceCount) {
       juce::Logger::writeToLog(
           "[ModelLoader] Chain requirements changed during prepare (×" +
-          juce::String(prepared.namEngine->getOversampleFactor()) + " -> ×" +
-          juce::String(liveFactor) + ", " + juce::String(prepared.namEngine->getVoiceCount()) +
-          " -> " + juce::String(liveVoices) + " voices); re-queuing block " +
+          juce::String(engine->getOversampleFactor()) + " -> ×" +
+          juce::String(spec.oversampleFactor) + ", " + juce::String(engine->getVoiceCount()) +
+          " -> " + juce::String(spec.voiceCount) + " voices); re-queuing block " +
           juce::String(block.id));
       block.modelLoading = true;
       queueActiveModelLoad(block);
@@ -1296,85 +1358,70 @@ void TONE3000Processor::applyPreparedModelToChainBlock(ChainBlock& block, ChainB
     }
   }
 
-  // A restore-time prepare can race prepareToPlay: the engine may have been
-  // sized off a stale (or defaulted) host config, and prepareChain can't have
-  // covered it (the engine wasn't on the block yet). Re-prepare before it
-  // goes live; feeding an engine more frames than it was prepared for is what
-  // used to silently kill blocks on relaunch ("Processing failed").
-  const int requiredBlockSize = chainDomainBlockSize();
-  if (prepared.namEngine != nullptr && prepared.preparedBlockSize < requiredBlockSize) {
-    juce::Logger::writeToLog("[ModelLoader] Chain domain drifted during prepare (block " +
-                             juce::String(prepared.preparedBlockSize) + " -> " +
-                             juce::String(requiredBlockSize) + "); re-preparing");
-    prepared.namEngine->prepare(requiredBlockSize);
-  }
-  // Convolvers track the capped base block (irConvolverBlockSizeFor). Unlike
-  // NAM, a *shrink* matters too: a load that ran before prepareToPlay saw the
-  // 4096 default and built a 256-partition engine, which on a host that then
-  // reports 64 would cost more per callback than it needs to. Re-prepare on
-  // any difference so the convolver always matches the live host block.
-  // (prepare() rebuilds the FFT engine under chainMutex, heavier for
-  // reverb-length IRs, but this only fires on that startup race, when audio
-  // has barely started.)
-  const int requiredIrBlockSize = irConvolverBlockSize();
-  if (prepared.convolverMono != nullptr && prepared.preparedIrBlockSize != requiredIrBlockSize) {
-    juce::Logger::writeToLog("[ModelLoader] Host block drifted during IR prepare (convolver " +
-                             juce::String(prepared.preparedIrBlockSize) + " -> " +
-                             juce::String(requiredIrBlockSize) + "); re-preparing");
-    const juce::dsp::ProcessSpec spec{kChainBaseSampleRate,
-                                      static_cast<juce::uint32>(requiredIrBlockSize), 2};
-    prepared.convolverMono->prepare(spec);  // keeps the loaded impulse
-    if (prepared.convolverStereo != nullptr)
-      prepared.convolverStereo->prepare(spec);
-  }
+  // The engine was prepared off-thread against the chain domain as it was
+  // then; repair whatever drifted (block sizes, see the two kinds'
+  // prepareForInstall) and arm its smoothers for the live rate before it
+  // goes live.
+  prepared.processor->prepareForChainInstall(spec);
 
-  // Engines are *swapped*, not reset: the block's previous engines end up in
-  // `prepared`, and the caller destroys them after releasing chainMutex;
+  // The processor is *swapped*, not reset: the block's previous one ends up
+  // in `prepared`, and the caller destroys it after releasing chainMutex;
   // NAM graph / convolution teardown must never run while the audio thread
-  // can be blocked on the lock.
-  if (newType == ChainBlockType::NAM && prepared.namEngine != nullptr) {
-    block.type = newType;  // may differ while a tone swap was in flight
-    std::swap(block.namEngine, prepared.namEngine);            // new engine in, old out
-    std::swap(block.convolverMono, prepared.convolverMono);    // null in, any old IR out
-    std::swap(block.convolverStereo, prepared.convolverStereo);
-    block.irNumChannels = 1;
-    block.irLengthBaseSamples = 0;
-    block.irIsLong = false;
+  // can be blocked on the lock. One swap covers every case, a tone swap to
+  // the other kind included: the outgoing engine leaves with its processor.
+  block.type = newType;  // may differ while a tone swap was in flight
+  std::swap(block.processor, prepared.processor);
 
-    // Re-assert the block's A2 size in case it changed while this engine
-    // was downloading/preparing (a no-op retier when it didn't).
-    block.namEngine->setSlimmableSize(block.namSlimSize);
+  // The block's kind identity follows the processor it now runs: a registry
+  // kind is named by its id, a tone block by its type alone. Whatever the
+  // block was before (a placeholder for a missing kind, a block whose
+  // processor had failed) ends here.
+  block.missingKindNode = {};
+  block.processingFailed = false;
+  if (newType == ChainBlockType::KIND) {
+    block.kindId = block.processor->kindId();
+    const BlockKindInfo* info = BlockKindRegistry::instance().find(block.kindId);
+    block.kindName = info != nullptr ? info->name : block.kindId;
+    block.mixLaw = info != nullptr ? info->mixLaw : BlockMixLaw::Crossfade;
+    // A kind whose name belongs to the instance (a hosted plugin).
+    if (const juce::String own = block.processor->displayName(); own.isNotEmpty())
+      block.kindName = own;
+  } else {
+    block.kindId.clear();
+    block.kindName.clear();
+    block.mixLaw = BlockMixLaw::Crossfade;
+  }
+  // Whatever kind build the block was waiting for is answered or overtaken.
+  block.pendingKindState = {};
 
-    block.namNormalizationSmoother.reset(chainSampleRate(), 0.05f);
-    block.namNormalizationSmoother.setCurrentAndTargetValue(1.0f);
-    block.loaded = true;
-    block.loadFailed = false;
+  // The plan CPU value starts from the new engine's own guess (its kind's
+  // hint when it has none); the audio thread measures from there.
+  {
+    float seed = block.processor->costSeed();
+    if (seed <= 0.0f) {
+      const BlockKindInfo* info = BlockKindRegistry::instance().find(block.processor->kindId());
+      seed = info != nullptr ? info->costHint : 0.002f;
+    }
+    block.cpuCost.store(juce::jlimit(0.0f, 8.0f, seed));
+    block.cpuCostMeasured = false;
+  }
 
-  } else if (newType == ChainBlockType::IR && prepared.convolverMono != nullptr) {
-    block.type = newType;
-    std::swap(block.namEngine, prepared.namEngine);            // null in, any old NAM out
-    std::swap(block.convolverMono, prepared.convolverMono);
-    std::swap(block.convolverStereo, prepared.convolverStereo);
-    block.irNumChannels = prepared.irNumChannels;
-    block.irLengthBaseSamples = prepared.irLengthBaseSamples;
+  // Hand the block's settings to the new engine. For NAM this re-asserts
+  // the A2 size in case it changed while this engine was
+  // downloading/preparing (a no-op retier when it didn't).
+  block.pushProcessorState();
 
+  if (IrBlockProcessor* ir = block.ir()) {
     // Cab-like or reverb-like: the tone's gear where it is decisive, the
     // kernel length otherwise (see irIsLongFor). toneVar is already the
     // tone this engine belongs to; a swap sets it before queueing the load.
     const juce::String gear = block.toneVar["gear"].toString();
-    block.irIsLong = irIsLongFor(gear, prepared.irIsLongByLength);
-    if (block.irIsLong != prepared.irIsLongByLength)
+    ir->setIsLong(irIsLongFor(gear, ir->isLongByLength()));
+    if (ir->isLong() != ir->isLongByLength())
       juce::Logger::writeToLog("[ModelLoader] IR classified " +
-                               juce::String(block.irIsLong ? "long" : "short") + " by gear '" +
+                               juce::String(ir->isLong() ? "long" : "short") + " by gear '" +
                                gear + "' (length said " +
-                               (prepared.irIsLongByLength ? "long" : "short") + ")");
-
-    // The base-rate island around the convolvers: blocks added mid-session
-    // were never seen by prepareChain, so (re)prepare it here with the same
-    // capacity/factor arguments as the chain-wide oversampler. Cheap (three
-    // small work buffers), and the swap-fade already has the wet path silent.
-    block.irBaseRateIsland.prepare(chainOversampleFactor.load(),
-                                   juce::jmax(1, chainBaseBlockSize()));
+                               (ir->isLongByLength() ? "long" : "short") + ")");
 
     // Fresh blocks (Select-flow loads) default their mix by IR length: long
     // IRs are reverbs/effects meant to be blended (half wet), short cab IRs
@@ -1382,24 +1429,17 @@ void TONE3000Processor::applyPreparedModelToChainBlock(ChainBlock& block, ChainB
     // download, so loadTone arms this one-shot flag instead of guessing
     // from tone metadata. Swaps/restores keep the user's mix.
     if (block.applyDefaultMixOnLoad)
-      block.mixNormalized = block.irIsLong ? 0.5f : 1.0f;
-
-    block.irNormalizationGainLinear = prepared.irNormalizationGainLinear;
-    block.irNormalizationSmoother.reset(chainSampleRate(), 0.05f);
-    block.irNormalizationSmoother.setCurrentAndTargetValue(block.irNormalizationGainLinear);
-
-    block.loaded = true;
-    block.loadFailed = false;
-  } else {
-    DBG("Prepared model type/engine mismatch; dropping block from processing");
-    block.loaded = false;
-    block.loadFailed = true;
-    return;
+      block.mixNormalized = ir->isLong() ? 0.5f : 1.0f;
   }
 
-  // The set of live IR engines changed; keep the host-facing tail length in
-  // sync (caller holds chainMutex through this whole apply).
-  refreshIrTailLength();
+  block.loaded = true;
+  block.loadFailed = false;
+
+  // The set of live engines changed; keep the host-facing tail length and
+  // the latency compensation in sync (caller holds chainMutex through this
+  // whole apply).
+  refreshBlockTailLength();
+  refreshLatencyCompensation();
 
   // First successful load done; later loads on this block (model switches,
   // tone swaps) must keep the user's mix.
@@ -1422,6 +1462,15 @@ void TONE3000Processor::applyPreparedModelToChainBlock(ChainBlock& block, ChainB
   // steady the whole time, so the un-processed input is never exposed. A
   // bypass-shaped entry (fresh block, or the fade never engaged) crossfades
   // in from dry via wetFadeGain, exactly as before.
+  // Spillover state belongs to the engine that just left: the new one has
+  // no tail, and its input is open.
+  block.spillInputGain.reset(chainSampleRate(), kWetFadeSeconds);
+  block.spillInputGain.setCurrentAndTargetValue(1.0f);
+  block.spillTailGain.reset(chainSampleRate(), kWetFadeSeconds);
+  block.spillTailGain.setCurrentAndTargetValue(0.0f);
+  block.spillElapsedSamples = ChainBlock::kSpillDone;
+  block.engineHoldsAudio = false;
+
   block.swapWetMuteGain.reset(chainSampleRate(), kWetFadeSeconds);
   if (muteWetSwap) {
     // wetFadeGain stayed at 1 through the whole swap (the audio thread owns

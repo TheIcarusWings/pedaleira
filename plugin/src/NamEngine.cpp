@@ -48,8 +48,17 @@ void NamEngine::prepare(int newMaxBlockSize) {
   phaseFrames.assign(static_cast<size_t>(phases), 0);
   phaseOffset = 0;
 
+  costSeed = 0.0;
   for (auto& instance : instances) {
+    // Timed: the prewarm runs the model over a known number of samples, the
+    // one measure of its cost there is before any audio has passed (the
+    // plan CPU value starts from it). The reset's own allocations are in
+    // the figure too, so it errs high.
+    const double startMs = juce::Time::getMillisecondCounterHiRes();
     instance->ResetAndPrewarm(instanceSampleRate(), static_cast<int>(perPhaseCapacity));
+    const double seconds = (juce::Time::getMillisecondCounterHiRes() - startMs) / 1000.0;
+    if (const int prewarmSamples = instance->GetPrewarmSamples(); prewarmSamples > 0)
+      costSeed += seconds * instanceSampleRate() / static_cast<double>(prewarmSamples);
 
     // SlimmableContainer / SlimmableWavenet: after max buffer size is set on the
     // root DSP, SetSlimmableSize re-selects the active tier and ResetAndPrewarms

@@ -845,13 +845,20 @@ TEST(ProcessorTest, PresetFromABetaBuildLoadsThePitchShift) {
     const juce::var dropD = proc.savePreset("Drop D");
     ASSERT_TRUE(dropD.isObject());
 
-    // Rewrite the file the way a beta build would have saved it.
-    const auto files = tmp.findChildFiles(juce::File::findFiles, false, "*.t3kpreset");
+    // Rewrite the file the way a beta build would have named its
+    // parameters: the preset is a JSON file of the library now, and its
+    // "params" map is keyed by parameter id.
+    juce::Array<juce::File> files;
+    for (const auto& file : tmp.getChildFile("Library").findChildFiles(juce::File::findFiles, true, "*.json"))
+      if (file.getFileName().startsWith("001 "))
+        files.add(file);
     ASSERT_EQ(files.size(), 1);
-    juce::ValueTree preset = t3k::presetfile::read(files[0]);
-    ASSERT_TRUE(preset.isValid());
-    writeLegacyIds(preset.getChildWithName("Params"), "id");
-    ASSERT_TRUE(t3k::presetfile::write(files[0], preset));
+    juce::String text = files[0].loadFileAsString();
+    for (const auto& [current, legacy] : legacyIds()) {
+      ASSERT_TRUE(text.contains("\"" + current + "\": ")) << current;
+      text = text.replace("\"" + current + "\": ", "\"" + legacy + "\": ");
+    }
+    ASSERT_TRUE(files[0].replaceWithText(text, false, false, "\n"));
 
     ASSERT_TRUE(proc.resetToDefault());
     EXPECT_FLOAT_EQ(proc.parameters.getRawParameterValue("pitchEnabled")->load(), 0.0f);
@@ -863,9 +870,9 @@ TEST(ProcessorTest, PresetFromABetaBuildLoadsThePitchShift) {
 
     // Saving over it writes the current ids.
     ASSERT_TRUE(proc.savePreset("Drop D").isObject());
-    const juce::ValueTree resaved = t3k::presetfile::read(files[0]);
-    EXPECT_TRUE(resaved.getChildWithName("Params").getChildWithProperty("id", "pitchSemitones").isValid());
-    EXPECT_FALSE(resaved.getChildWithName("Params").getChildWithProperty("id", "transposeSemitones").isValid());
+    const juce::String resaved = files[0].loadFileAsString();
+    EXPECT_TRUE(resaved.contains("\"pitchSemitones\": "));
+    EXPECT_FALSE(resaved.contains("transposeSemitones"));
   }
   tmp.deleteRecursively();
 }

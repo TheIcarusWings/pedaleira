@@ -1,4 +1,4 @@
-// IR cab-like / reverb-like classification (ChainBlock::irIsLong), the
+// IR cab-like / reverb-like classification (IrBlockProcessor::isLong), the
 // switch behind the -18 dB cab pad and the 100% / 50% default mix.
 //
 // github issue #89: kernel length alone misfiles real IRs on both sides of

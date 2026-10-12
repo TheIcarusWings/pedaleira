@@ -45,7 +45,11 @@ function(_t3k_read_env key default out)
     set(${out} "${_value}" PARENT_SCOPE)
 endfunction()
 
-_t3k_read_env(T3K_PUBLISHABLE_KEY "" T3K_PUBLISHABLE_KEY)
+# Pedaleira's own publishable key, so every build can sign in. It is public
+# by design (it ships inside the app as the OAuth client_id); .env, .env.local
+# or the configure environment still override it.
+set(PEDALEIRA_T3K_PUBLISHABLE_KEY "t3k_pub_kKTOK9tq73n-VAmKdkRskoF2JRMoDTdk")
+_t3k_read_env(T3K_PUBLISHABLE_KEY "${PEDALEIRA_T3K_PUBLISHABLE_KEY}" T3K_PUBLISHABLE_KEY)
 _t3k_read_env(T3K_API_DOMAIN "https://www.tone3000.com" T3K_API_DOMAIN)
 _t3k_read_env(T3K_UPDATE_NOTICE "false" T3K_UPDATE_NOTICE)
 string(REGEX REPLACE "/+$" "" T3K_API_DOMAIN "${T3K_API_DOMAIN}")

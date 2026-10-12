@@ -22,13 +22,6 @@
 namespace t3k::ui {
 
 // One page of tone results (the API's PaginatedResponse<Tone[]>).
-// One option of a taxonomy filter: a tag or make name, or a creator's
-// username with their avatar.
-struct TaxonomyEntry {
-  juce::String name;
-  juce::String avatarUrl;  // creators only
-};
-
 struct TonePage {
   std::vector<Tone> data;
   int page = 1;
@@ -122,17 +115,14 @@ public:
   // architecture filter, which is all the plugin loads).
   virtual void listToneModels(int toneId, const juce::String& format,
                               Reply<std::vector<Model>> reply) = 0;
-  // PUT / DELETE /tones/{id}/favorite (idempotent).
-  virtual void setToneFavorite(int toneId, bool favorite, Done done) = 0;
-  // One page of the browser's results: GET /tones/search for the query, or
-  // the profile filter's GET /tones/{downloaded|favorited|created}.
-  virtual void searchTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) = 0;
+  // One page of the browser's results: GET /tones/trending for the default
+  // query, or the profile filter's GET /tones/{downloaded|favorited|created}.
+  // The catalog search, favouriting and the taxonomy lists are not offered:
+  // they are outside TONE3000's free API tier (Tone3000Client::kFreeTier).
+  virtual void listTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) = 0;
   // The signed-out preview's feed: GET /tones/trending, the homepage's top
   // 10, narrowed to one gear type when `gear` is set. Needs no session.
   virtual void listTrending(const juce::String& gear, Reply<std::vector<Tone>> reply) = 0;
-  // The options a taxonomy filter offers: GET /tags, /makes or /users, the
-  // most-used first, narrowed by `text` when given (up to one page).
-  virtual void listTaxonomy(Taxonomy kind, const juce::String& text, Reply<std::vector<TaxonomyEntry>> reply) = 0;
   // Resolve a tone picked in the browser: the tone, its first loadable
   // model and a fresh token for native, then onToneSelected. `done` reports
   // failure (the card shows a pick error).
@@ -205,15 +195,11 @@ public:
   void listToneModels(int, const juce::String&, Reply<std::vector<Model>> reply) override {
     reply(Result<std::vector<Model>>::fail(kNotSignedIn));
   }
-  void setToneFavorite(int, bool, Done done) override { done(kNotSignedIn); }
-  void searchTones(const ToneQuery&, int, int, Reply<TonePage> reply) override {
+  void listTones(const ToneQuery&, int, int, Reply<TonePage> reply) override {
     reply(Result<TonePage>::fail(kNotSignedIn));
   }
   void listTrending(const juce::String&, Reply<std::vector<Tone>> reply) override {
     reply(Result<std::vector<Tone>>::fail(kNotSignedIn));
-  }
-  void listTaxonomy(Taxonomy, const juce::String&, Reply<std::vector<TaxonomyEntry>> reply) override {
-    reply(Result<std::vector<TaxonomyEntry>>::fail(kNotSignedIn));
   }
   void selectTone(int, Done done) override { done(kNotSignedIn); }
   void ensureNativeAuth(Done done) override { done(kNotSignedIn); }

@@ -14,16 +14,23 @@
 //
 // Two parallel sections use it, both pure scheduling with bit-identical
 // output regardless of which thread runs what:
-//   - stereo lanes: the two chain lanes are fully independent (own engines,
-//     own scratch), so the audio thread forks them (see processLanePair);
+//   - plan forks: the sequences a processing plan runs side by side write
+//     disjoint buffers (own rows, own engines, own scratch), so the audio
+//     thread forks them (see TONE3000Processor::runPlanFork). Today that is
+//     the two stereo lanes, or a branched trunk's remainder beside its
+//     branch lane;
 //   - NAM phases: an oversampled NamEngine holds N independent model
 //     instances over disjoint per-phase buffers, so a lane forks them
 //     (see NamEngine::process).
-// The second fork can happen *inside* a job of the first (a lane job forking
-// its NAM block's phases), so the pool supports nesting depth 1. It stays
-// deadlock-free by construction: a joiner never parks, it claims and runs
-// its own group's unclaimed jobs inline and only spins on jobs another
-// thread is actively executing, so every waiter makes progress itself.
+// The second fork happens *inside* a job of the first (a lane job forking
+// its NAM block's phases), and a plan fork may sit inside another plan fork
+// (the grid: a group of rows, inside it the two sides of a split), so forks
+// nest two deep. Nesting needs no support of its own and has no limit in
+// the code: the pool stays deadlock-free by construction at any depth,
+// because a joiner never parks, it claims and runs its own group's
+// unclaimed jobs inline and only spins on jobs another thread is actively
+// executing, so every waiter makes progress itself. The depth only decides
+// how many slots can be in flight at once (see kMaxJobs).
 //
 // The pool is an extension of the audio callback, not a general scheduler:
 // workers only ever run strictly inside the audio thread's chainMutex
@@ -79,11 +86,21 @@ public:
   using JobFn = void (*)(void*);
 
   /** Slot registry capacity == the largest single fork. Concurrent forks
-      share the registry: at the design maximum (one lane fork publishing 1
-      job + two nested ×8 phase forks publishing 7 each) 15 slots are in
-      flight. A fork that finds the registry full runs the overflow jobs
-      inline immediately: still correct, just less parallel. */
-  static constexpr int kMaxJobs = 16;
+      share the registry. A fork publishes one job less than it runs, so
+      today's maximum (one lane fork and two nested ×8 phase forks) has 15
+      slots in flight, and the grid's (four strands side by side, however
+      their forks nest, each with a ×8 phase fork) has 3 + 4 × 7 = 31. A
+      fork that finds the registry full runs the overflow jobs inline
+      immediately: still correct, just less parallel. Raised from 16 with
+      the speed-up reports in multicore_tests.cpp unchanged: the extra
+      slots are only ever scanned. */
+  static constexpr int kMaxJobs = 32;
+
+  /** Most worker threads the pool starts. Kept where it was when the
+      registry had 16 slots: more workers than that has not been measured
+      on a machine with enough cores to tell. Must stay below 32, the
+      width of the parked-worker mask. */
+  static constexpr int kMaxWorkers = 15;
 
   /** How long a parked worker sleeps before re-checking on its own (see the
       worker loop). Every wake it relies on is signalled explicitly. */
@@ -94,7 +111,7 @@ public:
 
   /** Start (or restart) the pool for the given callback geometry; sizes the
       realtime scheduling contract. `numWorkers` < 0 picks one worker per
-      spare hardware core (capped at kMaxJobs - 1); 0 is allowed and leaves
+      spare hardware core (capped at kMaxWorkers); 0 is allowed and leaves
       forkJoin fully inline. Message thread / prepareToPlay only. */
   void start(double sampleRate, int samplesPerBlock, int numWorkers = -1) {
     stop();
@@ -102,7 +119,7 @@ public:
       slot.state.store(static_cast<int>(SlotState::Free), std::memory_order_relaxed);
     if (numWorkers < 0)
       numWorkers = juce::SystemStats::getNumCpus() - 1;
-    numWorkers = juce::jlimit(0, kMaxJobs - 1, numWorkers);
+    numWorkers = juce::jlimit(0, kMaxWorkers, numWorkers);
     workers.reserve(static_cast<size_t>(numWorkers));
     // One buffer is the natural per-callback budget, but Mach rejects
     // time-constraint computations much over 50 ms and hosts can run rates
@@ -173,9 +190,9 @@ public:
       parallel, returning once all have completed. The calling thread always
       executes ctxs[0] itself (and any job no worker picks up), so completion
       never depends on worker liveness. Contexts must stay alive until this
-      returns. Callable from the audio thread and, nested one level deep,
-      from inside a job (a lane job forking its NAM phases). `count` must
-      not exceed kMaxJobs. */
+      returns. Callable from the audio thread and from inside a job, to any
+      depth (a plan fork inside a plan fork, a lane job forking its NAM
+      phases). `count` must not exceed kMaxJobs. */
   void forkJoin(JobFn fn, void* const* ctxs, int count) {
     jassert(count <= kMaxJobs);
     if (count <= 0)
@@ -399,8 +416,8 @@ private:
   std::array<Slot, kMaxJobs> slots;
   std::vector<std::unique_ptr<Worker>> workers;
   std::atomic<int> aliveWorkers{0};
-  // Bit i set = worker i is parked on its wake event (kMaxJobs - 1 workers
-  // max, so 32 bits always suffice). See the wakeup note up top.
+  // Bit i set = worker i is parked on its wake event (kMaxWorkers workers
+  // at most, so 32 bits always suffice). See the wakeup note up top.
   std::atomic<juce::uint32> parkedMask{0};
 
   // The workgroup handed over by setAudioWorkgroup, consumed by the worker

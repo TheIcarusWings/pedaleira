@@ -1,4 +1,5 @@
 #include "PresetManager.h"
+#include "AppIdentity.h"
 // For TONE3000Processor::ensureWritableDir: preset saves share the app-data
 // folder whose permissions a sudo'd install script can mangle (github
 // issue #76).
@@ -18,7 +19,7 @@ juce::File presetsRootDir() {
 #if JUCE_MAC
   base = base.getChildFile("Application Support");
 #endif
-  return base.getChildFile("TONE3000").getChildFile("Presets");
+  return base.getChildFile(kAppDataFolderName).getChildFile("Presets");
 }
 
 juce::String stripPrefix(const juce::String& id, const char* prefix) {
@@ -63,17 +64,20 @@ juce::File PresetManager::defaultSystemFactoryDir() {
   return juce::File::getSpecialLocation(juce::File::currentApplicationFile)
       .getChildFile("FactoryPresets");
 #elif JUCE_MAC
-  return juce::File("/Library/Application Support/TONE3000/Presets/Factory");
+  return juce::File("/Library/Application Support")
+      .getChildFile(kAppDataFolderName)
+      .getChildFile("Presets")
+      .getChildFile("Factory");
 #elif JUCE_WINDOWS
   // ProgramData; matches the Inno Setup {commonappdata} destination.
   return juce::File::getSpecialLocation(juce::File::commonApplicationDataDirectory)
-      .getChildFile("TONE3000")
+      .getChildFile(kAppDataFolderName)
       .getChildFile("Presets")
       .getChildFile("Factory");
 #elif JUCE_LINUX
   // The tarball installs per-user (into factoryDir); this path is the hook
   // for system-wide/distro packaging.
-  return juce::File("/usr/share/TONE3000/Presets/Factory");
+  return juce::File("/usr/share").getChildFile(kAppDataFolderName).getChildFile("Presets").getChildFile("Factory");
 #else
   return {};
 #endif

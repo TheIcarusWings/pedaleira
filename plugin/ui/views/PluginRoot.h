@@ -20,8 +20,8 @@
 // Tab / Shift+Tab or from code asking (a popover opening, a field's
 // focus()), never from a click (Clickable). JUCE would otherwise hand focus
 // to the first focusable component whenever the focused one goes away or
-// the window activates, which put the caret in the tone browser's search
-// box on some visits and not others. The root is the keyboard focus
+// the window activates, which put the caret in a search box on some visits
+// and not others. The root is the keyboard focus
 // container with a traverser that names no default; Tab with nothing
 // focused enters the tab order at either end; Escape or a press elsewhere
 // drops the focus again. The scroll keys with nothing focused move the

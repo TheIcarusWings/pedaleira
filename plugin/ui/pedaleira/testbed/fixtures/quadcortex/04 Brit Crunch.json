@@ -1,0 +1,24 @@
+{
+  "format": "pedaleira-foreign-preset",
+  "version": 1,
+  "source": "quad-cortex",
+  "sourceVersion": "CorOS 4.0.1",
+  "name": "Brit Crunch",
+  "tempo": 112,
+  "defaultScene": 0,
+  "rows": [
+    { "index": 0, "blocks": [
+      { "position": 0, "model": "Simple Gate", "category": "Utility", "enabled": true, "params": {} },
+      { "position": 2, "model": "Brit 2203", "category": "Guitar Amplifier", "enabled": true, "params": {} },
+      { "position": 3, "model": "4x12 Closed (M)", "category": "Cabsim Guitar (M)", "enabled": true, "params": {} },
+      { "position": 5, "model": "Spring", "category": "Reverb", "enabled": true,
+        "params": { "MIX": { "value": 18.0, "unit": "%" } } }
+    ] }
+  ],
+  "scenes": [
+    { "name": "Crunch", "enabled": {}, "params": {} },
+    { "name": "Boost", "enabled": {}, "params": {} },
+    { "name": "Solo", "enabled": {}, "params": {} }
+  ],
+  "warnings": []
+}

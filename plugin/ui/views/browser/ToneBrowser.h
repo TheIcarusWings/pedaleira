@@ -1,6 +1,6 @@
 // In-plugin tone browser: the Select tone takeover that covers everything
 // under the header (meters, chain and faceplate). A pinned header (← SELECT
-// TONE, the search box, the filter bar) and a paginator pinned at the
+// TONE, the filter bar) and a paginator pinned at the
 // bottom, with the card grid (or loading dots / empty copy / an error with
 // Try again) scrolling between them, fading out under both. The query,
 // filter row and last page live in the BrowserState so the screen comes
@@ -9,18 +9,24 @@
 // The ← SELECT TONE row zooms with the window like everything else; the
 // body under it does not. It is counter-scaled by the window zoom and laid
 // out in screen pixels, so a bigger window shows more rather than bigger:
-// the search box and filter row keep their 1x height and widen with the
-// column, the cards keep their 1x height, widen to fill two columns, and go
+// the filter row keeps its 1x height and widens with the column, the cards
+// keep their 1x height, widen to fill two columns, and go
 // three-up once three fit at kMinCardWidth.
 //
-// Searching needs a TONE3000 session. Signed out, the screen is a preview
-// instead: the gear chips alone over TONE3000's trending feed (GET
-// /tones/trending, which takes no token), and under the cards a sign-in
-// call to action. A card leads to a sign-in page of its own (the ← alone,
-// the prompt centred); either CTA starts the browse-intent login, which
-// comes straight back here signed in. Signed in, every query goes to the
-// TONE3000 API through the session; native is only involved for the final
-// load (selectTone), which the parent completes by closing the browser.
+// There is no catalog search: Pedaleira uses TONE3000's free API tier, which
+// only has bounded lists. The default view is the trending feed (GET
+// /tones/trending, the top 10, narrowed by the gear chips); the Profile chip
+// swaps it for one of the user's own lists (Recently used, Favorites,
+// Created), which page. The full catalogue is browsed on tone3000.com.
+//
+// The profile lists need a TONE3000 session. Signed out, the screen is a
+// preview: the gear chips alone over the trending feed (which takes no
+// token), and under the cards a sign-in call to action. A card leads to a
+// sign-in page of its own (the ← alone, the prompt centred); either CTA
+// starts the browse-intent login, which comes straight back here signed in.
+// Signed in, every query goes to the TONE3000 API through the session;
+// native is only involved for the final load (selectTone), which the parent
+// completes by closing the browser.
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -42,7 +48,6 @@
 #include "widgets/DragScroller.h"
 #include "widgets/LoadingDots.h"
 #include "widgets/PillButton.h"
-#include "widgets/TextField.h"
 
 namespace t3k::ui {
 
@@ -63,7 +68,6 @@ public:
   // zoom of about 1.1.
   static constexpr int kMinCardWidth = 340;
   static constexpr int kPageSize = 12;
-  static constexpr int kSearchHeight = 40;
 
   explicit ToneBrowser(Services& services);
   ~ToneBrowser() override;
@@ -82,7 +86,7 @@ public:
 private:
   class Body;
   class Content;
-  static constexpr int kHeaderGap = 16;  // header row → search → filters
+  static constexpr int kHeaderGap = 16;  // header row → filters
   // Filters → first row, and last row → paginator (or the bottom).
   static constexpr int kContentPadTop = 24, kContentPadBottom = 24;
   static constexpr int kPickErrorGap = 16;
@@ -95,17 +99,18 @@ private:
   void zoomChanged() override { resized(); }
 
   bool signedOut() const { return !services_.session.authenticated(); }
+  // Whether the list on show is the trending feed: the preview always, and
+  // the default query.
+  bool showsTrending() const { return signedOut() || state_.query.isTrending(); }
   // The signed-out screen: the trending preview, or its sign-in page.
   bool preview() const { return signedOut() && !authPending(); }
   float zoom() const { return static_cast<float>(services_.zoom.factor()); }
   // Pre-mounted while an OAuth return still resolves its code exchange.
   bool authPending() const { return services_.session.authPending(); }
-  // The search box's text becomes the query (Enter, ×, Escape).
-  void submit();
   void queryChanged();
   void setPage(int page);
-  // The search page for the query (signed in), or the trending feed for
-  // its gear (signed out).
+  // The query's list (signed in), or the trending feed for its gear (signed
+  // out).
   void fetch();
   void fetchTrending();
   void pageLoaded(TonePage page);
@@ -135,10 +140,9 @@ private:
   BackLink back_;         // ← SELECT TONE: closes the browser
   BackLink signInBack_;   // the sign-in page's bare ←: back to the cards
 
-  // The 1x body: pinned search box and filter row, the scrolled column, the
-  // paginator pinned under it.
+  // The 1x body: pinned filter row, the scrolled column, the paginator
+  // pinned under it.
   std::unique_ptr<Body> body_;
-  TextField search_;
   FilterBar filters_;
   std::unique_ptr<DragScroller> scroller_;
   std::unique_ptr<Content> content_;

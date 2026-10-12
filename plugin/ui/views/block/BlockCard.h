@@ -104,7 +104,6 @@ private:
   // TONE3000 fetches.
   void fetchInfo(bool background);
   void fetchModels();
-  void toggleFavorite();
   void switchModel(const juce::String& id);
   void share();
 
@@ -156,15 +155,9 @@ private:
   std::optional<Tone> infoTone_;
   bool infoLoading_ = false;
   juce::String infoError_;
-  struct FavoriteOverride {
-    bool on;
-    int count;
-  };
-  std::optional<FavoriteOverride> favoriteOverride_;
-  bool favoriteBusy_ = false;
   std::vector<Model> models_;
   bool modelsLoading_ = false;
-  AsyncScope infoScope_, modelsScope_, favoriteScope_;
+  AsyncScope infoScope_, modelsScope_;
 };
 
 }  // namespace t3k::ui

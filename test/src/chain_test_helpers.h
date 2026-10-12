@@ -103,6 +103,38 @@ inline juce::ValueTree makeNamBlockTree(const juce::String& blockId, int toneId,
   return block;
 }
 
+// A registry-kind block tree in plugin-state shape (see
+// BlockProcessor::getKindState): the common block properties, then ONE
+// KindState child naming the kind and carrying its parameter values in real
+// units. Nothing to embed: a kind has no model.
+inline juce::ValueTree
+makeKindBlockTree(const juce::String& blockId, const juce::String& kindId,
+                  const juce::String& name,
+                  const std::vector<std::pair<juce::String, double>>& params = {}) {
+  juce::ValueTree block("ChainBlock");
+  block.setProperty("id", blockId, nullptr);
+  block.setProperty("type", "kind", nullptr);
+  block.setProperty("enabled", true, nullptr);
+  block.setProperty("normalize", true, nullptr);
+  block.setProperty("slimSize", 0.0, nullptr);
+  block.setProperty("inputGain", 0.5f, nullptr);
+  block.setProperty("outputGain", 0.5f, nullptr);
+  block.setProperty("mix", 1.0f, nullptr);
+
+  juce::ValueTree kindState("KindState");
+  kindState.setProperty("kind", kindId, nullptr);
+  kindState.setProperty("version", 1, nullptr);
+  kindState.setProperty("name", name, nullptr);
+  for (const auto& [paramId, value] : params) {
+    juce::ValueTree param("Param");
+    param.setProperty("id", paramId, nullptr);
+    param.setProperty("value", value, nullptr);
+    kindState.appendChild(param, nullptr);
+  }
+  block.appendChild(kindState, nullptr);
+  return block;
+}
+
 // The { name, data } file entries loadLocalTone takes (the UI ships dropped
 // files this way): one entry per file, base64 payload.
 inline juce::String base64Of(const juce::File& file) {
@@ -167,11 +199,21 @@ inline bool waitForChainLoaded(TONE3000Processor& proc, int timeoutMs = 20000) {
   while (juce::Time::getMillisecondCounter() < deadline) {
     const juce::var state = proc.getChainState(-1);
     bool allLoaded = true;
-    for (const auto* lane : {state["chain"].getArray(), state["chainRight"].getArray()}) {
+    // The two lanes of a legacy rig, or every row of a grid.
+    std::vector<const juce::Array<juce::var>*> lanes{state["chain"].getArray(),
+                                                     state["chainRight"].getArray()};
+    if (const auto* rows = state["grid"]["rows"].getArray()) {
+      lanes.clear();
+      for (const auto& row : *rows)
+        lanes.push_back(row["blocks"].getArray());
+    }
+    for (const auto* lane : lanes) {
       if (lane == nullptr)
         continue;
       for (const auto& item : *lane)
-        if (item["kind"].toString() == "tone" && !static_cast<bool>(item["loaded"]))
+        // A placeholder for a kind this build lacks never loads (`missing`).
+        if (item["kind"].toString() == "tone" && !static_cast<bool>(item["loaded"]) &&
+            !static_cast<bool>(item["missing"]))
           allLoaded = false;
     }
     if (allLoaded && !proc.isChainEditFadeHeld())

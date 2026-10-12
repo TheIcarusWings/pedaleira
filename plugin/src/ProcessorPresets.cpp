@@ -2,6 +2,9 @@
 
 #include "LegacyParamIds.h"
 
+#include <cmath>
+#include <limits>
+
 // #############################
 // INTERNAL PRESETS
 // #############################
@@ -12,6 +15,11 @@
 // restore as undo/redo (engines are reused where possible, everything else
 // loads in the background seeded from the embedded bytes) and records one
 // undo step, so a preset load is itself undoable.
+//
+// Where presets live is the setlist library's business (SetlistLibrary.h,
+// ProcessorLibrary.cpp): the preset list everything here works on is the
+// current setlist, slot by slot. The tree is the same whether it comes out
+// of a JSON file of the library or a factory .t3kpreset.
 
 const std::vector<juce::String>& TONE3000Processor::presetParameterIds() {
   // chainSolo* stays out on purpose: solo is monitoring state, not tone,
@@ -42,31 +50,98 @@ void TONE3000Processor::setActivePreset(const juce::String& id, const juce::Stri
   bumpChainRevision();
 }
 
+juce::String TONE3000Processor::currentSetlistId() const {
+  const juce::String selected = userLibrary().current().setlistId;
+  if (selected == kFactorySetlistId)
+    return selected;
+  const auto setlists = userLibrary().setlists();
+  for (const auto& setlist : setlists)
+    if (setlist.id == selected)
+      return selected;
+  // Nothing selected yet, or the selected setlist is gone (deleted in a
+  // file browser, another branch checked out).
+  return setlists.empty() ? juce::String(kFactorySetlistId) : setlists.front().id;
+}
+
+std::vector<PresetManager::Info> TONE3000Processor::factoryPresets() const {
+  std::vector<PresetManager::Info> out;
+  for (auto& info : presetManager.list())
+    if (info.factory)
+      out.push_back(std::move(info));
+  return out;
+}
+
+std::vector<PresetManager::Info> TONE3000Processor::currentPresetSlots() const {
+  const juce::String setlistId = currentSetlistId();
+  if (setlistId == kFactorySetlistId)
+    return factoryPresets();  // no gaps: slot = place in the name-ordered list
+  std::vector<PresetManager::Info> out;
+  for (const auto& slot : userLibrary().list(setlistId).slots) {
+    out.resize(static_cast<size_t>(slot.slot));
+    out.back().id = slot.id;
+    out.back().name = slot.name;
+  }
+  return out;
+}
+
+void TONE3000Processor::presetListChanged() {
+  // Host program names and the active program's index follow the list.
+  hostProgramInfoCache.clear();
+  updateHostDisplay(ChangeDetails{}.withProgramChanged(true));
+}
+
 juce::var TONE3000Processor::getPresetList() const {
+  const juce::String setlistId = currentSetlistId();
+  const bool factory = setlistId == kFactorySetlistId;
+  juce::String setlistName = "Factory";
+  if (!factory)
+    if (const auto setlist = userLibrary().findSetlist(setlistId))
+      setlistName = setlist->name;
+
   juce::Array<juce::var> presetArray;
-  for (const auto& info : presetManager.list()) {
+  const auto slots = currentPresetSlots();
+  for (size_t i = 0; i < slots.size(); ++i) {
+    if (slots[i].id.isEmpty())
+      continue;  // an empty slot
     juce::DynamicObject::Ptr obj = new juce::DynamicObject();
-    obj->setProperty("id", info.id);
-    obj->setProperty("name", info.name);
-    obj->setProperty("factory", info.factory);
+    obj->setProperty("id", slots[i].id);
+    obj->setProperty("name", slots[i].name);
+    obj->setProperty("factory", slots[i].factory);
+    obj->setProperty("slot", static_cast<int>(i) + 1);
     presetArray.add(juce::var(obj.get()));
   }
+  juce::DynamicObject::Ptr setlist = new juce::DynamicObject();
+  setlist->setProperty("id", setlistId);
+  setlist->setProperty("name", setlistName);
+  setlist->setProperty("readOnly", factory);
   juce::DynamicObject::Ptr root = new juce::DynamicObject();
   root->setProperty("presets", presetArray);
+  root->setProperty("setlist", juce::var(setlist.get()));
   return root.get();
 }
 
-juce::var TONE3000Processor::savePreset(const juce::String& rawName) {
-  const juce::String name = rawName.trim();
-  if (name.isEmpty())
-    return {};
-
+juce::ValueTree TONE3000Processor::buildPresetTree() {
   juce::ValueTree preset(PresetManager::kPresetTag);
   preset.setProperty("schemaVersion", 1, nullptr);
 
+  // A save: hosted plugins' cached chunks are refreshed first (see
+  // getStateInformation).
+  serviceHostedPlugins(/*forceStateRefresh=*/true);
+
   {
     juce::ScopedLock lock(chainMutex);
-    preset.appendChild(captureChainSnapshot(true), nullptr);
+    juce::ValueTree snapshot = captureChainSnapshot(true);
+    // Solo is monitoring state: it stays with the session and is not
+    // written into presets (as the legacy chain solos never were).
+    juce::ValueTree gridNode = snapshot.getChildWithName("Grid");
+    for (int i = 0; i < gridNode.getNumChildren(); ++i)
+      if (juce::ValueTree output = gridNode.getChild(i).getChildWithName("Output");
+          output.isValid() && output.hasProperty("solo"))
+        output.setProperty("solo", false, nullptr);
+    // A grid preset says so up front; a legacy one is the file it always was.
+    if (gridNode.isValid())
+      preset.setProperty("schemaVersion", 2, nullptr);
+    preset.appendChild(snapshot, nullptr);
   }
 
   // Values are stored denormalized (real dB/ratio units), so preset files
@@ -82,33 +157,59 @@ juce::var TONE3000Processor::savePreset(const juce::String& rawName) {
     }
   }
   preset.appendChild(params, nullptr);
+  return preset;
+}
 
-  const PresetManager::Info info = presetManager.save(name, preset);
-  if (info.id.isEmpty())
+juce::var TONE3000Processor::savePreset(const juce::String& rawName, juce::String* whyNot) {
+  const juce::String name = rawName.trim();
+  if (name.isEmpty())
     return {};
 
-  setActivePreset(info.id, info.name);
-  // The list gained/renamed an entry and the active program index may have
-  // moved with it: refresh host program names and displays.
-  hostProgramInfoCache.clear();
-  updateHostDisplay(ChangeDetails{}.withProgramChanged(true));
-  juce::Logger::writeToLog("[Presets] Saved preset: " + info.name);
+  // The factory setlist cannot take it: the user's first setlist does, made
+  // now if this is the first preset they ever save.
+  juce::String setlistId = currentSetlistId();
+  if (setlistId == kFactorySetlistId) {
+    const auto setlists = userLibrary().setlists();
+    if (!setlists.empty()) {
+      setlistId = setlists.front().id;
+    } else {
+      SetlistLibrary::Setlist made;
+      if (const juce::Result created = userLibrary().createSetlist("My Presets", &made);
+          created.failed()) {
+        juce::Logger::writeToLog("[Presets] " + created.getErrorMessage());
+        if (whyNot != nullptr)
+          *whyNot = created.getErrorMessage();
+        return {};
+      }
+      setlistId = made.id;
+    }
+  }
 
-  juce::DynamicObject::Ptr obj = new juce::DynamicObject();
-  obj->setProperty("id", info.id);
-  obj->setProperty("name", info.name);
-  return obj.get();
+  juce::var saved;
+  if (const juce::Result result = savePresetToSlot(setlistId, 0, name, &saved); result.failed()) {
+    juce::Logger::writeToLog("[Presets] Failed to save preset '" + name +
+                             "': " + result.getErrorMessage());
+    if (whyNot != nullptr)
+      *whyNot = result.getErrorMessage();
+    return {};
+  }
+  return saved;
 }
 
 bool TONE3000Processor::loadPresetAtIndex(int index) {
-  const auto presets = presetManager.list();
-  if (index < 0 || index >= static_cast<int>(presets.size()))
-    return false;  // controller sent a program beyond the list: ignore
+  const auto presets = currentPresetSlots();
+  if (index < 0 || index >= static_cast<int>(presets.size()) ||
+      presets[static_cast<size_t>(index)].id.isEmpty())
+    return false;  // an empty slot, or a program beyond the setlist: ignore
   return loadPreset(presets[static_cast<size_t>(index)].id);
 }
 
 bool TONE3000Processor::stepPreset(int delta) {
-  const auto presets = presetManager.list();
+  // The presets only: a step never lands on an empty slot.
+  std::vector<PresetManager::Info> presets;
+  for (auto& info : currentPresetSlots())
+    if (info.id.isNotEmpty())
+      presets.push_back(std::move(info));
   const int count = static_cast<int>(presets.size());
   if (count == 0 || delta == 0)
     return false;
@@ -134,11 +235,66 @@ bool TONE3000Processor::stepPreset(int delta) {
   return loadPreset(presets[static_cast<size_t>(next)].id);
 }
 
+juce::ValueTree TONE3000Processor::readPresetTree(
+    const juce::String& presetId, std::optional<SetlistLibrary::Located>* located) const {
+  if (presetId.startsWith("factory:"))
+    return presetManager.load(presetId);
+  const auto found = userLibrary().find(presetId, currentSetlistId());
+  if (!found.has_value())
+    return {};
+  const auto read = userLibrary().load(*found);
+  if (!read.preset.isValid()) {
+    juce::Logger::writeToLog("[Presets] Cannot read " + found->slot.file.getFullPathName() +
+                             ": " + read.error);
+    return {};
+  }
+  // Not a failure: the blocks concerned come up failed or as placeholders
+  // under their names and the rest of the rig plays.
+  for (const auto& asset : read.missing)
+    juce::Logger::writeToLog("[Presets] '" + found->slot.name + "' is missing the asset '" +
+                             asset.name + "' (" + asset.hash + "." + asset.ext + ")");
+  if (located != nullptr)
+    *located = found;
+  return read.preset;
+}
+
 bool TONE3000Processor::loadPreset(const juce::String& presetId) {
-  const juce::ValueTree preset = presetManager.load(presetId);
+  serviceHostedPlugins();  // the undo snapshot below reads cached plugin chunks
+  std::optional<SetlistLibrary::Located> located;
+  const juce::ValueTree preset = readPresetTree(presetId, &located);
+  if (!applyPresetTree(preset, presetId))
+    return false;
+
+  // The position follows a load inside the current setlist. A preset loaded
+  // from elsewhere by its id (a favourite, a recent) leaves it where it is.
+  const juce::String setlistId = currentSetlistId();
+  std::optional<SetlistLibrary::Position> position;
+  if (located.has_value() && located->setlist.id == setlistId) {
+    position = SetlistLibrary::Position{setlistId, located->slot.slot};
+  } else if (!located.has_value() && setlistId == kFactorySetlistId) {
+    const auto factory = factoryPresets();
+    for (size_t i = 0; i < factory.size(); ++i)
+      if (factory[i].id == presetId)
+        position = SetlistLibrary::Position{setlistId, static_cast<int>(i) + 1};
+  }
+  userLibrary().noteLoaded(presetId, position);
+  return true;
+}
+
+bool TONE3000Processor::applyPresetTree(const juce::ValueTree& preset,
+                                        const juce::String& presetId) {
+  return applyPresetTree(preset, presetId, preset.getProperty("name").toString());
+}
+
+bool TONE3000Processor::applyPresetTree(const juce::ValueTree& preset, const juce::String& presetId,
+                                        const juce::String& presetName) {
   const juce::ValueTree snapshot = preset.getChildWithName("ChainSnapshot");
   if (!snapshot.isValid())
     return false;
+  if (const juce::String refusal = gridSnapshotRefusal(snapshot); refusal.isNotEmpty()) {
+    juce::Logger::writeToLog("[Presets] Cannot load preset: " + refusal);
+    return false;
+  }
 
   // A preset replaces the whole chain (and jumps the faceplate parameters
   // below), so mute-splice the transition like any structural edit. The fade
@@ -151,9 +307,12 @@ bool TONE3000Processor::loadPreset(const juce::String& presetId) {
     pushChainHistory();
     retired = restoreChainSnapshot(snapshot);  // bumps the revision
     activePresetId = presetId;
-    activePresetName = preset.getProperty("name").toString();
+    activePresetName = presetName;
   }
   retired.clear();
+  // What the restore queued for the legacy image controls, before the
+  // preset's own values go on.
+  flushLegacyParamWrites();
 
   // Faceplate parameters: every preset-managed id is set, entries missing
   // from the file (saved before a parameter existed) land on the parameter
@@ -164,22 +323,42 @@ bool TONE3000Processor::loadPreset(const juce::String& presetId) {
   // of fighting it).
   juce::ValueTree params = preset.getChildWithName("Params");
   t3k::legacy_ids::migrateParamIds(params, "id");
+  // The preset's values, not moves of a control: a grid preset's rows have
+  // just been restored and are what counts (see legacyControlMoved).
+  legacyControlSyncDepth.fetch_add(1);
   for (const auto& paramId : presetParameterIds()) {
     auto* p = parameters.getParameter(paramId);
     if (p == nullptr)
       continue;
     const juce::ValueTree paramTree = params.getChildWithProperty("id", paramId);
-    const float norm =
-        paramTree.isValid()
-            ? p->convertTo0to1(
-                  static_cast<float>(static_cast<double>(paramTree.getProperty("value"))))
-            : p->getDefaultValue();
+    // A value that is no number (a preset file can say NaN or an infinity)
+    // is a missing one: the default, never a NaN handed to the host.
+    const double value = paramTree.isValid()
+                             ? static_cast<double>(paramTree.getProperty("value"))
+                             : std::numeric_limits<double>::quiet_NaN();
+    float norm = std::isfinite(value) ? p->convertTo0to1(static_cast<float>(value))
+                                      : p->getDefaultValue();
+    if (!std::isfinite(norm))
+      norm = p->getDefaultValue();
     p->beginChangeGesture();
     p->setValueNotifyingHost(norm);
     p->endChangeGesture();
   }
+  legacyControlSyncDepth.fetch_sub(1);
+  if (isGridMode()) {
+    juce::ScopedLock lock(chainMutex);
+    // A grid preset: the image controls are the rows' or rest at neutral.
+    syncLegacyControlsFromGrid();
+  }
+  flushLegacyParamWrites();
+
+  // A preset may name its tempo (none this build saves does; see
+  // docs/library.md). Without one the rig's tempo stays as it is.
+  if (const juce::var tempo = preset.getProperty("tempo"); tempo.isDouble() || tempo.isInt())
+    setTempo(static_cast<double>(tempo));
 
   juce::Logger::writeToLog("[Presets] Loaded preset: " + activePresetName);
+  markPresetBaseline();
 
   // Tell hosts the current program moved so their program parameter/menus
   // follow (the VST3 wrapper syncs its program parameter off this; its echo
@@ -193,38 +372,65 @@ bool TONE3000Processor::loadPreset(const juce::String& presetId) {
   return true;
 }
 
-bool TONE3000Processor::renamePreset(const juce::String& presetId, const juce::String& newName) {
-  if (!presetManager.rename(presetId, newName))
+// ####################
+// A RIG FROM ANOTHER PROCESSOR
+// ####################
+// What SandboxRig::applyTo is made of: the rig as a tree out of one
+// processor and into another, the way a preset load would put it there, but
+// with nothing read from or written to the library.
+
+juce::ValueTree TONE3000Processor::captureRigTree() { return buildPresetTree(); }
+
+bool TONE3000Processor::applyRigTree(const juce::ValueTree& rig, const juce::String& presetId,
+                                     const juce::String& presetName, bool unsaved) {
+  serviceHostedPlugins();  // the undo snapshot reads cached plugin chunks (as loadPreset)
+  // The name is the caller's to give: the tree itself has none (see
+  // buildPresetTree).
+  if (!applyPresetTree(rig, presetId, presetId.isNotEmpty() ? presetName : juce::String()))
     return false;
-  hostProgramInfoCache.clear();  // host program names follow the rename
+  if (unsaved && presetId.isNotEmpty()) {
+    // applyPresetTree took the rig as the preset's own; this one is known
+    // not to be.
+    juce::ScopedLock lock(chainMutex);
+    presetBaseline.knownUnsaved = true;
+  }
+  return true;
+}
+
+bool TONE3000Processor::renamePreset(const juce::String& presetId, const juce::String& newName) {
+  const auto located = userLibrary().find(presetId, currentSetlistId());
+  if (!located.has_value() ||
+      userLibrary().rename(located->setlist.id, located->slot.slot, newName).failed())
+    return false;  // a factory preset, an unknown id, or a blank name
   {
     juce::ScopedLock lock(chainMutex);
     if (activePresetId == presetId) {
-      activePresetName = newName.trim();
+      activePresetName = SetlistLibrary::normaliseName(newName.trim());
       bumpChainRevision();
     }
   }
-  // A rename can reorder the list (name order within a section), moving the
-  // active preset's program index.
-  updateHostDisplay(ChangeDetails{}.withProgramChanged(true));
+  presetListChanged();  // host program names follow the rename
   return true;
 }
 
 bool TONE3000Processor::deletePreset(const juce::String& presetId) {
-  if (!presetManager.remove(presetId))
+  const auto located = userLibrary().find(presetId, currentSetlistId());
+  if (!located.has_value() ||
+      userLibrary().remove(located->setlist.id, located->slot.slot).failed())
     return false;
-  hostProgramInfoCache.clear();
   {
     juce::ScopedLock lock(chainMutex);
     if (activePresetId == presetId) {
       activePresetId.clear();
       activePresetName.clear();
+      presetBaseline = {};
       bumpChainRevision();
     }
   }
-  // Every preset after the deleted one shifted down a program slot (and the
-  // active one may be gone entirely), so host program state moved.
-  updateHostDisplay(ChangeDetails{}.withProgramChanged(true));
+  // Its slot is empty now (the other presets keep theirs, which is the
+  // point of slots), and the active preset may be gone: host program state
+  // moved.
+  presetListChanged();
   return true;
 }
 
@@ -232,15 +438,20 @@ bool TONE3000Processor::movePreset(const juce::String& presetId, int delta) {
   // Pure list-order change: nothing about the loaded chain moves, so no
   // revision bump; the UI re-pulls the preset list after the call. Program
   // numbers follow the list order though, so host displays must refresh.
-  if (!presetManager.move(presetId, delta))
+  const juce::String setlistId = currentSetlistId();
+  const auto located = userLibrary().find(presetId, setlistId);
+  if (delta == 0 || !located.has_value() || located->setlist.id != setlistId ||
+      userLibrary().moveByDelta(setlistId, located->slot.slot, delta).failed())
     return false;
-  hostProgramInfoCache.clear();
-  updateHostDisplay(ChangeDetails{}.withProgramChanged(true));
+  presetListChanged();
   return true;
 }
 
 bool TONE3000Processor::isChainAtDefault() const {
-  if (activePresetId.isNotEmpty() || stereoEnabled.load())
+  if (activePresetId.isNotEmpty() || stereoEnabled.load() || routingMode == RoutingMode::Grid)
+    return false;
+  // Scene names, the active scene and stomp labels can outlive the blocks.
+  if (!scenes.isPristine() || !stomps.isEmpty())
     return false;
   for (const auto& l : lanes)
     for (const auto& b : l)
@@ -276,8 +487,10 @@ bool TONE3000Processor::resetToDefault() {
     retired = restoreChainSnapshot(juce::ValueTree("ChainSnapshot"));
     activePresetId.clear();
     activePresetName.clear();
+    presetBaseline = {};
   }
   retired.clear();
+  flushLegacyParamWrites();  // before the defaults below, which win
 
   // Gestured like loadPreset, so hosts treat the jumps as user edits.
   for (const auto& paramId : presetParameterIds()) {
@@ -300,7 +513,9 @@ bool TONE3000Processor::resetToDefault() {
 // HOST PROGRAM API
 // #############################
 //
-// The internal preset list, exposed as the JUCE/host program list. This is
+// The current setlist, exposed as the JUCE/host program list: program n is
+// slot n + 1, so the first 128 slots are reachable and an empty slot is an
+// empty program. This is
 // what makes MIDI program changes work in VST3 hosts (Cubase, Ableton, VST
 // Live; GitHub issue #38): VST3 never delivers PC as MIDI. JUCE's wrapper
 // reconstructs CCs/notes/pitch bend/aftertouch from IMidiMapping emulation
@@ -336,7 +551,7 @@ int TONE3000Processor::getCurrentProgram() {
   // Fresh list, not the name cache: guards compare against this (see
   // applyHostProgram and the wrapper's own echo suppression), so it must
   // track the store exactly. One scan per call, event-rate only.
-  const auto presets = presetManager.list();
+  const auto presets = currentPresetSlots();
   const int count = juce::jmin(static_cast<int>(presets.size()), kNumHostPrograms);
   for (int i = 0; i < count; ++i)
     if (presets[static_cast<size_t>(i)].id == id)
@@ -360,8 +575,9 @@ void TONE3000Processor::setCurrentProgram(int index) {
 }
 
 void TONE3000Processor::applyHostProgram(int index) {
-  const auto presets = presetManager.list();
-  if (index < 0 || index >= static_cast<int>(presets.size()))
+  const auto presets = currentPresetSlots();
+  if (index < 0 || index >= static_cast<int>(presets.size()) ||
+      presets[static_cast<size_t>(index)].id.isEmpty())
     return;  // empty program slot: ignore, like an out-of-range PC
   {
     juce::ScopedLock lock(chainMutex);
@@ -376,10 +592,11 @@ const juce::String TONE3000Processor::getProgramName(int index) {
   // another instance sharing the preset folder.
   const auto now = juce::Time::getMillisecondCounter();
   if (hostProgramInfoCache.empty() || now - hostProgramInfoCacheTime > 500) {
-    hostProgramInfoCache = presetManager.list();
+    hostProgramInfoCache = currentPresetSlots();
     hostProgramInfoCacheTime = now;
   }
-  if (index >= 0 && index < static_cast<int>(hostProgramInfoCache.size()))
+  if (index >= 0 && index < static_cast<int>(hostProgramInfoCache.size()) &&
+      hostProgramInfoCache[static_cast<size_t>(index)].id.isNotEmpty())
     return hostProgramInfoCache[static_cast<size_t>(index)].name;
   return "(empty)";
 }

@@ -1,0 +1,269 @@
+{
+  "source": "quad-cortex",
+  "version": 1,
+  "description": "Quad Cortex block names and parameters onto Pedaleira kinds. Built from public sources only (docs/import.md, 'Sources'). Nothing here has been checked against a dump from a real unit yet: every model is verified false, and a parameter with a unit is only taken when the dump gives that unit.",
+  "models": {
+    "VCA Comp": {
+      "kind": "dynamics.compressor",
+      "verified": false,
+      "params": {
+        "THRESHOLD": { "param": "thresholdDb", "unit": "dB", "transform": "linear" }
+      },
+      "notes": "THRESHOLD in dB is the one name pyquadcortex's documentation gives for this block. The unit runs -60 to +12 dB, ours -60 to 0, so a value above 0 is clamped and reported. Ratio, attack, release and the rest stay at our defaults until their names are known."
+    },
+    "Simple Gate": {
+      "kind": "dynamics.gate",
+      "verified": false,
+      "notes": "Parameters not mapped: names unknown."
+    },
+    "Utility Gate": {
+      "kind": "dynamics.gate",
+      "verified": false,
+      "notes": "Parameters not mapped: names unknown."
+    },
+    "Adaptive Gate": {
+      "kind": "dynamics.gate",
+      "verified": false,
+      "notes": "Parameters not mapped: names unknown."
+    },
+    "Graphic 9": {
+      "kind": "eq.graphic10",
+      "verified": false,
+      "notes": "Nine bands against our ten at other centre frequencies, and the band names are unknown: placed flat. Set the bands by ear."
+    },
+
+    "Digital Delay": {
+      "kind": "delay.digital",
+      "verified": false,
+      "params": {
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "FEEDBACK and MIX are the manual's common delay controls; the percent units are assumed. The time is not mapped yet (its name and units are unconfirmed)."
+    },
+    "Analog Delay": {
+      "kind": "delay.analog",
+      "verified": false,
+      "params": {
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Feedback and mix only; the time is not mapped."
+    },
+    "Tape Delay": {
+      "kind": "delay.tape",
+      "verified": false,
+      "params": {
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Feedback and mix only; the time, wow, flutter and drive are not mapped."
+    },
+    "Simple Delay": {
+      "kind": "delay.simple",
+      "verified": false,
+      "params": {
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Feedback and mix only; the time is not mapped."
+    },
+    "Simple Ping Pong Delay": {
+      "kind": "delay.pingpong",
+      "verified": false,
+      "params": {
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Feedback and mix only; the time is not mapped."
+    },
+
+    "Room": {
+      "kind": "reverb.room",
+      "verified": false,
+      "params": {
+        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Pre delay (up to 100 ms in the manual) and mix. Decay and the filters are not mapped: their names and units are unconfirmed."
+    },
+    "Hall": {
+      "kind": "reverb.hall",
+      "verified": false,
+      "params": {
+        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Pre delay and mix only; decay and the filters are not mapped."
+    },
+    "Plate": {
+      "kind": "reverb.plate",
+      "verified": false,
+      "params": {
+        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Pre delay and mix only; decay and the filters are not mapped."
+    },
+    "Plate Lush": {
+      "kind": "reverb.plate",
+      "verified": false,
+      "params": {
+        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "A variant of Plate; ours has one plate."
+    },
+    "Plate Tight": {
+      "kind": "reverb.plate",
+      "verified": false,
+      "params": {
+        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "A variant of Plate; ours has one plate."
+    },
+    "Shimmer": {
+      "kind": "reverb.shimmer",
+      "verified": false,
+      "params": {
+        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Pre delay and mix only; decay and the filters are not mapped."
+    },
+    "Spring": {
+      "kind": "reverb.spring",
+      "verified": false,
+      "params": {
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Mono and stereo versions are one model here. Only the mix is mapped."
+    },
+
+    "Vintage Chorus": {
+      "kind": "modulation.chorus",
+      "verified": false,
+      "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+      },
+      "notes": "RATE and DEPTH are the manual's general modulation controls; the units are assumed."
+    },
+    "Chorus Engine": {
+      "kind": "modulation.chorus",
+      "verified": false,
+      "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+      },
+      "notes": "Rate and depth only."
+    },
+    "Digital Flanger": {
+      "kind": "modulation.flanger",
+      "verified": false,
+      "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+      },
+      "notes": "Rate and depth only."
+    },
+    "Flanger Engine": {
+      "kind": "modulation.flanger",
+      "verified": false,
+      "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+      },
+      "notes": "Rate and depth only."
+    },
+    "Flangerish": {
+      "kind": "modulation.flanger",
+      "verified": false,
+      "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+      },
+      "notes": "Rate and depth only."
+    },
+    "Phaser": {
+      "kind": "modulation.phaser",
+      "verified": false,
+      "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+      },
+      "notes": "Rate and depth only."
+    },
+    "Tremolo": {
+      "kind": "modulation.tremolo",
+      "verified": false,
+      "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+      },
+      "notes": "Rate and depth only."
+    },
+    "Vibrato": {
+      "kind": "modulation.vibrato",
+      "verified": false,
+      "params": {
+        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" }
+      },
+      "notes": "Rate only: ours sets the depth in cents, and the unit of theirs is unconfirmed."
+    },
+    "Rotary": {
+      "kind": "modulation.rotary",
+      "verified": false,
+      "notes": "Parameters not mapped: names unknown."
+    },
+
+    "Envelope Filter": {
+      "kind": "filter.envelope",
+      "verified": false,
+      "notes": "Parameters not mapped: names unknown."
+    },
+    "Auto Wah": {
+      "kind": "filter.autowah",
+      "verified": false,
+      "notes": "Parameters not mapped: names unknown."
+    },
+
+    "Pitch Shifter": {
+      "kind": "pitch.shifter",
+      "verified": false,
+      "notes": "Parameters not mapped: names unknown."
+    },
+    "Poly Octaver": {
+      "kind": "pitch.octaver",
+      "verified": false,
+      "notes": "Parameters not mapped: names unknown. Ours is not polyphonic."
+    }
+  },
+  "categories": {
+    "Compressor": "dynamics.compressor",
+    "Delay": "delay.digital",
+    "Reverb": "reverb.hall",
+    "Modulation": "modulation.chorus",
+    "Wah": "filter.wah",
+    "Equalizer": null,
+    "Filter": null,
+    "Pitch": null,
+    "Utility": null,
+    "Guitar Overdrive": null,
+    "Bass Overdrive": null,
+    "FX Loop": null,
+    "Loopers": null,
+    "Morph": null,
+    "Synth": null,
+    "Guitar Amplifier": { "role": "amp" },
+    "Bass Amplifier": { "role": "amp" },
+    "Cabsim Guitar (M)": { "role": "cab" },
+    "Cabsim Guitar (ST)": { "role": "cab" },
+    "Cabsim Bass (M)": { "role": "cab" },
+    "Cabsim Bass (ST)": { "role": "cab" },
+    "IR Loaders": { "role": "cab" },
+    "IRLoaders": { "role": "cab" },
+    "Neural Capture": { "role": "capture" }
+  }
+}

@@ -140,6 +140,12 @@ public:
 
   double getSlimmableSize() const noexcept { return requestedSlimmableSize; }
 
+  /** The time the last prepare() spent prewarming, per second of the audio
+      it prewarmed with, summed over the instances: a rough fraction of one
+      core, there before the engine has processed anything. 0 when the
+      model does not prewarm. */
+  double prewarmCostSeed() const noexcept { return costSeed; }
+
 private:
   /** Instance 0: the reference for metadata queries (all instances share
       one model config, so levels/loudness/rate are identical). */
@@ -179,4 +185,6 @@ private:
   int maxBlockSize = 0;
 
   double requestedSlimmableSize{1.0};
+
+  double costSeed = 0.0;
 };

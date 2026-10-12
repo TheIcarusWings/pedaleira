@@ -1,0 +1,26 @@
+{
+  "format": "pedaleira-foreign-preset",
+  "version": 1,
+  "source": "quad-cortex",
+  "sourceVersion": "CorOS 4.0.1",
+  "name": "Edge of Breakup",
+  "tempo": 84,
+  "defaultScene": 0,
+  "rows": [
+    { "index": 0, "blocks": [
+      { "position": 0, "model": "Mystery Drive", "category": "Guitar Overdrive", "enabled": true, "params": {} },
+      { "position": 1, "model": "JC Capture", "category": "Neural Capture", "enabled": true, "params": {} },
+      { "position": 3, "model": "Chorus Engine", "category": "Modulation", "enabled": true,
+        "params": { "RATE": { "value": 1.2 }, "DEPTH": { "value": 40.0 } } },
+      { "position": 4, "model": "Tape Delay", "category": "Delay", "enabled": true,
+        "params": { "FEEDBACK": { "value": 35.0, "unit": "%" }, "MIX": { "value": 20.0, "unit": "%" } } },
+      { "position": 5, "model": "Plate", "category": "Reverb", "enabled": true,
+        "params": { "MIX": { "value": 22.0, "unit": "%" } } }
+    ] }
+  ],
+  "scenes": [
+    { "name": "Rhythm", "enabled": {}, "params": {} },
+    { "name": "Lead", "enabled": { "0:4": true }, "params": {} }
+  ],
+  "warnings": []
+}

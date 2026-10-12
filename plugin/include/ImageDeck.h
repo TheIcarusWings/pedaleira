@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 
 /**
  * Shared DSP primitives for the two stereo-image engines: Spread (mono
@@ -112,7 +113,23 @@ struct DeckWobble {
                           ((1.0 - a * a) * (1.0 - a * a) * (1.0 - a * a));
     const double sigma = std::sqrt(gainSq / 3.0);
     norm = static_cast<float>(1.0 / (3.0 * sigma));
+    // The Random is clock-seeded when the member is constructed; the offline
+    // override re-seeds it here, in prepare, so every prepare (the engine's
+    // own, and a host's repeated prepareToPlay) starts the same noise
+    // stream and a render is repeatable.
+    if (seeded.load(std::memory_order_acquire))
+      random.setSeed(seed.load(std::memory_order_relaxed));
   }
+  /** Test / offline-render only (reached through
+      TONE3000Processor::setDeterministicRandomForOfflineRender): makes
+      every later prepare() seed the noise source with `newSeed` instead of
+      the clock. Process-wide, so every wobble in a rig starts from the same
+      stream. The shipped plugin never calls it. */
+  static void setSeedOverride(std::int64_t newSeed) {
+    seed.store(newSeed, std::memory_order_relaxed);
+    seeded.store(true, std::memory_order_release);
+  }
+  static void clearSeedOverride() { seeded.store(false, std::memory_order_release); }
   void reset() { state1 = state2 = 0.0f; }
   float next() noexcept {
     state1 += coeff * (random.nextFloat() * 2.0f - 1.0f - state1);
@@ -124,6 +141,9 @@ struct DeckWobble {
   float state1{0.0f}, state2{0.0f};
   float coeff{0.0f};
   float norm{1.0f};
+
+  static inline std::atomic<bool> seeded{false};
+  static inline std::atomic<std::int64_t> seed{0};
 };
 
 /** ~300 ms running normalized L/R output correlation, published through an

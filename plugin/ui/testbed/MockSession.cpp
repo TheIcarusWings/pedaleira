@@ -104,71 +104,38 @@ void MockSession::listToneModels(int toneId, const juce::String&, Reply<std::vec
   });
 }
 
-namespace {
-bool containsIgnoreCase(const std::vector<juce::String>& haystack, const juce::String& needle) {
-  return std::any_of(haystack.begin(), haystack.end(), [&](const auto& s) { return s.equalsIgnoreCase(needle); });
-}
-// Any of the picked names, or nothing picked.
-bool anyPicked(const std::vector<juce::String>& picked, const std::vector<juce::String>& carried) {
-  return picked.empty() || std::any_of(picked.begin(), picked.end(), [&](const auto& p) {
-           return containsIgnoreCase(carried, p);
-         });
-}
-}  // namespace
-
-std::vector<Tone> MockSession::matching(const ToneQuery& q) const {
-  std::vector<Tone> out;
-  const auto text = q.text.trim();
-  const auto* rows = apiTones_.getArray();
-  if (rows == nullptr) return out;
-  for (const auto& row : *rows) {
-    auto tone = Tone::parse(row);
-    if (text.isNotEmpty() && !tone.title.containsIgnoreCase(text)) continue;
-    if (q.gear.isNotEmpty() && !tone.gear.equalsIgnoreCase(q.gear)) continue;
-    if (q.format.isNotEmpty() && !tone.format.equalsIgnoreCase(q.format)) continue;
-    if (!anyPicked(q.tags, tone.tags) || !anyPicked(q.makes, tone.makes)) continue;
-    if (!q.creators.empty() && (!tone.user || !containsIgnoreCase(q.creators, tone.user->username))) continue;
-    if (q.verified && (!tone.user || !tone.user->isVerified)) continue;
-    out.push_back(std::move(tone));
-  }
-  return out;
-}
-
-void MockSession::searchTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) {
-  if (query.profile != Profile::none) {
-    // The suite's fixed gated page, whatever the page asked for, narrowed
-    // by the title search and gear the stream endpoints take.
-    answer<TonePage>("gated", std::move(reply), [this, query] {
-      const auto spec = override("gated");
-      auto gated = TonePage::parse(spec.isObject() ? spec : gatedPage_);
-      const auto text = query.text.trim();
-      if (text.isNotEmpty() || query.gear.isNotEmpty()) {
-        std::erase_if(gated.data, [&](const Tone& tone) {
-          return (text.isNotEmpty() && !tone.title.containsIgnoreCase(text)) ||
-                 (query.gear.isNotEmpty() && !tone.gear.equalsIgnoreCase(query.gear));
-        });
-        gated.page = 1;
-        gated.totalPages = 1;
-      }
-      return Result<TonePage>::ok(std::move(gated));
+void MockSession::listTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) {
+  requests.push_back(query.requestPath(page, pageSize));
+  if (query.isTrending()) {
+    // The default view: the same ten-tone feed the signed-out preview shows.
+    feed(query.gear, [cb = std::move(reply)](Result<std::vector<Tone>> r) {
+      if (!r) return cb(Result<TonePage>::fail(r.error));
+      TonePage page;
+      page.data = std::move(*r.value);
+      cb(Result<TonePage>::ok(std::move(page)));
     });
     return;
   }
-  answer<TonePage>("search", std::move(reply), [this, query, page, pageSize] {
-    const auto spec = override("search");
-    if (spec.isObject()) return Result<TonePage>::ok(TonePage::parse(spec));
-    auto all = matching(query);
-    TonePage out;
-    out.totalPages = std::max(1, (static_cast<int>(all.size()) + pageSize - 1) / pageSize);
-    out.page = juce::jlimit(1, out.totalPages, page);
-    const auto first = static_cast<size_t>((out.page - 1) * pageSize);
-    const auto last = std::min(all.size(), first + static_cast<size_t>(pageSize));
-    out.data.assign(all.begin() + static_cast<std::ptrdiff_t>(first), all.begin() + static_cast<std::ptrdiff_t>(last));
-    return Result<TonePage>::ok(std::move(out));
+  // The suite's fixed gated page, whatever the page asked for, narrowed by
+  // the gear the stream endpoints take.
+  answer<TonePage>("gated", std::move(reply), [this, query] {
+    const auto spec = override("gated");
+    auto gated = TonePage::parse(spec.isObject() ? spec : gatedPage_);
+    if (query.gear.isNotEmpty()) {
+      std::erase_if(gated.data, [&](const Tone& tone) { return !tone.gear.equalsIgnoreCase(query.gear); });
+      gated.page = 1;
+      gated.totalPages = 1;
+    }
+    return Result<TonePage>::ok(std::move(gated));
   });
 }
 
 void MockSession::listTrending(const juce::String& gear, Reply<std::vector<Tone>> reply) {
+  requests.push_back(ToneQuery{gear, Profile::none}.requestPath(1, 0));
+  feed(gear, std::move(reply));
+}
+
+void MockSession::feed(const juce::String& gear, Reply<std::vector<Tone>> reply) {
   answer<std::vector<Tone>>("trending", std::move(reply), [this, gear] {
     constexpr size_t kFeedSize = 10;  // the endpoint's fixed cap
     std::vector<Tone> out;
@@ -185,34 +152,6 @@ void MockSession::listTrending(const juce::String& gear, Reply<std::vector<Tone>
   });
 }
 
-void MockSession::listTaxonomy(Taxonomy kind, const juce::String& text, Reply<std::vector<TaxonomyEntry>> reply) {
-  answer<std::vector<TaxonomyEntry>>("taxonomy", std::move(reply), [this, kind, text] {
-    const auto spec = override("taxonomy");
-    const char* group = kind == Taxonomy::tags ? "tags" : kind == Taxonomy::makes ? "makes" : "creators";
-    std::vector<TaxonomyEntry> entries;
-    auto add = [&](const juce::String& name, const juce::String& avatarUrl) {
-      const bool seen = std::any_of(entries.begin(), entries.end(),
-                                    [&](const auto& e) { return e.name.equalsIgnoreCase(name); });
-      if (!seen && (text.isEmpty() || name.containsIgnoreCase(text))) entries.push_back({name, avatarUrl});
-    };
-    if (spec.isObject()) {
-      if (const auto* listed = spec[group].getArray())
-        for (const auto& n : *listed) add(n.toString(), {});
-    } else if (const auto* rows = apiTones_.getArray()) {
-      // Every distinct name the fixture tones carry, in first-seen order.
-      for (const auto& row : *rows) {
-        const auto tone = Tone::parse(row);
-        if (kind == Taxonomy::creators) {
-          if (tone.user) add(tone.user->username, tone.user->avatarUrl);
-        } else {
-          for (const auto& name : kind == Taxonomy::tags ? tone.tags : tone.makes) add(name, {});
-        }
-      }
-    }
-    return Result<std::vector<TaxonomyEntry>>::ok(std::move(entries));
-  });
-}
-
 void MockSession::selectTone(int toneId, Done done) {
   getTone(toneId, [self = juce::WeakReference<MockSession>(this), fin = std::move(done)](Result<Tone> tone) {
     if (self == nullptr) return;
@@ -220,10 +159,6 @@ void MockSession::selectTone(int toneId, Done done) {
     if (self->onToneSelected) self->onToneSelected(*tone);
     fin({});
   });
-}
-
-void MockSession::setToneFavorite(int, bool, Done done) {
-  juce::MessageManager::callAsync([cb = std::move(done)] { cb({}); });
 }
 
 void MockSession::ensureNativeAuth(Done done) {

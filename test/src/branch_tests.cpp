@@ -16,7 +16,7 @@
 //     has a single mono source),
 //   - the branch lane's surplus trailing insert placeholders trim so its
 //     indented rail ends level with the trunk where possible (trim-only,
-//     see alignBranchLaneLengths), and clearing restores the baseline.
+//     see rebuildTopology), and clearing restores the baseline.
 //
 // Chains are seeded through setStateInformation with the IR bytes embedded
 // (ModelCache), so loads are cache-first and never touch the network.

@@ -148,23 +148,9 @@ std::map<Key, String> buildTable() {
   t[Key::presetPc] = U("PC: the MIDI program change number that loads this preset.");
 
   // Tone browser
-  t[Key::browserSearch] = U("Search: find tones on TONE3000 by title, gear, tags or creator.");
-  t[Key::browserSearchProfile] = U("Search: find tones in this list by title.");
-  t[Key::browserMoreFilters] = U("Filters: sort, and narrow by format, tags, makes, creators or calibration.");
-  t[Key::browserFewerFilters] = U("Fewer filters: fold these away. They stay applied.");
-  t[Key::browserVerified] = U("Verified: only tones from verified creators.");
   t[Key::browserProfile] = U("Profile: your recently used, favorited or created tones.");
   t[Key::browserGear] = U("Gear: only tones of this type. Click again: all types.");
-  t[Key::browserSort] = U("Sort: order the results.");
-  t[Key::browserFormat] = U("Format: only NAM captures or impulse responses.");
-  t[Key::browserTags] = U("Tags: only tones carrying any of the chosen tags.");
-  t[Key::browserMakes] = U("Makes: only tones of the chosen makes and models.");
-  t[Key::browserCreators] = U("Creators: only tones by the chosen creators.");
-  t[Key::browserCalibrated] = U("Calibrated: only tones with a calibrated model.");
   t[Key::browserClearFilter] = U("Click the name: change this filter · ×: clear it.");
-  t[Key::browserProfileLocked] =
-      U("Unavailable while a profile filter is set: your own tones list by title and gear only. Clear the profile to use it.");
-  t[Key::browserCalibratedIr] = U("Not for impulse responses: cabinets and spaces carry no calibration data.");
   t[Key::browserBackToTrending] = U("Back: to the trending tones.");
 
   // Sign-in screen
@@ -225,8 +211,6 @@ std::map<Key, String> buildTable() {
   t[Key::toneInfo] = U("Info: tone description, makes, and tags from TONE3000.");
   t[Key::toneInfoLogin] = U("Log In: sign in to TONE3000 to see tone details.");
   t[Key::viewOnT3k] = U("View on TONE3000: open this tone in your browser.");
-  t[Key::favoriteTone] = U("Favorite: save this tone to your TONE3000 favorites.");
-  t[Key::unfavoriteTone] = U("Favorited: click to remove from your TONE3000 favorites.");
   t[Key::eqSlidersView] = U("Sliders: gain-only fader view.");
   t[Key::eqCurveView] = U("Curve: parametric freq/gain/Q editor.");
   t[Key::eqReset] = U("Reset EQ: all bands flat, position post.");

@@ -20,7 +20,6 @@
 #include "HttpClient.h"
 #include "UiPrefs.h"
 #include "core/Result.h"
-#include "model/ToneQuery.h"
 
 namespace t3k::ui {
 
@@ -51,6 +50,22 @@ struct DeviceAuthorization {
 
 class Tone3000Client {
 public:
+  // Pedaleira uses the TONE3000 API on the free tier (open source,
+  // non-commercial). Per "Commercial terms" in github.com/tone-3000/api, that
+  // tier covers the OAuth prompt flows, a tone and its models, the user, and
+  // the bounded lists (tones/created, favorited, downloaded, trending,
+  // latest). Search, favouriting and the taxonomy lists (tags, makes,
+  // creators) belong to the commercial full API. While this is true the
+  // client refuses those before any request is built, so nothing can reach
+  // them by accident. See freeTierAllows().
+  static constexpr bool kFreeTier = true;
+  // Whether a request is inside the free tier (an allow-list, so a new
+  // endpoint is refused until someone decides it belongs). Paths are
+  // origin-relative, with or without a query string.
+  static bool freeTierAllows(const juce::String& path, const juce::String& method);
+  // The error a refused call fails with.
+  static juce::String freeTierError(const juce::String& path);
+
   // Errors carry the web client's codes / messages ("token_refresh_failed",
   // "getTone failed: 404").
   template <typename T>
@@ -93,7 +108,8 @@ public:
   void pollDeviceToken(const juce::String& deviceCode, Reply<Tokens> reply);
 
   // Authenticated calls
-  // Bearer fetch with one retry on 401 (the expiry-check race).
+  // Bearer fetch with one retry on 401 (the expiry-check race). Both fetches
+  // fail at once, with no request, on a path outside the free tier.
   void fetch(const juce::String& path, const juce::String& method, const juce::String& jsonBody,
              Reply<HttpResponse> reply);
   // Bearer when a session exists, anonymous otherwise (and anonymous again
@@ -103,16 +119,12 @@ public:
   // Typed endpoints
   void getUser(Reply<juce::var> reply);
   void getTone(int toneId, Reply<juce::var> reply);
-  void setFavorite(int toneId, bool favorite, Reply<bool> reply);
   // A tone listing by its ready-made path (ToneQuery::requestPath): the
   // PaginatedResponse payload.
   void listTones(const juce::String& path, Reply<juce::var> reply);
   // /tones/trending[?gear=]: the homepage's top-10 feed, `{ data: Tone[] }`.
   // Needs no session (the signed-out preview), Bearer when there is one.
   void listTrending(const juce::String& gear, Reply<juce::var> reply);
-  // /tags, /makes or /users (creators), most-used first, one page of
-  // `pageSize`, narrowed by `query` when non-empty.
-  void listTaxonomy(Taxonomy kind, const juce::String& query, int pageSize, Reply<juce::var> reply);
   // /models?tone_id&page_size[&architecture]; architecture < 0 omits it.
   void listModels(int toneId, int pageSize, int architecture, Reply<juce::var> reply);
   // /plugin/version with X-Device-Id and X-Plugin-Version (the running

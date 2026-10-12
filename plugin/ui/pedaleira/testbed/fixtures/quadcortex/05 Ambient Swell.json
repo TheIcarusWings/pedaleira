@@ -1,0 +1,23 @@
+{
+  "format": "pedaleira-foreign-preset",
+  "version": 1,
+  "source": "quad-cortex",
+  "sourceVersion": "CorOS 4.0.1",
+  "name": "Ambient Swell",
+  "tempo": 72,
+  "defaultScene": 0,
+  "rows": [
+    { "index": 0, "blocks": [
+      { "position": 1, "model": "Shimmer", "category": "Reverb", "enabled": true,
+        "params": { "PRE DELAY": { "value": 40.0, "unit": "ms" }, "MIX": { "value": 45.0, "unit": "%" } } },
+      { "position": 3, "model": "Tape Delay (ST)", "category": "Delay", "enabled": true,
+        "params": { "FEEDBACK": { "value": 50.0, "unit": "%" }, "MIX": { "value": 30.0, "unit": "%" } } },
+      { "position": 5, "model": "Plate Lush", "category": "Reverb", "enabled": true,
+        "params": { "MIX": { "value": 40.0, "unit": "%" } } }
+    ] }
+  ],
+  "scenes": [
+    { "name": "Swell", "enabled": {}, "params": {} }
+  ],
+  "warnings": []
+}

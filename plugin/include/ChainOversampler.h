@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstddef>
 #include <vector>
 
 // Chain oversampler: power-of-two rate raiser around the chain stage
@@ -46,6 +48,12 @@
 //                         length × rate); islands pin it at the base rate.
 // An instance serves exactly one role (the filter state is shared between
 // directions), so the chain wrapper and each IR block own their own.
+//
+// processUp() / processDown() are the two halves of process(), for the case
+// where several instances (one per boundary port) must share ONE chain-rate
+// callback: raise every port, run the chain once, lower every port. They use
+// the same filter state as process(), so an instance driven through the
+// halves is in the chain-wrapper role.
 class ChainOversampler {
 public:
   static constexpr int kMaxFactor = 8;
@@ -101,6 +109,46 @@ public:
     runDownCascade(osPointers, outputs, kChannels, numFrames * factor);
   }
 
+  /** Up half of process(): interpolate `numFrames` base-rate frames from
+      `inputs` (two channel pointers) into `chainOut` (two channel pointers,
+      numFrames × factor frames each) and return that chain-rate frame count.
+      `chainOut` is normally chainBuffer(); a caller-owned buffer works too,
+      but it must not overlap `inputs` unless the factor is 1 and the two are
+      identical. processUp() + chainFn + processDown() on chainBuffer() is
+      process(), sample for sample. RT-safe after prepare(). */
+  int processUp(float* const* inputs, float* const* chainOut, int numFrames) {
+    if (factor <= 1) {
+      // process() hands the caller's buffers straight to the chain function
+      // here; a split call has to move the samples itself.
+      copyChannels(inputs, chainOut, numFrames);
+      return numFrames;
+    }
+    assert(static_cast<size_t>(numFrames) * static_cast<size_t>(factor) <= osCapacityPerChannel);
+    runUpCascade(inputs, chainOut, kChannels, numFrames);
+    return numFrames * factor;
+  }
+
+  /** Down half of process(): anti-alias filter and decimate `numChainFrames`
+      chain-rate frames (the value processUp() returned) from `chainIn` into
+      `outputs` (numChainFrames / factor base-rate frames). `chainIn` may be
+      chainBuffer() or a caller-owned buffer (a bus sum, say), and `outputs`
+      may be the same pointers as `chainIn`. RT-safe after prepare(). */
+  void processDown(float* const* chainIn, float* const* outputs, int numChainFrames) {
+    if (factor <= 1) {
+      copyChannels(chainIn, outputs, numChainFrames);
+      return;
+    }
+    assert(numChainFrames % factor == 0);
+    assert(static_cast<size_t>(numChainFrames) <= osCapacityPerChannel);
+    runDownCascade(chainIn, outputs, kChannels, numChainFrames);
+  }
+
+  /** The instance's own chain-rate block: two channel pointers with room for
+      maxBaseFrames × factor frames, the buffer process() runs the chain
+      function on. Free for the caller to use between processUp() and
+      processDown(). */
+  float* const* chainBuffer() { return workBuffers[0].pointers.data(); }
+
   /** The inverse wrap: decimate an oversampled-rate section down to the base
       rate, run `baseFn(channels, frames / factor)` there, and interpolate the
       result back, in place on `channels` (numChannels ≤ 2 oversampled-rate
@@ -140,6 +188,12 @@ private:
     float y1 = 0.0f;
   };
   using BranchStates = std::array<AllpassState, kMaxStages * kChannels * kSections>;
+
+  static void copyChannels(float* const* from, float* const* to, int numFrames) {
+    for (int ch = 0; ch < kChannels; ++ch)
+      if (to[ch] != from[ch])
+        std::copy_n(from[ch], numFrames, to[ch]);
+  }
 
   static float processAllpass(float x, float a, AllpassState& s) {
     const float y = a * x + s.x1 - a * s.y1;

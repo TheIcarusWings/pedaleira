@@ -3,22 +3,26 @@
 #include <juce_dsp/juce_dsp.h>
 #include <algorithm>
 #include <atomic>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
+#include "BlockDelayLine.h"
 #include "BlockEq.h"
+#include "BlockProcessor.h"
 #include "BlockSpectrum.h"
-#include "ChainOversampler.h"
-#include "NamEngine.h"
+#include "GridTopology.h"
+#include "IrBlockProcessor.h"
+#include "NamBlockProcessor.h"
 
-// Chain block types
-enum class ChainBlockType { NAM, IR, INSERT };
-
+// ChainBlockType itself lives in BlockProcessor.h (a processor names the
+// type it implements); the string forms used by saved state are here.
 inline juce::String chainBlockTypeToString(ChainBlockType type) {
   switch (type) {
     case ChainBlockType::NAM: return "nam";
     case ChainBlockType::INSERT: return "insert";
+    case ChainBlockType::KIND: return "kind";
     case ChainBlockType::IR: break;
   }
   return "ir";
@@ -27,13 +31,17 @@ inline juce::String chainBlockTypeToString(ChainBlockType type) {
 inline ChainBlockType chainBlockTypeFromString(const juce::String& s) {
   if (s == "nam") return ChainBlockType::NAM;
   if (s == "insert") return ChainBlockType::INSERT;
+  if (s == "kind") return ChainBlockType::KIND;
   return ChainBlockType::IR;
 }
 
-// Which chain is being processed/edited in stereo mode.
+// Which chain is being processed/edited in stereo mode. Left and Right are
+// the legacy names of rows 0 and 1; the grid's rows 2 and 3 have no side.
 enum class ChainSide { Left, Right };
 
-constexpr int kNumLanes = 2;
+// A lane is a grid row (GridTopology.h). The legacy rig uses the first two.
+constexpr int kNumLanes = kGridRows;
+constexpr int kNumLegacyLanes = 2;
 inline int laneIndex(ChainSide side) { return side == ChainSide::Right ? 1 : 0; }
 
 // Wet-path fade time (see ChainBlock::wetFadeGain): every discontinuous
@@ -51,44 +59,8 @@ constexpr double kWetFadeSeconds = 0.025;
 // TONE3000Processor::normalizeLaneInserts after every structural change, with
 // one relaxation: while a stereo branch is active, the branch lane's surplus
 // trailing inserts are trimmed below this baseline so its indented rail ends
-// level with the trunk lane (see alignBranchLaneLengths).
+// level with the trunk lane (see rebuildTopology).
 constexpr int kMinLaneSlots = 5;
-
-// IR convolver block size cap. juce::dsp::Convolution's zero-latency engines
-// size their FFT partition from ProcessSpec::maximumBlockSize and run a full
-// forward + inverse FFT of that size on *every* process() call, however few
-// samples it carries. Preparing from the host's promised maximum ties IR CPU
-// to a number unrelated to the real callback size: Ardour advertises 8192 to
-// every LV2 plugin whatever buffer it actually runs, and one cab IR at
-// 64-sample callbacks then costs ~90% of a core instead of ~2%. So the
-// convolver's prepared block size is the host's base block *capped* at this
-// (irConvolverBlockSizeFor), and the RT path never feeds it more per call
-// (processConvolverInChunks). Hosts at or below the cap get exactly the
-// partition they always did, so nothing changes for them; hosts above it
-// (or over-promising ones) get a 256 partition and chunked input instead
-// of an oversized FFT per callback.
-constexpr int kIrConvolverMaxBlockSize = 256;
-
-// The block size convolvers are prepared with for a chain whose base-rate
-// block is `chainBaseBlockSize` frames (TONE3000Processor::chainBaseBlockSize).
-inline int irConvolverBlockSizeFor(int chainBaseBlockSize) noexcept {
-  return std::min(std::max(chainBaseBlockSize, 1), kIrConvolverMaxBlockSize);
-}
-
-// Feed `block` to a convolver prepared via irConvolverBlockSizeFor in pieces
-// of at most kIrConvolverMaxBlockSize frames. When the base block is at or
-// below the cap this is a single call (the island hands at most the base
-// block per callback); above it, the convolver was prepared at the cap and
-// the loop keeps every call within what it was prepared for.
-inline void processConvolverInChunks(juce::dsp::Convolution& convolver,
-                                     const juce::dsp::AudioBlock<float>& block) {
-  const size_t numSamples = block.getNumSamples();
-  constexpr size_t chunkSize = static_cast<size_t>(kIrConvolverMaxBlockSize);
-  for (size_t start = 0; start < numSamples; start += chunkSize) {
-    auto chunk = block.getSubBlock(start, std::min(chunkSize, numSamples - start));
-    convolver.process(juce::dsp::ProcessContextReplacing<float>(chunk));
-  }
-}
 
 // Chain block data structure
 struct ChainBlock {
@@ -188,65 +160,131 @@ struct ChainBlock {
   juce::LinearSmoothedValue<float> wetFadeGain;
   juce::LinearSmoothedValue<float> swapWetMuteGain{1.0f};
 
-  // Set by the audio thread when NAM processing throws (the block is disabled
-  // in the same breath). The message thread drains it in getChainState and
-  // writes the log line there; string building/logging is not RT-safe.
+  // Tail spillover, for kinds that declare it
+  // (BlockProcessor::supportsSpillover). Such a block does not go straight
+  // to bypass when it is switched off: its INPUT fades to silence
+  // (`spillInputGain`), its engine keeps running, and its wet output stays
+  // in the mix on top of the dry signal at unity (`spillTailGain` holds the
+  // wet term up while wetFadeGain takes the dry share back to pass-through)
+  // until the reported tail has passed. Then spillTailGain closes, the block
+  // is skipped like any bypassed one and its engine is reset. Switching it
+  // back on mid-tail fades the input back in. With the block's `spillover`
+  // switch off, or for a kind without the capability, none of this moves
+  // and the bypass is the plain wet fade above.
+  //
+  // `released` is the same request from outside the saved state
+  // (TONE3000Processor::setBlockReleased): the block rings out, or cuts,
+  // exactly as it does for the power switch, without `enabled` and the undo
+  // history being touched. Scenes do not use it: a scene's block state IS
+  // the power switch (the blocks carry the active scene, see Scenes.h), so
+  // that everything keyed on `enabled` follows a scene too (which amp is
+  // the lane's last and keeps loudness normalization, what the chain state
+  // reports, what a footswitch toggles). A scene that turns a block off
+  // therefore takes the same release path through `enabled`.
+  //
+  // All audio-thread state except `released`.
+  static constexpr juce::int64 kSpillDone = (std::numeric_limits<juce::int64>::max)();
+  std::atomic<bool> released{false};
+  juce::LinearSmoothedValue<float> spillInputGain{1.0f};
+  juce::LinearSmoothedValue<float> spillTailGain{0.0f};
+  // Chain-rate frames since the block was switched off; kSpillDone once the
+  // tail is over (and for a block that was never on).
+  juce::int64 spillElapsedSamples{kSpillDone};
+  // The engine has processed audio since its last reset, so it may be
+  // holding some (see BlockProcessor::reset).
+  bool engineHoldsAudio{false};
+
+  // Set by the audio thread when the block's processor reports
+  // BlockProcessResult::Failed (the block is taken out of processing in the
+  // same breath). The message thread drains it in getChainState and writes
+  // the log line there; string building/logging is not RT-safe.
   std::atomic<bool> rtProcessingFailed{false};
+  // The drained flag, kept so the chain state can go on saying why the block
+  // stopped (`processingFailed`). Runtime-only; cleared when a processor is
+  // next installed on the block. Guarded by chainMutex.
+  bool processingFailed{false};
 
-  // NAM-specific processing (runs at the chain rate; see ChainDomain.h)
-  std::unique_ptr<NamEngine> namEngine;
-  juce::LinearSmoothedValue<float> namNormalizationSmoother;
+  // Registry kinds (type == KIND). `kindId` names the kind and `kindName` is
+  // what to call the block; both are stamped when a processor is installed.
+  // Empty for the model-based types, whose kind is their type.
+  juce::String kindId;
+  juce::String kindName;
+  // How the mix knob weighs dry and wet for the block's kind
+  // (BlockKindInfo::mixLaw), stamped with the two above. Crossfade for
+  // everything that is not a registry kind asking for another law.
+  BlockMixLaw mixLaw{BlockMixLaw::Crossfade};
 
-  // IR-specific processing.
-  // convolverMono: IR channel 0 loaded with Stereo::no; applies the same (left) kernel to
-  //   every audio channel. Always present for a loaded IR; used as the mono fallback.
-  // convolverStereo: IR loaded with Stereo::yes; audio ch0 ⊗ IR ch0, audio ch1 ⊗ IR ch1.
-  //   Only created when the IR file actually has >= 2 channels (true stereo IR).
-  // The convolution engine is picked at load time by IR length: cab IRs use
-  // JUCE's uniform zero-latency engine, reverb-length IRs the two-stage
-  // non-uniform engine (also zero latency); see prepareBlockModelOffThread.
-  std::unique_ptr<juce::dsp::Convolution> convolverMono;
-  std::unique_ptr<juce::dsp::Convolution> convolverStereo;
-  // Convolution always runs at kChainBaseSampleRate: when the chain is
-  // oversampled this island decimates the block's wet path to the base rate
-  // around the convolver and interpolates back (linear processing gains
-  // nothing from oversampling; its CPU scales ~quadratically with the rate).
-  // Bypass (zero-cost) at factor 1. See ChainOversampler.h.
-  ChainOversampler irBaseRateIsland;
-  int irNumChannels{1};  // channels in the loaded IR file (1 or 2)
-  // Loaded IR length in base-rate samples (post trim + resample, read off
-  // the built engine). Feeds refreshIrTailLength / getTailLengthSeconds so
-  // hosts render real reverb tails.
-  int irLengthBaseSamples{0};
-  // The single cab-like / reverb-like classification. Short = cab-like:
-  // -18 dB output pad (spectrally concentrated kernels play back hot at
-  // unit energy), 100% default mix. Long = reverb-like: no pad (diffuse
-  // kernels sit at ≈ dry level at unit energy), 50% default mix. Decided by
-  // the tone's gear when it is unambiguous ("cab" / "space"), else by the
-  // kernel length against the cutoff in ProcessorModelLoader.cpp (see
-  // irIsLongFor there). Runtime-only: recomputed on every load. Shipped to
-  // the UI as `irLong`.
-  bool irIsLong{false};
-  juce::LinearSmoothedValue<float> irNormalizationSmoother;
-  float irNormalizationGainLinear{1.0f};
+  // A registry kind's processor is built off the chain lock, also on the
+  // restore paths (see TONE3000Processor::applyKindState). While that build
+  // is in flight the block has no processor yet, `modelLoading` is set, and
+  // this holds the KindState node it is being built from, so a save in that
+  // window still writes the block whole. `kindBuildSerial` names the build
+  // the block is waiting for: a later restore bumps it, and a build that
+  // comes back with an older number is dropped. Guarded by chainMutex.
+  juce::ValueTree pendingKindState;
+  int kindBuildSerial{0};
 
-  // Per-block loudness normalization toggle, NAM only (off = the capture's
-  // true level, which is real information; IR normalization is always on
-  // because an IR file's absolute level means nothing). On by default; part
-  // of the chain state so presets carry their own gain staging. The UI
-  // exposes it as an optional (=) header control behind an advanced
-  // preference.
-  bool normalizeEnabled{true};
+  // A tone is being loaded onto this registry-kind block (swapTone): the
+  // block keeps running its kind until the model lands and the install
+  // restamps `type`. Everything that asks "is there a model to load, retry
+  // or save" keys on this rather than on the type alone.
+  bool hasToneOnKind() const noexcept {
+    return type == ChainBlockType::KIND && activeModelId != 0;
+  }
 
-  // Per-block NAM A2 size, stored in NAM's own slimmable-size domain (0..1;
-  // 0.0 = lite, 1.0 = full, and the tier boundary belongs to the tier above,
-  // so 0.5 already selects full). The value feeds
-  // NamEngine::setSlimmableSize verbatim. Inert for IR blocks, like
-  // normalizeEnabled. Part of the chain state so presets carry each block's
-  // size; new blocks start at the machine-wide default
-  // (TONE3000Processor::setNamSlimSizeDefault) and setBlockSlimSize retiers
-  // the loaded engine in place.
-  double namSlimSize{0.0};
+  // Valid on a placeholder for a kind this build does not have (a preset
+  // from a newer build, a plugin that is not installed): the block node
+  // exactly as it was loaded. The block holds no processor, passes audio
+  // through and cannot be edited, and saving writes this node back
+  // untouched, so opening and saving a project never destroys what another
+  // build put there.
+  juce::ValueTree missingKindNode;
+  bool isMissingKind() const noexcept { return missingKindNode.isValid(); }
+
+  // Delays the dry share of the mix (and the bypassed signal) by the
+  // processor's latency so it stays in phase with the wet path. Sized under
+  // chainMutex by TONE3000Processor::refreshLatencyCompensation; zero for a
+  // block without latency, where the audio path never touches it.
+  BlockDelayLine dryDelay;
+
+  // The block's engine: everything that differs by kind (see
+  // BlockProcessor.h). NAM and IR blocks always hold one matching `type`, an
+  // engine-less one until the first model lands; a registry-kind block holds
+  // the one its kind's factory built; insert placeholders and missing-kind
+  // placeholders hold none. A load builds a complete replacement off-thread and the install
+  // swaps this pointer under chainMutex once the swap fade has the wet path
+  // silent (applyPreparedModelToChainBlock); a tone swap that changes the
+  // block's type is the same swap with a processor of the other kind.
+  std::unique_ptr<BlockProcessor> processor;
+
+  // The type-specific settings, authoritative here rather than in the
+  // processor: they exist before any engine does (a block whose model is
+  // still downloading is already editable and saveable), an insert
+  // placeholder has no processor at all, and they must survive a swap to
+  // another kind and back. Saved state writes both fields for every block
+  // type. Whoever changes them pushes the result into the processor
+  // (pushProcessorState), which keeps the copy its audio path reads.
+  BlockProcessorState processorState;
+
+  void pushProcessorState() {
+    if (processor != nullptr)
+      processor->setState(processorState);
+  }
+
+  // Typed views of the processor for the callers that are inherently about
+  // one kind (calibration metadata, voice counts, the cab/reverb verdict).
+  // Null when the block is of another kind. New kinds should not need one:
+  // the shared audio path only ever talks to BlockProcessor.
+  NamBlockProcessor* nam() const noexcept {
+    return processor != nullptr && processor->kind() == ChainBlockType::NAM
+               ? static_cast<NamBlockProcessor*>(processor.get())
+               : nullptr;
+  }
+  IrBlockProcessor* ir() const noexcept {
+    return processor != nullptr && processor->kind() == ChainBlockType::IR
+               ? static_cast<IrBlockProcessor*>(processor.get())
+               : nullptr;
+  }
 
   // Per-block controls (normalized 0..1)
   float inputGainNormalized{0.5f};  // 0.5 = unity gain; drives the block harder/softer
@@ -263,6 +301,15 @@ struct ChainBlock {
   std::atomic<float> inputMeterDb{-60.0f};
   std::atomic<float> outputMeterDb{-60.0f};
 
+  // What this block costs: the fraction of one core it takes at the current
+  // chain rate. Seeded when its engine is
+  // installed, refined by the audio thread while it runs (a moving average
+  // of the time around its processing), and left alone while it is
+  // bypassed, so switching a block on does not move the plan's figure.
+  std::atomic<float> cpuCost{0.0f};
+  // Audio thread: the average has had its first measurement.
+  bool cpuCostMeasured{false};
+
   // Per-block 6-band EQ: on the wet signal after the model by default
   // (before Out Gain and the mix), or between the input gain and the model
   // when its pre flag is on. Flat by default, in which case processing is
@@ -275,5 +322,5 @@ struct ChainBlock {
 
   ChainBlock(const std::string& blockId, ChainBlockType blockType)
       : id(blockId), type(blockType), toneId(0), activeModelId(0), loaded(false),
-        enabled(true) {}
+        enabled(true), processor(makeBlockProcessor(blockType)) {}
 };

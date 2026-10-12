@@ -387,8 +387,10 @@ TEST(ProcessorTest, IgnoresGarbageLegacyAndNewerSchemaState) {
                            static_cast<int>(legacyXml.getNumBytesAsUTF8()));
   EXPECT_NEAR(inputLevel(), 0.7f, 1e-5f);
 
-  // A valid save from this build, re-framed with a bumped schemaVersion. It
-  // carries inputLevel = 0.2; restoring it would be visible immediately.
+  // A valid save from this build, re-framed with a schemaVersion past the
+  // newest this build reads (2, the grid layout; a legacy rig is saved as
+  // 1). It carries inputLevel = 0.2; restoring it would be visible
+  // immediately.
   juce::MemoryBlock saved;
   {
     TONE3000Processor future;
@@ -398,8 +400,8 @@ TEST(ProcessorTest, IgnoresGarbageLegacyAndNewerSchemaState) {
   juce::ValueTree tree = juce::ValueTree::readFromData(
       static_cast<const char*>(saved.getData()) + 4, saved.getSize() - 4);
   ASSERT_TRUE(tree.isValid());
-  tree.setProperty("schemaVersion", static_cast<int>(tree.getProperty("schemaVersion")) + 1,
-                   nullptr);
+  ASSERT_EQ(static_cast<int>(tree.getProperty("schemaVersion")), 1);
+  tree.setProperty("schemaVersion", 3, nullptr);
   juce::MemoryBlock reframed;
   {
     juce::MemoryOutputStream out(reframed, false);

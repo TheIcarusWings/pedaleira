@@ -4,9 +4,6 @@
 // FilterBar read and write it directly.
 #pragma once
 
-#include <juce_core/juce_core.h>
-
-#include <map>
 #include <optional>
 
 #include "ToneSession.h"
@@ -16,19 +13,15 @@ namespace t3k::ui {
 
 struct BrowserState {
   ToneQuery query;
-  bool filtersExpanded = false;
   int page = 1;
   // The page last shown, rendered again at once on return; it only
-  // refreshes on the user's next search, filter change or page turn.
+  // refreshes on the user's next filter change or page turn.
   std::optional<TonePage> result;
-  // Whether `result` is the signed-out preview's trending feed (one page,
-  // narrowed by `query.gear` alone) rather than a page of the signed-in
-  // search: a return reuses it only while the session state still matches.
+  // Whether `result` is the trending feed (one page, narrowed by
+  // `query.gear` alone; the signed-out preview always shows it) rather than
+  // a page of a profile stream: a return reuses it only while that still
+  // matches the session state and the query.
   bool resultIsTrending = false;
-  // Creator avatar URLs by name, from every Creators lookup so far. A
-  // picked creator pins to the top of the menu whatever the search shows;
-  // this keeps its avatar once the lookup no longer returns it.
-  std::map<juce::String, juce::String> creatorAvatars;
 };
 
 }  // namespace t3k::ui

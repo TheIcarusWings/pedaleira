@@ -5,9 +5,10 @@
 // defaults by kernel length, folder loads as one multi-model tone whose
 // full model list survives switches.
 //
-// Note: both entry points write their stash into the real app-data
-// LocalModels folder. The names are content hashes, so repeated runs reuse
-// the same few small files (and the week-based GC clears them eventually).
+// Note: both entry points write their stash into the LocalModels folder, which
+// the test main redirects to a per-process temp dir (see dsp_tests.cpp), so the
+// developer's real app-data folder is never touched. The names are content
+// hashes, so repeated runs reuse the same few small files.
 
 #include "chain_test_helpers.h"
 
@@ -51,6 +52,32 @@ TEST(LocalLoadTest, A2NamFileLoadsAsLocalBlock) {
   // Model names drop the extension too.
   ASSERT_EQ(block["tone"]["models"].size(), 1);
   EXPECT_EQ(block["tone"]["models"][0]["name"].toString(), juce::String("a2-amp-test"));
+}
+
+// The stash redirect: a loaded file's bytes must land under the directory the
+// hook names (and the block's persisted model_url must point there), so a test
+// or headless run never writes into the user's real app-data folder.
+TEST(LocalLoadTest, StashLandsUnderRedirectedDirectory) {
+  const juce::File redirected = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                    .getChildFile("t3k-stash-redirect-" + juce::Uuid().toString());
+  ASSERT_TRUE(redirected.createDirectory().wasOk());
+  const juce::File previous = TONE3000Processor::setLocalModelsDirForTesting(redirected);
+
+  TONE3000Processor proc;
+  const juce::var res =
+      proc.loadLocalTone("a2-amp-test", filesOf({testFileEntry("a2-amp-test.nam")}));
+  EXPECT_TRUE(res["error"].isVoid()) << res["error"].toString().toStdString();
+  ASSERT_TRUE(waitForChainLoaded(proc));
+
+  const auto stashed = redirected.findChildFiles(juce::File::findFiles, false, "*.nam");
+  ASSERT_EQ(stashed.size(), 1);
+  EXPECT_EQ(stashed[0].getSize(), testFile("a2-amp-test.nam").getSize());
+  const juce::String url = firstToneBlock(proc)["tone"]["models"][0]["model_url"].toString();
+  EXPECT_TRUE(TONE3000Processor::resolveLocalModelFile(redirected, url).isAChildOf(redirected));
+
+  // Back to the per-process dir the test main set, for the tests after this.
+  TONE3000Processor::setLocalModelsDirForTesting(previous);
+  redirected.deleteRecursively();
 }
 
 TEST(LocalLoadTest, FolderLoadsAsOneTonePerFileModelsSurviveSwitch) {

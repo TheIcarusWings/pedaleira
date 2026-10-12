@@ -14,7 +14,7 @@
 //
 // One exception inside the oversampled region: IR convolution always runs at
 // the base rate, behind a per-block decimate→convolve→interpolate island
-// (ChainBlock::irBaseRateIsland). Convolution is linear (oversampling it
+// (BlockProcessor::runsAtBaseRate). Convolution is linear (oversampling it
 // buys nothing and costs ~quadratically), so islands keep IR CPU and sound
 // identical at every factor.
 //

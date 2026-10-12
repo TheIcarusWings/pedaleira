@@ -57,18 +57,6 @@ Tone Tone::parse(const juce::var& v) {
   return t;
 }
 
-Tone Tone::withFavorite(bool favorite, int count) const {
-  Tone patched = *this;
-  patched.isFavorite = favorite;
-  patched.favoritesCount = count;
-  if (auto* obj = raw.getDynamicObject()) {
-    patched.raw = juce::var(obj->clone().release());
-    patched.raw.getDynamicObject()->setProperty("is_favorite", favorite);
-    patched.raw.getDynamicObject()->setProperty("favorites_count", count);
-  }
-  return patched;
-}
-
 Tone Tone::withModels(std::vector<Model> loaded) const {
   Tone patched = *this;
   juce::Array<juce::var> rows;

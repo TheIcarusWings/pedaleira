@@ -26,8 +26,6 @@ constexpr int kSlowDownMs = 5000;
 constexpr int kFirstModelOnly = 1;
 // Tones max out at 300 models, so one page covers the picker.
 constexpr int kAllModels = 300;
-// The taxonomy endpoints' page cap: one page fills a filter menu.
-constexpr int kTaxonomyPageSize = 25;
 }  // namespace
 
 Tone3000Session::Config Tone3000Session::Config::fromBuild() {
@@ -118,14 +116,8 @@ void Tone3000Session::listToneModels(int toneId, const juce::String& format, Rep
   });
 }
 
-void Tone3000Session::setToneFavorite(int toneId, bool favorite, Done done) {
-  client_.setFavorite(toneId, favorite, [fin = std::move(done)](Result<bool> r) {
-    if (fin) fin(r ? juce::String() : r.error);
-  });
-}
-
-void Tone3000Session::searchTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) {
-  client_.listTones(query.requestPath(page, pageSize, config_.architecture), [cb = std::move(reply)](Result<juce::var> r) {
+void Tone3000Session::listTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) {
+  client_.listTones(query.requestPath(page, pageSize), [cb = std::move(reply)](Result<juce::var> r) {
     if (!r) return cb(Result<TonePage>::fail(r.error));
     cb(Result<TonePage>::ok(TonePage::parse(*r)));
   });
@@ -138,22 +130,6 @@ void Tone3000Session::listTrending(const juce::String& gear, Reply<std::vector<T
     if (const auto* rows = (*r)["data"].getArray())
       for (const auto& t : *rows) tones.push_back(Tone::parse(t));
     cb(Result<std::vector<Tone>>::ok(std::move(tones)));
-  });
-}
-
-void Tone3000Session::listTaxonomy(Taxonomy kind, const juce::String& text, Reply<std::vector<TaxonomyEntry>> reply) {
-  // Tags and makes filter by name; creators by username (what the API
-  // matches `creators` against), so that is the name offered.
-  const bool creators = kind == Taxonomy::creators;
-  client_.listTaxonomy(kind, text, kTaxonomyPageSize, [creators, cb = std::move(reply)](Result<juce::var> r) {
-    if (!r) return cb(Result<std::vector<TaxonomyEntry>>::fail(r.error));
-    std::vector<TaxonomyEntry> entries;
-    if (const auto* rows = (*r)["data"].getArray())
-      for (const auto& row : *rows) {
-        const auto name = row[creators ? "username" : "name"].toString().trim();
-        if (name.isNotEmpty()) entries.push_back({name, creators ? row["avatar_url"].toString() : juce::String()});
-      }
-    cb(Result<std::vector<TaxonomyEntry>>::ok(std::move(entries)));
   });
 }
 

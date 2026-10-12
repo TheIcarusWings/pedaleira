@@ -7,6 +7,10 @@
 //                                      parameter ids current (LegacyParamIds.h)
 //   PresetTool rename <file> <name>    change a preset's display name (and
 //                                      filename), keeping its id
+//   PresetTool --import-foreign <file> [--mapping <file>]
+//                                      convert a foreign preset (docs/import.md)
+//                                      and print our preset JSON on stdout and
+//                                      the report on stderr; nothing is written
 //
 // `migrate` keeps resources/factory-presets in the shipped form: every file
 // in the v2 framing, named after its display name, with its id inside and
@@ -18,6 +22,8 @@
 // Build: cmake --build build --target PresetTool
 #include "LegacyParamIds.h"
 #include "PresetFile.h"
+#include "PresetImporter.h"
+#include "PresetJson.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -31,7 +37,8 @@ int usage() {
                "usage:\n"
                "  PresetTool info <file-or-dir>\n"
                "  PresetTool migrate <dir>\n"
-               "  PresetTool rename <file> <name>\n");
+               "  PresetTool rename <file> <name>\n"
+               "  PresetTool --import-foreign <file> [--mapping <file>]\n");
   return 2;
 }
 
@@ -150,9 +157,63 @@ int renamePreset(const juce::File& file, const juce::String& name) {
   return 0;
 }
 
+// Converts a foreign preset with the importer and prints the result: our
+// preset JSON on stdout (so it can be redirected to a file preset.importJson
+// reads) and the report of what was mapped, approximated, left out and
+// dropped on stderr.
+int importForeign(const juce::File& file, const juce::File& mappingFile) {
+  juce::String problem;
+  const juce::var foreign = t3k::importer::readJsonFile(file, problem);
+  if (problem.isNotEmpty()) {
+    std::fprintf(stderr, "cannot read %s: %s\n", file.getFullPathName().toRawUTF8(),
+                 problem.toRawUTF8());
+    return 1;
+  }
+  if (const juce::String issue = t3k::importer::checkForeignPreset(foreign); issue.isNotEmpty()) {
+    std::fprintf(stderr, "%s\n", issue.toRawUTF8());
+    return 1;
+  }
+  juce::var mapping;
+  if (mappingFile != juce::File()) {
+    mapping = t3k::importer::readJsonFile(mappingFile, problem);
+    if (problem.isNotEmpty()) {
+      std::fprintf(stderr, "cannot read %s: %s\n", mappingFile.getFullPathName().toRawUTF8(),
+                   problem.toRawUTF8());
+      return 1;
+    }
+  } else {
+    const juce::String source = foreign["source"].toString();
+    mapping = t3k::importer::builtInMapping(source);
+    if (mapping.isVoid()) {
+      std::fprintf(stderr, "no built-in mapping table for the source \"%s\" (available: %s)\n",
+                   source.toRawUTF8(),
+                   t3k::importer::builtInMappingSources().joinIntoString(", ").toRawUTF8());
+      return 1;
+    }
+  }
+  const t3k::importer::ImportResult result = t3k::importer::convertForeignPreset(foreign, mapping);
+  if (!result.ok) {
+    std::fprintf(stderr, "%s\n", result.error.toRawUTF8());
+    return 1;
+  }
+  std::fputs(result.presetJson.toRawUTF8(), stdout);
+  std::fprintf(stderr, "%s\n", t3k::presetjson::writeCanonical(result.report).toRawUTF8());
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+  if ((argc == 3 || argc == 5) && juce::String(argv[1]) == "--import-foreign") {
+    juce::File mappingFile;
+    if (argc == 5) {
+      if (juce::String(argv[3]) != "--mapping")
+        return usage();
+      mappingFile = juce::File::getCurrentWorkingDirectory().getChildFile(argv[4]);
+    }
+    return importForeign(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]),
+                         mappingFile);
+  }
   if (argc < 3)
     return usage();
   const juce::String command(argv[1]);

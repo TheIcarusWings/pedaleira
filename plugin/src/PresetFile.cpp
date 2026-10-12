@@ -138,7 +138,9 @@ bool write(const juce::File& file, const juce::ValueTree& preset) {
       return false;
     }
   }
-  if (temp.moveFileTo(file))
+  // replaceFileIn, not moveFileTo, which deletes the target before it
+  // renames: a rename that fails must not have cost the old file.
+  if (temp.replaceFileIn(file))
     return true;
   temp.deleteFile();
   return false;

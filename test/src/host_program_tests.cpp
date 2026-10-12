@@ -97,7 +97,7 @@ TEST(HostProgramTest, SetCurrentProgramLoadsPresetsInListOrder) {
   TONE3000Processor proc;
   proc.setPresetStoreForTesting(tmp.dir);
 
-  // User presets sort by name: Alpha = program 0, Beta = program 1. The
+  // Saved into slots 1 and 2: Alpha = program 0, Beta = program 1. The
   // same order MidiMapper's PC path and the preset browser use.
   savePresetWithBass(proc, "Alpha", 1.0f);
   savePresetWithBass(proc, "Beta", 9.0f);  // active, program 1
@@ -211,11 +211,12 @@ TEST(HostProgramTest, ProgramNamesFollowTheListAndItsRenames) {
   proc.changeProgramName(0, "Hacked");
   EXPECT_EQ(proc.getProgramName(0), juce::String("Alpha"));
 
-  // A rename re-sorts the section (name order), and the name snapshot the
-  // menu queries go through must refresh immediately, not on its TTL.
+  // A rename keeps the preset in its slot (the list is the setlist's slot
+  // order, not name order), and the name snapshot the menu queries go
+  // through must refresh immediately, not on its TTL.
   ASSERT_TRUE(proc.renamePreset(alpha, "Zulu"));
-  EXPECT_EQ(proc.getProgramName(0), juce::String("Beta"));
-  EXPECT_EQ(proc.getProgramName(1), juce::String("Zulu"));
+  EXPECT_EQ(proc.getProgramName(0), juce::String("Zulu"));
+  EXPECT_EQ(proc.getProgramName(1), juce::String("Beta"));
 }
 
 TEST(HostProgramTest, RawMidiProgramChangeMatchesHostProgramIndexing) {

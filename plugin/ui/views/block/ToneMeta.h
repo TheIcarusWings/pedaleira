@@ -29,8 +29,6 @@ public:
     int favorites = 0;
     bool favorited = false;
     int models = 0;
-    // Signed in: the bookmark tally is a toggle.
-    bool favoriteToggle = false;
   };
 
   void setTone(const ToneSummary& tone);
@@ -39,7 +37,6 @@ public:
   void setInfoVisible(bool visible);
   BlockInfoPanel& info() { return *info_; }
 
-  std::function<void()> onToggleFavorite;
   // The info panel grew or shrank: the card re-measures via heightFor().
   std::function<void()> onHeightChanged;
 
@@ -49,7 +46,6 @@ public:
   void resized() override;
 
 private:
-  class BookmarkButton;
   static constexpr int kGroupGap = 16;
   static constexpr int kTitleGap = 8;
   static constexpr int kInfoGap = 24;
@@ -79,7 +75,6 @@ private:
   int contentHeight_ = 0;
 
   FormatBadge badge_;
-  std::unique_ptr<BookmarkButton> bookmark_;
   Avatar avatar_;
   std::unique_ptr<BlockInfoPanel> info_;
 };

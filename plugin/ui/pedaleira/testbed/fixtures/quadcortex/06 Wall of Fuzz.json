@@ -1,0 +1,21 @@
+{
+  "format": "pedaleira-foreign-preset",
+  "version": 1,
+  "source": "quad-cortex",
+  "sourceVersion": "CorOS 4.0.1",
+  "name": "Wall of Fuzz",
+  "tempo": 138,
+  "defaultScene": 0,
+  "rows": [
+    { "index": 0, "blocks": [
+      { "position": 0, "model": "Mystery Drive", "category": "Guitar Overdrive", "enabled": true, "params": {} },
+      { "position": 1, "model": "Mystery Fuzz", "category": "Guitar Overdrive", "enabled": true, "params": {} },
+      { "position": 2, "model": "Brit 2203", "category": "Guitar Amplifier", "enabled": true, "params": {} },
+      { "position": 3, "model": "4x12 Closed (M)", "category": "Cabsim Guitar (M)", "enabled": true, "params": {} },
+      { "position": 4, "model": "VCA Comp (ST)", "category": "Compressor", "enabled": true,
+        "params": { "THRESHOLD": { "value": 18.0, "unit": "dB" } } }
+    ] }
+  ],
+  "scenes": [],
+  "warnings": []
+}

@@ -4,12 +4,10 @@
 
 #include "core/CustomIcons.h"
 #include "core/Fonts.h"
-#include "core/Help.h"
 #include "core/Icons.h"
 #include "core/Labels.h"
 #include "core/Paint.h"
 #include "core/Theme.h"
-#include "widgets/Clickable.h"
 
 namespace t3k::ui {
 
@@ -31,37 +29,9 @@ void paintStat(juce::Graphics& g, juce::Rectangle<int> row, int x, Icon icon, co
 }
 }  // namespace
 
-// Bookmark tally as a toggle (signed in): outline idle, white fill when
-// favorited; the whole icon + count is the button.
-class ToneMeta::BookmarkButton : public Clickable {
-public:
-  BookmarkButton() : Clickable("Bookmark") {
-    setMouseCursor(juce::MouseCursor::PointingHandCursor);
-  }
-  void set(int count, bool favorited) {
-    count_ = labels::count(count);
-    favorited_ = favorited;
-    setHelpText(help::text(favorited ? help::Key::unfavoriteTone : help::Key::favoriteTone));
-    setSize(statWidth(count_), 16);
-    repaint();
-  }
-  void paintButton(juce::Graphics& g, bool, bool) override {
-    paintStat(g, getLocalBounds(), 0, Icon::Bookmark, favorited_ ? custom_icons::kBookmarkFilled : nullptr,
-              favorited_ ? theme::kWhite : theme::kGray, count_);
-  }
-
-private:
-  juce::String count_;
-  bool favorited_ = false;
-};
-
 ToneMeta::ToneMeta(ImageLoader& images)
-    : images_(images), bookmark_(std::make_unique<BookmarkButton>()), info_(std::make_unique<BlockInfoPanel>()) {
+    : images_(images), info_(std::make_unique<BlockInfoPanel>()) {
   addAndMakeVisible(badge_);
-  bookmark_->onClick = [this] {
-    if (onToggleFavorite) onToggleFavorite();
-  };
-  addAndMakeVisible(*bookmark_);
   addChildComponent(avatar_);
   info_->onHeightChanged = [this] {
     builtWidth_ = -1;
@@ -84,11 +54,6 @@ void ToneMeta::setTone(const ToneSummary& tone) {
 
 void ToneMeta::setCounts(const Counts& counts) {
   counts_ = counts;
-  bookmark_->set(counts_.favorites, counts_.favorited);
-  bookmark_->setInterceptsMouseClicks(counts_.favoriteToggle, false);
-  bookmark_->setMouseCursor(counts_.favoriteToggle ? juce::MouseCursor::PointingHandCursor
-                                                   : juce::MouseCursor::NormalCursor);
-  if (!counts_.favoriteToggle) bookmark_->setHelpText({});
   repaint();
 }
 
@@ -139,13 +104,10 @@ void ToneMeta::rebuild(int width) {
   if (!tone_.local) {
     y += kGroupGap;
     statsRow_ = {0, y, width, kStatIcon};
-    const int downloadsW = statWidth(labels::count(counts_.downloads));
-    bookmark_->setTopLeftPosition(downloadsW + kStatsGap, y);
     y += kStatIcon;
   } else {
     statsRow_ = {};
   }
-  bookmark_->setVisible(!tone_.local);
 
   // Creator line.
   if (tone_.user) {
@@ -184,7 +146,12 @@ void ToneMeta::paint(juce::Graphics& g) {
     const auto downloads = labels::count(counts_.downloads);
     paintStat(g, statsRow_, x, Icon::Download, nullptr, theme::kGray, downloads);
     x += statWidth(downloads) + kStatsGap;
-    x += bookmark_->getWidth() + kStatsGap;
+    // The bookmark tally is read-only (favouriting is outside the free API
+    // tier): filled when the user favorited the tone on TONE3000.
+    const auto bookmarks = labels::count(counts_.favorites);
+    paintStat(g, statsRow_, x, Icon::Bookmark, counts_.favorited ? custom_icons::kBookmarkFilled : nullptr,
+              counts_.favorited ? theme::kWhite : theme::kGray, bookmarks);
+    x += statWidth(bookmarks) + kStatsGap;
     paintStat(g, statsRow_, x, Icon::FolderClosed, nullptr, theme::kGray, labels::count(counts_.models));
   }
 

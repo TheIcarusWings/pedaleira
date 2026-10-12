@@ -24,3 +24,20 @@ TONE3000-CERTS/
 notes/
 build-ui/
 build-ui-release/
+
+# MCP server (mcp/): dependencies and build output
+mcp/node_modules/
+mcp/dist/
+
+# Build logs written next to the sources
+/build-*.log
+
+# Python
+__pycache__/
+
+# Plans and decisions are kept in a private document, not in the repo (CLAUDE.md)
+/PLAN.md
+/DECISIONS.md
+/docs/ui-plan.md
+/docs/repo-description.md
+/docs/grid-design.md

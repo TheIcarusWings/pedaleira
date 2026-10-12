@@ -70,6 +70,15 @@ public:
     return out;
   }
 
+  /** Close the gesture on top of the stack: the next mutation records a
+      step of its own even if it carries the same key (a scene switch in the
+      middle of a knob drag makes the rest of the drag an edit of another
+      scene). */
+  void endGesture() {
+    if (!undoStack.empty())
+      undoStack.back().key.clear();
+  }
+
   /** Drop everything (e.g. after a project/state load; undoing across it
       would resurrect a chain the user never saw in this session). */
   void clear() {

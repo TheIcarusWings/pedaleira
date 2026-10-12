@@ -53,6 +53,9 @@ void MidiMapper::processMidi(const juce::MidiBuffer& midi) {
   if (!tryLock.isLocked())
     return;  // rare contended edit: drop one buffer of MIDI, never block audio
 
+  // One clock read per buffer that carries MIDI, for the tap tempo control.
+  const double bufferTimeMs = juce::Time::getMillisecondCounterHiRes();
+
   for (const auto metadata : midi) {
     const auto msg = metadata.getMessage();
     if (channel != 0 && msg.getChannel() != channel)
@@ -69,10 +72,66 @@ void MidiMapper::processMidi(const juce::MidiBuffer& midi) {
       continue;
     const auto source = msg.isController() ? Source::cc : Source::note;
     const int number = msg.isController() ? msg.getControllerNumber() : msg.getNoteNumber();
+    bool mapped = false;
     for (auto& mapping : mappings)
-      if (mapping.source == source && mapping.number == number)
+      if (mapping.source == source && mapping.number == number) {
         applyEvent(mapping, msg);
+        mapped = true;
+      }
+    // The fixed defaults only speak for a controller the user has not given
+    // a job of their own.
+    if (!mapped && source == Source::cc)
+      applyFixedControl(number, msg.getControllerValue(), bufferTimeMs);
   }
+}
+
+void MidiMapper::applyFixedControl(int ccNumber, int value, double timeMs) {
+  const auto ccOf = [this](FixedControl control) {
+    return fixedControlCc[static_cast<size_t>(control)].load(std::memory_order_relaxed);
+  };
+
+  // Everything these do takes the chain lock or more (a scene switch, a
+  // settings write), so each is recorded for the message thread.
+  if (ccNumber == ccOf(FixedControl::sceneSelect)) {
+    if (value < 8) {
+      pendingScene.store(value);
+      triggerAsyncUpdate();
+    }
+  } else if (ccNumber == ccOf(FixedControl::tapTempo)) {
+    // A press, by the same rule as a mapped toggle: a footswitch sends 127
+    // going down and 0 coming up, and only the first is a tap.
+    const bool press = value >= 64 || lastTapCcValue < 64;
+    lastTapCcValue = value;
+    if (press) {
+      const auto scope = tapQueue.write(1);
+      if (scope.blockSize1 > 0) {
+        tapTimes[static_cast<size_t>(scope.startIndex1)] = timeMs;
+        triggerAsyncUpdate();
+      }
+    }
+  } else if (ccNumber == ccOf(FixedControl::tuner)) {
+    pendingTuner.store(value >= 64 ? 1 : 0);
+    triggerAsyncUpdate();
+  } else if (ccNumber == ccOf(FixedControl::footswitchMode)) {
+    if (value < 4) {
+      pendingFootswitchMode.store(value);
+      triggerAsyncUpdate();
+    }
+  }
+}
+
+void MidiMapper::setFixedControlCc(FixedControl control, int ccNumber) {
+  if (control == FixedControl::count)
+    return;
+  fixedControlCc[static_cast<size_t>(control)].store(ccNumber >= 0 && ccNumber <= 127 ? ccNumber
+                                                                                     : -1);
+  notifyChanged();
+}
+
+int MidiMapper::getFixedControlCc(FixedControl control) const {
+  return control == FixedControl::count
+             ? -1
+             : fixedControlCc[static_cast<size_t>(control)].load();
 }
 
 void MidiMapper::applyEvent(Mapping& mapping, const juce::MidiMessage& msg) {
@@ -145,6 +204,25 @@ juce::var MidiMapper::getState() const {
     }
   }
   obj->setProperty("mappings", list);
+
+  // The fixed controls and whether a mapping on the same controller number
+  // currently silences each.
+  static constexpr const char* kFixedControlNames[kNumFixedControls] = {"sceneSelect", "tapTempo",
+                                                                        "tuner", "footswitchMode"};
+  juce::Array<juce::var> defaults;
+  for (int i = 0; i < kNumFixedControls; ++i) {
+    const int cc = fixedControlCc[static_cast<size_t>(i)].load();
+    bool overridden = false;
+    for (const auto& mapping : list)
+      overridden = overridden || (mapping["source"].toString() == "cc" &&
+                                  static_cast<int>(mapping["number"]) == cc);
+    auto* entry = new juce::DynamicObject();
+    entry->setProperty("action", kFixedControlNames[i]);
+    entry->setProperty("cc", cc);
+    entry->setProperty("overridden", overridden);
+    defaults.add(juce::var(entry));
+  }
+  obj->setProperty("defaults", defaults);
   return state;
 }
 
@@ -261,6 +339,26 @@ void MidiMapper::handleAsyncUpdate() {
 
   if (const int steps = pendingPresetSteps.exchange(0); steps != 0 && onPresetStep)
     onPresetStep(steps);
+
+  // The fixed controls. Mode before scene: a controller that sends both in
+  // one go means "scene mode, then this scene".
+  if (const int mode = pendingFootswitchMode.exchange(-1); mode >= 0 && onFootswitchMode)
+    onFootswitchMode(mode);
+  if (const int scene = pendingScene.exchange(-1); scene >= 0 && onSceneSelect)
+    onSceneSelect(scene);
+  if (const int tuner = pendingTuner.exchange(-1); tuner >= 0 && onTunerEnabled)
+    onTunerEnabled(tuner != 0);
+  for (;;) {
+    double tapTime = 0.0;
+    {
+      const auto scope = tapQueue.read(1);
+      if (scope.blockSize1 == 0)
+        break;
+      tapTime = tapTimes[static_cast<size_t>(scope.startIndex1)];
+    }
+    if (onTapTempo)
+      onTapTempo(tapTime);
+  }
 
   // 3. Tell the UI, but only when the map/learn state actually moved;
   //    performance events alone shouldn't cause settings re-pulls.

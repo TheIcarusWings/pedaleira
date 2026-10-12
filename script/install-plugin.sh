@@ -21,7 +21,7 @@ esac
 os="$(uname -s)"
 case "$format" in
   VST3)
-    bundle="TONE3000.vst3"
+    bundle="Pedaleira.vst3"
     case "$os" in
       # System-wide folder, same as the .pkg: some hosts (LUNA) only scan
       # /Library for VST3 and ignore ~/Library entirely.
@@ -31,7 +31,7 @@ case "$format" in
     esac
     ;;
   AU)
-    bundle="TONE3000.component"
+    bundle="Pedaleira.component"
     if [ "$os" != "Darwin" ]; then
       echo "AU is macOS only (detected $os)" >&2
       exit 1
@@ -41,7 +41,7 @@ case "$format" in
     dest_dir="/Library/Audio/Plug-Ins/Components"
     ;;
   AAX)
-    bundle="TONE3000.aaxplugin"
+    bundle="Pedaleira.aaxplugin"
     if [ "$os" != "Darwin" ]; then
       echo "AAX is macOS only in this script (detected $os)" >&2
       exit 1
@@ -92,7 +92,7 @@ as_root() {
 # Re-run a function as the user who invoked sudo (their $HOME, their uid) so
 # nothing root-owned ever lands in a user home: macOS sudo keeps $HOME, and
 # a sudo'd run of an older version of this script stamped the whole
-# ~/Library/Application Support/TONE3000 tree root-owned that way - every
+# ~/Library/Application Support/Pedaleira tree root-owned that way - every
 # settings save and drag-drop stash write in the plugin then failed while
 # reads kept working (github issue #76). Without sudo (including a true root
 # shell, where root's own home is the right target) just call the function.
@@ -111,7 +111,7 @@ if compgen -G "${factory_src}/*.t3kpreset" > /dev/null; then
       # Replace, don't overlay: presets dropped from (or renamed in) the
       # repo set would otherwise linger from a previous install (the .pkg's
       # preinstall script does the same clear).
-      preset_dest="/Library/Application Support/TONE3000/Presets/Factory"
+      preset_dest="/Library/Application Support/Pedaleira/Presets/Factory"
       echo "Installing factory presets to $preset_dest (needs sudo)..."
       as_root mkdir -p "$preset_dest"
       as_root rm -f "$preset_dest"/*.t3kpreset
@@ -125,13 +125,13 @@ if compgen -G "${factory_src}/*.t3kpreset" > /dev/null; then
       # user, and only Factory/: user presets live in Presets/ proper and
       # are untouched.
       clear_legacy_user_factory() {
-        rm -f "$HOME/Library/Application Support/TONE3000/Presets/Factory"/*.t3kpreset
+        rm -f "$HOME/Library/Application Support/Pedaleira/Presets/Factory"/*.t3kpreset
       }
       run_in_user_home clear_legacy_user_factory
       ;;
     Linux)
       install_user_factory_presets() {
-        local dest="${XDG_CONFIG_HOME:-$HOME/.config}/TONE3000/Presets/Factory"
+        local dest="${XDG_CONFIG_HOME:-$HOME/.config}/Pedaleira/Presets/Factory"
         mkdir -p "$dest"
         # Replace, don't overlay (see the Darwin branch).
         rm -f "$dest"/*.t3kpreset

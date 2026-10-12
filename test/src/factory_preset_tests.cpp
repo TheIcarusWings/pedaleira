@@ -18,6 +18,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <set>
 
@@ -114,6 +116,87 @@ TEST(FactoryPresetTest, ShippedPresetsAreSlimAndLoadOffline) {
     proc.restoreFromTree(snapshot);
     EXPECT_TRUE(waitForChainLoaded(proc)) << "preset chain did not finish loading offline";
   }
+}
+
+
+// Renders a factory preset through the real preset load (the way
+// PedaleiraRender does: straight from its file, scratch stores, multicore off,
+// prepared again once the rig is in place) and returns the raw stereo output.
+juce::AudioBuffer<float> renderFactoryPresetStereo(const juce::String& presetFile,
+                                                   std::int64_t wobbleSeed, double seconds) {
+  constexpr double kRate = 48000.0;
+  constexpr int kBlock = 128;
+
+  const juce::File store = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                               .getChildFile("t3k-factory-render-" + juce::Uuid().toString());
+  EXPECT_TRUE(store.createDirectory().wasOk());
+
+  TONE3000Processor::setDeterministicRandomForOfflineRender(wobbleSeed);
+  juce::AudioBuffer<float> out;
+  {
+    TONE3000Processor proc;
+    proc.setMultiCoreEnabled(false, /*persist=*/false);
+    proc.setPresetStoreForTesting(store);
+    proc.setPlayConfigDetails(2, 2, kRate, kBlock);
+    proc.prepareToPlay(kRate, kBlock);
+
+    EXPECT_TRUE(proc.loadPresetFile(factoryPresetsDir().getChildFile(presetFile)));
+    EXPECT_TRUE(waitForChainLoaded(proc));
+    proc.prepareToPlay(kRate, kBlock);
+    EXPECT_TRUE(waitForChainLoaded(proc));
+
+    // Fixed-seed LCG noise plus a tone, right channel slightly different, so
+    // the rig has something broadband to chew on.
+    const int frames = static_cast<int>(seconds * kRate);
+    out.setSize(2, frames);
+    juce::AudioBuffer<float> block(2, kBlock);
+    juce::MidiBuffer midi;
+    std::uint32_t lcg = 0x2468ACE1u;
+    for (int start = 0; start < frames; start += kBlock) {
+      const int n = juce::jmin(kBlock, frames - start);
+      for (int i = 0; i < n; ++i) {
+        lcg = lcg * 1664525u + 1013904223u;
+        const float noise = static_cast<float>(lcg >> 8) / 8388608.0f - 1.0f;
+        const float tone = std::sin(2.0f * juce::MathConstants<float>::pi * 220.0f *
+                                    static_cast<float>(start + i) / static_cast<float>(kRate));
+        block.setSample(0, i, 0.15f * tone + 0.05f * noise);
+        block.setSample(1, i, 0.12f * tone - 0.05f * noise);
+      }
+      proc.processBlock(block, midi);
+      for (int ch = 0; ch < 2; ++ch)
+        out.copyFrom(ch, start, block, ch, 0, n);
+    }
+  }
+  TONE3000Processor::clearDeterministicRandomForOfflineRender();
+  store.deleteRecursively();
+  return out;
+}
+
+bool identical(const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b) {
+  if (a.getNumChannels() != b.getNumChannels() || a.getNumSamples() != b.getNumSamples())
+    return false;
+  for (int ch = 0; ch < a.getNumChannels(); ++ch)
+    if (std::memcmp(a.getReadPointer(ch), b.getReadPointer(ch),
+                    sizeof(float) * static_cast<size_t>(a.getNumSamples())) != 0)
+      return false;
+  return true;
+}
+
+// "Dumble Spread" runs the Spread/Align wobble, whose noise source is
+// clock-seeded by default. With the offline seed set, two renders must match
+// to the bit; a different seed must not (otherwise the wobble was never
+// actually exercised and the equality proves nothing).
+TEST(FactoryPresetTest, DumbleSpreadRendersBitExactWithFixedWobbleSeed) {
+  if (!factoryPresetsDir().getChildFile("Dumble Spread.t3kpreset").existsAsFile())
+    GTEST_SKIP() << "no Dumble Spread factory preset in this checkout";
+
+  const auto first = renderFactoryPresetStereo("Dumble Spread.t3kpreset", 1234, 1.5);
+  const auto second = renderFactoryPresetStereo("Dumble Spread.t3kpreset", 1234, 1.5);
+  const auto other = renderFactoryPresetStereo("Dumble Spread.t3kpreset", 99, 1.5);
+
+  EXPECT_GT(first.getMagnitude(0, first.getNumSamples()), 1e-3f) << "render is silent";
+  EXPECT_TRUE(identical(first, second)) << "same seed, different render";
+  EXPECT_FALSE(identical(first, other)) << "seed has no effect: the wobble is not in play";
 }
 
 }  // namespace

@@ -25,8 +25,10 @@ Goal
 - No change to DSP, processor API, presets, state schema or MIDI mapping.
 - Login runs in the system browser and completes through a loopback
   redirect; no webview is required for any flow. Tone discovery is native:
-  the Select tone screen searches the TONE3000 API directly (the web's
-  `select_tone` hand-off is retired).
+  the Select tone screen lists from the TONE3000 API directly (the web's
+  `select_tone` hand-off is retired). It stays inside the API's free tier:
+  the trending feed and the user's own lists, no catalog search, filters or
+  favouriting (`Tone3000Client::kFreeTier` enforces it).
 - Runs on macOS, Windows, Linux, iOS with the same code (platform branches
   only where the React app already branches: touch/iOS, standalone).
 - A standalone testbed app that drives the UI from the same fixture data the
@@ -178,7 +180,7 @@ uses the platform rasteriser at the final size, so glyphs stay crisp.
 The shell also publishes `s` as `Services::zoom`. The tone browser's body
 (everything under the ← SELECT TONE row) subscribes and counter-scales by it
 (`setTransform(scale(1/s))` over the same design-space area, bounds in
-screen pixels), so the search box, filter row and cards hold their 1x size
+screen pixels), so the filter row and cards hold their 1x size
 and a larger window shows more: the controls widen with the column, the
 cards fill two columns, three once three fit at the default 392px card
 width. `Popover` adopts its anchor's scale relative to the overlay layer, so
@@ -546,7 +548,7 @@ tree; the map is the key to the `port of …` notes in the C++ headers.
 | `BlockEqView.tsx`, `EqSliders.tsx`, `SpectrumBackdrop.tsx`, `eqMath.ts`, `eqShared.ts` | `views/BlockEqView`, `views/EqSliders`, `views/SpectrumBackdrop`, `core/EqMath` | |
 | `BlockLed.tsx`, `BlockMeter.tsx`, `DbMeter.tsx`, `meterColor.ts` | `widgets/BlockLed`, `widgets/BlockMeter`, `widgets/DbMeter` | |
 | `GearIcon.tsx`, `FormatBadge.tsx`, `AvatarFallback.tsx`, `RetryLoadBadge.tsx`, `LoadingDots.tsx` | `widgets/GearGlyph`, `widgets/FormatBadge`, `widgets/Avatar`, `widgets/RetryLoadBadge`, `widgets/LoadingDots` | |
-| `ToneBrowser.tsx` | `views/browser/ToneBrowser` (+ `FilterBar`, `FilterChip`, `FilterMenu`, `model/ToneQuery`) | The native Select tone screen: search box, gear / verified / profile chips, an expandable row for sort, format, tags, makes, creators, calibrated; paging, busy overlay. Replaces the web's stream tabs and Select-flow hand-off; the whole screen needs a session |
+| `ToneBrowser.tsx` | `views/browser/ToneBrowser` (+ `FilterBar`, `FilterChip`, `FilterMenu`, `model/ToneQuery`) | The native Select tone screen: the trending feed under profile / gear chips, paging for the profile lists, busy overlay. No search, sort or catalog filters (free API tier). Replaces the web's stream tabs and Select-flow hand-off; the profile lists need a session, the trending preview does not |
 | `TunerView.tsx` | `views/TunerView` | |
 | `Settings.tsx` | `views/settings/SettingsScreen` (header, tabs, scroller), `views/settings/PluginSettingsPage` | Full-window takeover owned by `PluginRoot::openSettings` |
 | `SystemSettings.tsx`, `InputChannelPicker.tsx`, `MidiInputsSection.tsx` | `views/settings/SystemSettingsPage`, `InputChannelPicker`, `MidiInputsSection` | Standalone only; `update()` mutates rows in place so open dropdowns survive polls |
@@ -641,12 +643,11 @@ From `useToneSession`, `useT3kSelect`, `useToneLoadFlow`, `useConnectionGate`,
   error overlay with Retry; a `browse` intent lands in the tone browser.
 - Tone load: model list fetch fails → retry badge; download failure per
   block; cancelled by user; block replaced mid-load (seq guard).
-- Browser: pagination race (older page arriving after newer), taxonomy
-  lookups superseded by a newer one (`AsyncScope::reset`), a profile filter
-  parking the catalog-only controls without losing their values, the
+- Browser: pagination race (older page arriving after newer), the
   screen's state (`BrowserState`) surviving a trip back to the chain,
-  favourite toggle optimistic + rollback, offline banner, empty states,
-  avatar/artwork 404 → fallback glyph.
+  offline banner, empty states, avatar/artwork 404 → fallback glyph. Search,
+  favouriting and the taxonomy lists are refused by the client on the free
+  tier, with nothing sent (`FreeTierTests`).
 - Connection gate: probe cadence, exponential backoff, "Retry" affordance,
   standalone vs plugin differences.
 - Update check: opt-in flag, `X-Device-Id`, `X-Plugin-Version`, dismissed-version memory.

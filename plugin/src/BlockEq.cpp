@@ -1,4 +1,6 @@
 #include "BlockEq.h"
+
+#include "FiniteValue.h"
 #include <cmath>
 
 std::array<BlockEq::Band, BlockEq::kNumBands> BlockEq::defaultBands() {
@@ -249,9 +251,11 @@ void BlockEq::restoreFromValueTree(const juce::ValueTree& tree) {
       Band band;
       band.type = coerceTypeForBand(
           i, bandTypeFromString(bandTree.getProperty("type", "bell").toString()));
-      band.freqHz = static_cast<float>(static_cast<double>(bandTree.getProperty("freqHz", 1000.0)));
-      band.gainDb = static_cast<float>(static_cast<double>(bandTree.getProperty("gainDb", 0.0)));
-      band.q = static_cast<float>(static_cast<double>(bandTree.getProperty("q", 1.0)));
+      // What is not a finite number (a preset file can say NaN) is the
+      // default: clampBand would let a NaN through into the filter.
+      band.freqHz = t3k::finiteFloat(bandTree.getProperty("freqHz"), 1000.0f);
+      band.gainDb = t3k::finiteFloat(bandTree.getProperty("gainDb"), 0.0f);
+      band.q = t3k::finiteFloat(bandTree.getProperty("q"), 1.0f);
       bands[static_cast<size_t>(i)] = clampBand(band);
     }
   }

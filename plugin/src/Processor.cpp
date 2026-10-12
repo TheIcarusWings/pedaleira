@@ -1,9 +1,20 @@
 #include "Processor.h"
+
+#include "AgentHub.h"
+#include "EngineCommands.h"
+#include "AppIdentity.h"
 #if !HEADLESS
 #include "NativeEditor.h"
+#if !HEADLESS && !JUCE_IOS
+#include "PedaleiraEditor.h"
+#endif
 #endif
 #include "StandaloneStateAutosave.h"
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <random>
@@ -64,6 +75,11 @@ TONE3000Processor::TONE3000Processor()
 
   resolveParamRefs();
 
+  // What hosted-plugin work posted to the message thread holds instead of
+  // `this` (see HostedPluginLink).
+  hostedPluginLink = std::make_shared<HostedPluginLink>();
+  hostedPluginLink->processor.store(this);
+
   // Seed the Settings-page parameters (calibration, oversampling) from the
   // machine-wide defaults before the oversampling listeners attach: the
   // chain isn't prepared yet, so there is nothing to re-rate, and
@@ -85,6 +101,10 @@ TONE3000Processor::TONE3000Processor()
   // so their changes must reach pollers (see parameterChanged).
   for (const auto& paramId : presetParameterIds())
     parameters.addParameterListener(paramId, this);
+  // The solos are not preset-managed, but in a grid they are two rows'
+  // solos (see legacyControlMoved).
+  parameters.addParameterListener("chainSoloLeft", this);
+  parameters.addParameterListener("chainSoloRight", this);
 
   // MIDI performance events (delivered on the message thread, see
   // MidiMapper): program changes and prev/next steps walk the preset list,
@@ -96,17 +116,32 @@ TONE3000Processor::TONE3000Processor()
     toggleBlockPower(index, right);
   };
   midiMapper.onStereoToggle = [this] { setStereoMode(!isStereoMode()); };
-
-  // Every lane starts at its minimum slot layout (kMinLaneSlots pass-through
-  // insert placeholders). The right lane stays invisible until stereo mode is
-  // enabled, but seeding it now keeps the invariant unconditional.
-  for (auto& l : lanes)
-    normalizeLaneInserts(l);
-  // Built once (capturing only `this`) so invoking the boundary on the audio
-  // thread never constructs a std::function per block.
-  chainStageFunc = [this](float** inputs, float** outputs, int numFrames) {
-    processOversampledChainStage(inputs, outputs, numFrames);
+  // The fixed default controls (see MidiMapper): scene select, tap tempo,
+  // tuner and footswitch mode. Delivered on the message thread as well.
+  midiMapper.onSceneSelect = [this](int scene) { selectScene(scene); };
+  midiMapper.onTapTempo = [this](double timeMs) { tapTempo(timeMs); };
+  midiMapper.onTunerEnabled = [this](bool enabled) { setTunerEnabled(enabled); };
+  midiMapper.onFootswitchMode = [this](int mode) {
+    setFootswitchMode(static_cast<FootswitchMode>(juce::jlimit(0, 3, mode)));
   };
+
+  // The two legacy lanes start at their minimum slot layout (kMinLaneSlots
+  // pass-through insert placeholders). The right lane stays invisible until
+  // stereo mode is enabled, but seeding it now keeps the invariant
+  // unconditional. Rows 2 and 3 stay empty. The funnel also compiles the
+  // first plan, so the chain stage has one from the first callback on.
+  {
+    juce::ScopedLock lock(chainMutex);
+    for (auto& row : grid.rows) {
+      row.meterIn[0].store(-60.0f);
+      row.meterIn[1].store(-60.0f);
+      row.meterOut[0].store(-60.0f);
+      row.meterOut[1].store(-60.0f);
+    }
+    prepareGridRows();
+    rebuildTopology();
+    adoptPlanIo();
+  }
 
   // iOS standalone only: nothing else on that platform ever saves the plugin
   // state, so the signal chain would not survive a relaunch (see
@@ -367,6 +402,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout TONE3000Processor::createPar
   return layout;
 }
 
+// The plan CPU value's allowance for one input strip or output bus, as a
+// fraction of one core at 48 kHz (see makePlanInput).
+static constexpr float kPlanPortCost = 0.001f;
+
 int TONE3000Processor::resolvedOversampleFactor() const {
   if (paramRefs.osEnabled == nullptr || paramRefs.osFactor == nullptr)
     return 1;
@@ -391,6 +430,11 @@ void TONE3000Processor::parameterChanged(const juce::String& parameterID, float 
     // idempotent, so a spurious run costs nothing.
     triggerAsyncUpdate();
   }
+  // In a grid the legacy image controls are either two rows' own settings
+  // or held at neutral (see legacyControlMoved).
+  if (gridModeActive.load(std::memory_order_relaxed) &&
+      legacyControlSyncDepth.load(std::memory_order_relaxed) == 0)
+    legacyControlMoved(parameterID, newValue);
   // A preset-managed faceplate param moved, so getChainState's atDefault may
   // have flipped. Deferred like block-param drags: a real bump per change
   // would re-ship the whole chain state at knob-drag/automation rates.
@@ -399,17 +443,35 @@ void TONE3000Processor::parameterChanged(const juce::String& parameterID, float 
 
 void TONE3000Processor::handleAsyncUpdate() {
   applyOversamplingSettings();
+  refreshStripPad();
   updateLatency();
+
+  // A legacy image control was moved in a grid that holds it at neutral, or
+  // that no longer binds it to a row: put it back where the rig has it.
+  if (legacyControlResyncPending.exchange(false) && isGridMode()) {
+    juce::ScopedLock lock(chainMutex);
+    if (routingMode == RoutingMode::Grid)
+      syncLegacyControlsFromGrid();
+  }
+  // What the rig queued for the legacy image controls under the chain lock
+  // (the sync above, or any path that did not write them itself), now that
+  // nothing is held.
+  flushLegacyParamWrites();
 
   // A host called setCurrentProgram off the message thread: apply the
   // deferred program change here (last one wins, like MidiMapper's PC path).
   if (const int program = pendingHostProgram.exchange(-1); program >= 0)
     applyHostProgram(program);
+
+  // Footswitch presses and releases made on other threads.
+  drainFootswitchQueue();
 }
 
 // Message thread. Boundary plus a powered pitch shifter's window; read from
 // the parameters, not the audio thread's engine, so a change is reported
-// exactly once and the report doesn't depend on a callback having run.
+// exactly once and the report doesn't depend on a callback having run. Plus
+// whatever the chain's blocks add (zero for a rig of NAM and IR blocks; see
+// refreshLatencyCompensation), converted from chain-rate to host samples.
 void TONE3000Processor::updateLatency() {
   int latency = chainBoundaryLatency;
   if (paramRefs.pitchEnabled->load() >= 0.5f) {
@@ -417,7 +479,117 @@ void TONE3000Processor::updateLatency() {
         PitchShift::windowFromIndex(static_cast<int>(std::lround(paramRefs.pitchWindow->load())));
     latency += PitchShift::latencySamples(window, hostSampleRate);
   }
+  if (const int blockLatency = chainBlockLatency.load(); blockLatency > 0)
+    latency += juce::roundToInt(blockLatency * hostSampleRate / chainSampleRate());
   setLatencySamples(latency);  // no-op (no host notification) when unchanged
+}
+
+// See the declaration. The lanes are read as they stand, so every structural
+// mutator reaches this through rebuildTopology and every install through
+// applyPreparedModelToChainBlock.
+void TONE3000Processor::refreshLatencyCompensation() {
+  if (latencyRefreshSuspended)
+    return;  // a restore is mid-rebuild; it refreshes once when it is done
+
+  // The dry share of every block's mix, whether or not its row is heard: a
+  // dormant lane's blocks are sized too, so waking the lane needs nothing.
+  for (const auto& l : lanes)
+    for (const auto& block : l)
+      block->dryDelay.configure(
+          block->processor != nullptr ? juce::jmax(0, block->processor->chainLatencySamples()) : 0);
+
+  // A mutator that has changed the lanes always recompiles before it gets
+  // here (rebuildTopology). The only way in with a plan of another shape is
+  // from inside a mutator that has not finished yet (an install made while
+  // it is still moving blocks); it refreshes when it is done.
+  if (!planMatchesLanes())
+    return;
+
+  // The plan's latency pass: segment latencies, the pad of every path that
+  // meets another, and the total. For the legacy shapes that is lane
+  // against lane, or with a branch the trunk's remainder against the
+  // branch lane (the prefix up to the tap is common to both).
+  computePlanLatency(activePlan, makePlanInput());
+
+  std::array<int, kGridRows> pad{};
+  for (int i = 0; i < activePlan.numOps; ++i) {
+    const PlanOp& op = activePlan.ops[static_cast<size_t>(i)];
+    if ((op.type == PlanOp::Delay || op.type == PlanOp::RowOut || op.type == PlanOp::FeedRow) &&
+        op.row < kGridRows)
+      pad[op.row] = op.latency;
+  }
+  // A row without a Delay operation (or, in a grid plan, a send or a feed)
+  // waits for nobody.
+  for (int row = 0; row < kGridRows; ++row)
+    grid.rows[static_cast<size_t>(row)].outAlign.configure(pad[static_cast<size_t>(row)]);
+  // A mixer's two paths: the one that arrives early waits. A split without
+  // a rejoin has no mixer, and its lines are let go.
+  for (int upper = 0; upper < kGridRows; ++upper)
+    if (SplitJunction* junction = rtSplits[static_cast<size_t>(upper)]) {
+      const ProcessingPlan::SplitInfo& info = activePlan.splitInfo[static_cast<size_t>(upper)];
+      const bool mixes = !activePlan.legacy && info.present && info.mixCol >= 0;
+      junction->setAlignment(mixes ? info.alignA : 0, mixes ? info.alignB : 0);
+    }
+
+  const int total = activePlan.reportedChainLatency;
+  if (chainBlockLatency.exchange(total) != total)
+    triggerAsyncUpdate();  // handleAsyncUpdate reports it, off this lock
+}
+
+void TONE3000Processor::syncReportedLatency() {
+  if (juce::MessageManager::existsAndIsCurrentThread())
+    updateLatency();
+}
+
+void TONE3000Processor::timerCallback() {
+  stopTimer();
+  flushDeferredBlockRefresh();
+}
+
+void TONE3000Processor::flushDeferredBlockRefresh() {
+  // A hosted plugin that changed its latency or tail by itself only says so
+  // through this (it raises blockRefreshPending).
+  serviceHostedPlugins();
+
+  if (blockRefreshPending.exchange(false)) {
+    bool latencyPending = false;
+    {
+      juce::ScopedLock lock(chainMutex);
+      refreshBlockTailLength();
+      for (const auto& l : lanes)
+        for (const auto& block : l)
+          if (block->processor != nullptr &&
+              (block->processor->latencyChangePending() ||
+               juce::jmax(0, block->processor->chainLatencySamples()) !=
+                   block->dryDelay.delaySamples()))
+            latencyPending = true;
+    }
+
+    // A moved latency shifts the block's whole lane in time, which no
+    // single block's fade can hide: mute-splice like a structural edit.
+    // Inside the mute and under one hold of the lock, the kinds adopt
+    // their new latency and the chain resizes its compensation, so no
+    // callback ever runs a wet path and a dry path that disagree.
+    if (latencyPending) {
+      ChainEditFade editFade(*this);
+      juce::ScopedLock lock(chainMutex);
+      for (const auto& l : lanes)
+        for (const auto& block : l)
+          if (block->processor != nullptr)
+            block->processor->commitLatency();
+      refreshLatencyCompensation();
+    }
+  }
+
+  // Also for whatever a background install changed since the last report:
+  // without a message loop this call is the only thing that delivers it.
+  syncReportedLatency();
+}
+
+void TONE3000Processor::setTempo(double bpm) {
+  if (!std::isfinite(bpm))
+    return;
+  internalTempoBpm.store(juce::jlimit(kMinTempoBpm, kMaxTempoBpm, bpm));
 }
 
 // Message thread. Re-rates the whole chain domain after an osEnabled/osFactor
@@ -443,7 +615,7 @@ void TONE3000Processor::applyOversamplingSettings() {
   juce::ScopedLock lock(chainMutex);
 
   chainOversampleFactor.store(newFactor);
-  chainOversampler.prepare(newFactor, juce::jmax(1, chainBaseBlockSize()));
+  prepareChainOversamplers(newFactor);
 
   // The chain-domain scratch grows with the factor; the RT path never
   // resizes it.
@@ -451,9 +623,15 @@ void TONE3000Processor::applyOversamplingSettings() {
     scratch.setSize(2, juce::jmax(1, chainDomainBlockSize()), false, false, true);
     scratch.clear();
   }
+  sizeGridBuffers();
+  prepareGridRows();
+  prepareGridSplits();
 
-  for (auto& l : lanes)
-    prepareChain(l);
+  for (int row = 0; row < kNumLanes; ++row)
+    prepareChain(row);
+  // A base-rate kind's latency is a different number of chain-rate samples
+  // at the new factor.
+  refreshLatencyCompensation();
 
   // IR blocks need nothing here: their convolvers run at the base rate
   // behind per-block islands (re-prepared by prepareChain above), so neither
@@ -468,6 +646,13 @@ void TONE3000Processor::applyOversamplingSettings() {
   bumpChainRevision();
 }
 
+// Every port's oversampler, used or not: a plan with more strips or buses
+// then needs no buffer the audio thread would have to wait for.
+void TONE3000Processor::prepareChainOversamplers(int factor) {
+  for (auto& oversampler : chainOversamplers)
+    oversampler.prepare(factor, juce::jmax(1, chainBaseBlockSize()));
+}
+
 void TONE3000Processor::requeueLoadedNamEngine(ChainBlock& block) {
   block.loaded = false;
   block.modelLoading = true;
@@ -475,44 +660,213 @@ void TONE3000Processor::requeueLoadedNamEngine(ChainBlock& block) {
 }
 
 bool TONE3000Processor::requeueNamEnginesForVoiceCount() {
-  const int wanted = wantedNamVoices();
   bool queued = false;
-  for (auto& l : lanes) {
-    for (auto& block : l) {
+  // The count logged: every row's in Legacy mode, where they all agree.
+  int wantedLogged = 1;
+  for (int row = 0; row < kNumLanes; ++row) {
+    const int wanted = wantedNamVoices(row);
+    for (auto& block : lanes[static_cast<size_t>(row)]) {
       // In-flight loads are left alone: the apply path's voice-drift guard
       // re-queues them itself (see applyPreparedModelToChainBlock).
-      if (block->type != ChainBlockType::NAM || !block->loaded || block->modelLoading ||
-          block->namEngine == nullptr || block->namEngine->getVoiceCount() == wanted)
+      const NamBlockProcessor* nam = block->nam();
+      if (nam == nullptr || !block->loaded || block->modelLoading || nam->engine() == nullptr ||
+          nam->engine()->getVoiceCount() == wanted)
         continue;
       requeueLoadedNamEngine(*block);
       queued = true;
+      wantedLogged = wanted;
     }
   }
   if (queued) {
-    juce::Logger::writeToLog("[Processor] NAM engines rebuilding for " + juce::String(wanted) +
-                             (wanted == 1 ? " voice" : " voices"));
+    juce::Logger::writeToLog("[Processor] NAM engines rebuilding for " +
+                             juce::String(wantedLogged) +
+                             (wantedLogged == 1 ? " voice" : " voices"));
     bumpChainRevision();
   }
   return queued;
+}
+
+int TONE3000Processor::rowOfBlock(const ChainBlock& block) const noexcept {
+  for (int row = 0; row < kNumLanes; ++row)
+    for (const auto& b : lanes[static_cast<size_t>(row)])
+      if (b.get() == &block)
+        return row;
+  return -1;
+}
+
+BlockPrepareSpec TONE3000Processor::blockPrepareSpecForId(const std::string& blockId) {
+  juce::ScopedLock lock(chainMutex);
+  int row = -1;
+  if (const ChainBlock* block = findBlockById(blockId))
+    row = rowOfBlock(*block);
+  if (row < 0)
+    row = static_cast<int>(&activeChain() - lanes.data());
+  return blockPrepareSpecFor(row);
+}
+
+RowFormat TONE3000Processor::rowFormat(int row) const noexcept {
+  if (routingMode == RoutingMode::Grid) {
+    // The row's own, except that two independent signals stay two: below a
+    // split from a dual-mono row the lower row is dual mono as well
+    // (effectiveRowFormat in ProcessingPlan.cpp is the same rule).
+    row = juce::jlimit(0, kGridRows - 1, row);
+    for (int r = row;; --r) {
+      if (grid.rows[static_cast<size_t>(r)].format == RowFormat::DualMono)
+        return RowFormat::DualMono;
+      if (r == 0 || splitOfRow(r - 1) == nullptr)
+        break;
+    }
+    return grid.rows[static_cast<size_t>(row)].format;
+  }
+  // Legacy: two mono lanes in stereo mode; one lane otherwise, whose
+  // buffer is a stereo pair or, with dual mono selected, two mono signals.
+  if (stereoEnabled.load(std::memory_order_relaxed))
+    return RowFormat::Mono;
+  return wantedNamVoices(row) == 2 ? RowFormat::DualMono : RowFormat::Stereo;
+}
+
+bool TONE3000Processor::planMatchesLanes() const noexcept {
+  if (!activePlan.valid || activePlan.topologyRevision != topologyRevision)
+    return false;
+  for (int row = 0; row < kNumLanes; ++row)
+    if (activePlan.rowSlots[static_cast<size_t>(row)] !=
+        static_cast<int>(lanes[static_cast<size_t>(row)].size()))
+      return false;
+  return true;
+}
+
+// The rig as the plan compiler sees it (ProcessingPlan.h): the routing
+// fields and, per slot, whether a block sits there and how late it makes its
+// wet path. Caller holds chainMutex.
+const PlanInput& TONE3000Processor::makePlanInput() const {
+  PlanInput& input = planInputScratch;
+  input.mode = routingMode;
+  input.topologyRevision = topologyRevision;
+  input.legacy.stereoEnabled = stereoEnabled.load();
+  input.legacy.trunkRow = laneIndex(branchSourceSide);
+  input.legacy.branchTapIndex = rtBranchTapIndex;
+  for (int row = 0; row < kNumLanes; ++row) {
+    PlanInput::Row& out = input.rows[static_cast<size_t>(row)];
+    const GridRow& gridRow = grid.rows[static_cast<size_t>(row)];
+    // The row's own setting: the compiler works out what a split makes of
+    // it. (A legacy row has no setting; its format follows the mode.)
+    out.format = routingMode == RoutingMode::Grid ? gridRow.format : rowFormat(row);
+    out.input = gridRow.input;
+    out.outputType = gridRow.output.type;
+    out.outputPair = gridRow.output.pair;
+    out.outputToRow = gridRow.output.toRow;
+    const Lane& l = lanes[static_cast<size_t>(row)];
+    out.slots.clear();  // keeps its storage
+    out.slots.reserve(l.size());
+    for (const auto& block : l) {
+      PlanSlot slot;
+      slot.isBlock = block->type != ChainBlockType::INSERT;
+      slot.latency =
+          block->processor != nullptr ? juce::jmax(0, block->processor->chainLatencySamples()) : 0;
+      slot.costEstimate = block->cpuCost.load(std::memory_order_relaxed);
+      out.slots.push_back(slot);
+    }
+  }
+
+  input.numSplits = 0;
+  if (routingMode == RoutingMode::Grid)
+    for (const auto& junction : grid.splits)
+      if (input.numSplits < kGridRows) {
+        PlanInput::Split& split = input.splits[static_cast<size_t>(input.numSplits++)];
+        split.upperRow = junction->upperRow;
+        split.splitCol = junction->splitCol;
+        split.mixCol = junction->mixCol;
+      }
+
+  // What the device offers. Before the first prepareToPlay nothing is known
+  // and every channel counts as present.
+  input.io.known = deviceChannels.numInputs > 0 || deviceChannels.numOutputs > 0;
+  input.io.inputChannels = 0;
+  input.io.outputChannels = 0;
+  for (int i = 0; i < deviceChannels.numInputs; ++i)
+    if (const int physical = deviceChannels.inputPhysical[static_cast<size_t>(i)];
+        physical >= 0 && physical < 32)
+      input.io.inputChannels |= 1u << physical;
+  for (int i = 0; i < deviceChannels.numOutputs; ++i)
+    if (const int physical = deviceChannels.outputPhysical[static_cast<size_t>(i)];
+        physical >= 0 && physical < 32)
+      input.io.outputChannels |= 1u << physical;
+  input.io.padAcrossBuses = gridPadAcrossBuses();
+  // A port is a strip or a bus with its share of the boundary and the
+  // oversampler: a fixed allowance, larger with the factor, since nothing
+  // measures it.
+  input.io.portCost = kPlanPortCost * static_cast<float>(chainOversampleFactor.load());
+  return input;
+}
+
+// Compile the plan for the rig as it stands and make it the one the chain
+// stage runs. Caller holds chainMutex, which is what makes the swap safe:
+// the audio thread only reads the plan with the lock held.
+void TONE3000Processor::compileActivePlan() {
+  ++topologyRevision;
+  refreshSplitTable();
+  syncGridAtomics();
+  const PlanInput& input = makePlanInput();
+  const ProcessingPlan compiled = compilePlan(input);
+  // A legacy rig always compiles, and so does a grid whose rows hold eight
+  // slots each (padGridRows) and whose splits and feeds keep the routing
+  // rules, which the mutators check before they change anything (editGrid)
+  // and a restore repairs (sanitizeRestoredRouting). Should it ever not,
+  // the plan in place stays: it still runs (its ranges are clamped to the
+  // lanes), and the stale-plan count says that it no longer describes
+  // them.
+  jassert(compiled.valid && validatePlan(compiled, input).empty());
+  if (compiled.valid)
+    activePlan = compiled;
 }
 
 int TONE3000Processor::namEngineVoiceCount(const std::string& blockId) const {
   juce::ScopedLock lock(chainMutex);
   for (const auto& l : lanes)
     for (const auto& block : l)
-      if (block->id == blockId)
-        return block->type == ChainBlockType::NAM && block->loaded && block->namEngine != nullptr
-                   ? block->namEngine->getVoiceCount()
+      if (block->id == blockId) {
+        const NamBlockProcessor* nam = block->nam();
+        return nam != nullptr && block->loaded && nam->engine() != nullptr
+                   ? nam->engine()->getVoiceCount()
                    : 0;
+      }
   return 0;
 }
 
+int TONE3000Processor::blockLatencySamples(const std::string& blockId) const {
+  juce::ScopedLock lock(chainMutex);
+  for (const auto& l : lanes)
+    for (const auto& block : l)
+      if (block->id == blockId)
+        return block->processor != nullptr ? block->processor->chainLatencySamples() : -1;
+  return -1;
+}
+
+double TONE3000Processor::blockTailSeconds(const std::string& blockId) const {
+  juce::ScopedLock lock(chainMutex);
+  for (const auto& l : lanes)
+    for (const auto& block : l)
+      if (block->id == blockId)
+        return block->processor != nullptr ? block->processor->reportedTailSeconds() : -1.0;
+  return -1.0;
+}
+
 TONE3000Processor::~TONE3000Processor() {
+  // The command layer first: it holds a server whose threads call into this
+  // processor, and sandbox rigs made from it.
+  appCommands.reset();
+
   parameters.removeParameterListener("osEnabled", this);
   parameters.removeParameterListener("osFactor", this);
   for (const auto& paramId : presetParameterIds())
     parameters.removeParameterListener(paramId, this);
+  parameters.removeParameterListener("chainSoloLeft", this);
+  parameters.removeParameterListener("chainSoloRight", this);
   cancelPendingUpdate();
+  stopTimer();
+  // Plugin creations still on their way find nobody and let go.
+  hostedPluginLink->processor.store(nullptr);
+  hostedPluginTimer.stopTimer();
 
   releaseResources();
 
@@ -533,7 +887,7 @@ TONE3000Processor::~TONE3000Processor() {
 // JUCE SETTINGS
 // #############
 const juce::String TONE3000Processor::getName() const {
-  return "TONE3000";
+  return "Pedaleira";
 }
 
 bool TONE3000Processor::acceptsMidi() const {
@@ -549,17 +903,16 @@ bool TONE3000Processor::isMidiEffect() const {
 }
 double TONE3000Processor::getTailLengthSeconds() const {
   // Two tail sources, report the longer one:
-  //  - The longest loaded IR (reverb IRs run whole seconds; cab IRs sit far
-  //    below the DC-blocker floor). Tracked lock-free in irTailBaseSamples
-  //    (this potentially RT-adjacent query must not take the chain lock)
-  //    and refreshed wherever the set of live IR engines changes (see
-  //    refreshIrTailLength). IRs always convolve at the base rate, so the
-  //    count is over kChainBaseSampleRate regardless of oversampling.
+  //  - The longest block tail, which today means the longest loaded IR
+  //    (reverb IRs run whole seconds; cab IRs sit far below the DC-blocker
+  //    floor). Tracked lock-free in longestBlockTail (this potentially
+  //    RT-adjacent query must not take the chain lock) and refreshed
+  //    wherever the set of live engines changes (see
+  //    refreshBlockTailLength).
   //  - The 5 Hz first-order DC blocker decays over ~10 cycles (2 s); the
   //    reference NAM plugin reports the same allowance for VST3 tail checks.
-  const double irTailSeconds = irTailBaseSamples.load() / kChainBaseSampleRate;
   const double dcBlockerTailSeconds = 10.0 / 5.0;
-  return std::max(irTailSeconds, dcBlockerTailSeconds);
+  return std::max(longestBlockTail.load(), dcBlockerTailSeconds);
 }
 
 // The host program API (getNumPrograms and friends) lives in
@@ -573,60 +926,41 @@ double TONE3000Processor::getTailLengthSeconds() const {
 // sizes up to chainDomainBlockSize(). Host-rate changes only ever re-prepare
 // because the domain block size depends on the host block size; oversampling
 // changes re-prepare because the rate itself moves.
-void TONE3000Processor::prepareChain(std::vector<std::unique_ptr<ChainBlock>>& blocks) {
-  const int domainBlockSize = chainDomainBlockSize();
-  const double chainRate = chainSampleRate();
+void TONE3000Processor::prepareChain(int row) {
+  const BlockPrepareSpec spec = blockPrepareSpecFor(row);
+  const double chainRate = spec.chainSampleRate;
 
-  for (auto& block : blocks) {
-    if (block->type == ChainBlockType::NAM) {
-      if (block->namEngine != nullptr) {
-        block->namEngine->prepare(domainBlockSize);
-        DBG("NAM engine prepared for block: " << block->id);
-      } else {
-        DBG("Warning: NAM block " << block->id << " has no engine to prepare");
-      }
-    } else if (block->type == ChainBlockType::IR && block->convolverMono != nullptr) {
-      // Convolvers always run at the base rate behind the block's island
-      // (see ChainBlock::irBaseRateIsland), so their spec only tracks the
-      // base block size (capped, see irConvolverBlockSizeFor), never the
-      // oversampling factor.
-      juce::dsp::ProcessSpec spec{kChainBaseSampleRate,
-                                  static_cast<juce::uint32>(irConvolverBlockSize()), 2};
-      block->convolverMono->prepare(spec);
-      if (block->convolverStereo != nullptr)
-        block->convolverStereo->prepare(spec);
+  for (auto& block : lanes[static_cast<size_t>(row)]) {
+    // The engine and its own smoothers (NAM re-prepares for the domain block
+    // size; IR convolvers and their base-rate island track the base block
+    // and the live factor). Insert placeholders have no processor.
+    if (block->processor != nullptr)
+      block->processor->prepareForChain(spec);
+    // Whatever the dry path was holding belongs to the audio before the
+    // re-prepare.
+    block->dryDelay.clear();
 
-      // Reset normalization smoother to current gain to prevent jumps on re-prepare
-      if (block->loaded) {
-        block->irNormalizationSmoother.reset(chainRate, 0.05f);
-        block->irNormalizationSmoother.setCurrentAndTargetValue(block->irNormalizationGainLinear);
-      }
-
-      DBG("IR convolvers re-prepared for block: " << block->id);
-    }
-
-    // Every IR block keeps its base-rate island in step with the live factor
-    // (bypass at ×1). Prepared even while unloaded; a later engine apply
-    // re-prepares anyway, this just keeps the invariant simple.
-    if (block->type == ChainBlockType::IR)
-      block->irBaseRateIsland.prepare(chainOversampleFactor.load(),
-                                      juce::jmax(1, chainBaseBlockSize()));
-
-    // Initialize per-block smoothers (input gain, output gain, mix, NAM
-    // normalization). The RT path only ever calls setTargetValue on these;
-    // reset() belongs here and in the model-apply path, never per block.
+    // Initialize the shared per-block smoothers (input gain, output gain,
+    // mix). The RT path only ever calls setTargetValue on these; reset()
+    // belongs here and in the model-apply path, never per block.
     block->inputGainSmoother.reset(chainRate, 0.05f);
     block->outputGainSmoother.reset(chainRate, 0.05f);
     block->mixSmoother.reset(chainRate, 0.05f);
-    block->namNormalizationSmoother.reset(chainRate, 0.05f);
     block->inputGainSmoother.setCurrentAndTargetValue(1.0f);   // updated on first process
     block->outputGainSmoother.setCurrentAndTargetValue(1.0f);  // updated on first process
     block->mixSmoother.setCurrentAndTargetValue(block->mixNormalized);
-    block->namNormalizationSmoother.setCurrentAndTargetValue(1.0f);
     block->wetFadeGain.reset(chainRate, kWetFadeSeconds);
     block->wetFadeGain.setCurrentAndTargetValue(block->enabled ? 1.0f : 0.0f);
     block->swapWetMuteGain.reset(chainRate, kWetFadeSeconds);
     block->swapWetMuteGain.setCurrentAndTargetValue(1.0f);
+    // Spillover starts settled: a block that is on has its input open, and
+    // nothing is ringing out (the engines were just reset by their prepare).
+    block->spillInputGain.reset(chainRate, kWetFadeSeconds);
+    block->spillInputGain.setCurrentAndTargetValue(1.0f);
+    block->spillTailGain.reset(chainRate, kWetFadeSeconds);
+    block->spillTailGain.setCurrentAndTargetValue(0.0f);
+    block->spillElapsedSamples = ChainBlock::kSpillDone;
+    block->engineHoldsAudio = false;
 
     prepareBlockForChainRate(*block);
   }
@@ -641,13 +975,13 @@ void TONE3000Processor::prepareBlockForChainRate(ChainBlock& block) {
 // See the declaration. Both lanes are scanned regardless of stereo mode:
 // counting a disabled right lane's IR is a harmless over-report, and it means
 // stereo toggles can never truncate a host's tail rendering mid-session.
-void TONE3000Processor::refreshIrTailLength() {
-  int maxSamples = 0;
+void TONE3000Processor::refreshBlockTailLength() {
+  double maxSeconds = 0.0;
   for (const auto& l : lanes)
     for (const auto& b : l)
-      if (b->type == ChainBlockType::IR && b->convolverMono != nullptr)
-        maxSamples = std::max(maxSamples, b->irLengthBaseSamples);
-  irTailBaseSamples.store(maxSamples);
+      if (b->processor != nullptr)
+        maxSeconds = std::max(maxSeconds, b->processor->reportedTailSeconds());
+  longestBlockTail.store(maxSeconds);
 }
 
 // Constant-power pan gains for a chain at position `pan` (0 = hard left,
@@ -737,6 +1071,12 @@ void TONE3000Processor::updateStereoIoDetection() {
 }
 
 void TONE3000Processor::setInputMode(InputMode mode) {
+  // A legacy notion: a grid goes back to the legacy rig first when it can
+  // (the conversion derives the mode the rows amount to), and is left alone
+  // when it cannot.
+  if (isGridMode() && !static_cast<bool>(convertRouting(false)["ok"]))
+    return;
+
   if (mode == getInputMode())
     return;
 
@@ -776,43 +1116,6 @@ void TONE3000Processor::setInputMode(InputMode mode) {
   DBG("Input mode: " << inputModeToString(mode));
 }
 
-// Physical group delay of a ChainBoundaryResampler at this host rate, in
-// host samples. GetLatency() only counts the warm-up prefill and misses the
-// residual group delay of the two Lanczos kernels (2-5 samples, growing with
-// the rate ratio), so an impulse is run through a scratch boundary and the
-// peak located: exact by construction, and cheap enough for prepareToPlay.
-static int measureChainBoundaryLatency(double hostRate, int blockSize) {
-  ChainBoundaryResampler probe(kChainBaseSampleRate);
-  probe.Reset(hostRate, blockSize);
-
-  const int total = ((probe.GetLatency() + 2 * blockSize) / blockSize + 1) * blockSize;
-  juce::AudioBuffer<float> in(2, total), out(2, total);
-  in.clear();
-  out.clear();
-  in.setSample(0, 0, 1.0f);
-  in.setSample(1, 0, 1.0f);
-
-  auto identity = [](float** inputs, float** outputs, int frames) {
-    juce::FloatVectorOperations::copy(outputs[0], inputs[0], frames);
-    juce::FloatVectorOperations::copy(outputs[1], inputs[1], frames);
-  };
-  for (int offset = 0; offset < total; offset += blockSize) {
-    float* ins[2] = {in.getWritePointer(0, offset), in.getWritePointer(1, offset)};
-    float* outs[2] = {out.getWritePointer(0, offset), out.getWritePointer(1, offset)};
-    probe.ProcessBlock(ins, outs, blockSize, identity);
-  }
-
-  int peak = 0;
-  float best = 0.0f;
-  const float* y = out.getReadPointer(0);
-  for (int i = 0; i < total; ++i)
-    if (std::abs(y[i]) > best) {
-      best = std::abs(y[i]);
-      peak = i;
-    }
-  return peak;
-}
-
 // Tone-stack corners are fixed by design, but hosts can run rates low enough
 // to put them above Nyquist (clap-validator probes 1234.5678 Hz, where even
 // the 1 kHz mid peak is out of range) and JUCE's bilinear designs return
@@ -827,8 +1130,13 @@ static float clampBelowNyquist(double sampleRate, float frequency) {
 // PREPARATIONS BEFORE RT THREAD
 // #############################
 void TONE3000Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
-  hostSampleRate = sampleRate;
-  maxBlockSize = samplesPerBlock;
+  {
+    // A grid edit on the message thread reopens the boundary with these
+    // (syncPlanPorts), under this lock.
+    juce::ScopedLock lock(chainMutex);
+    hostSampleRate = sampleRate;
+    maxBlockSize = samplesPerBlock;
+  }
 
   tuner.prepare(sampleRate);
 
@@ -859,29 +1167,81 @@ void TONE3000Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
       }
   }
 #endif
+  // Asked of the device before the lock is taken; published under it.
+  DeviceChannelMap deviceMap = readDeviceChannelMap();
+  rtMonoMainInput = getMainBusNumInputChannels() == 1 && getMainBusNumOutputChannels() > 1;
 
   updateStereoIoDetection();
 
-  // Chain-domain resampling boundary.
-  // Engaged whenever the host rate differs from the chain base rate, even
-  // for an empty chain, so reported latency is a constant per host rate and
-  // chain edits never trigger a PDC change. At a 48k host the boundary is
-  // dropped entirely and the chain stage runs directly on the host buffer.
-  const bool boundaryNeeded = std::abs(sampleRate - kChainBaseSampleRate) > 0.1;
-  if (boundaryNeeded) {
-    if (chainBoundary == nullptr)
-      chainBoundary = std::make_unique<ChainBoundaryResampler>(kChainBaseSampleRate);
-    chainBoundary->Reset(sampleRate, juce::jmax(1, samplesPerBlock));
-    // Not GetLatency(): that under-reports by the Lanczos kernels' group
-    // delay, and hosts align dry paths against this number.
-    chainBoundaryLatency = measureChainBoundaryLatency(sampleRate, juce::jmax(1, samplesPerBlock));
-  } else {
-    chainBoundary.reset();
-    chainBoundaryLatency = 0;
+  // The strips and buses the callbacks from here on run, and with them how
+  // many ports the boundary opens. One hold of the lock for the device map,
+  // the plan compiled for it and the boundary opened for that plan: a grid
+  // edit on the message thread compiles a plan and reopens the boundary
+  // under the same lock (syncPlanPorts), so the two can only happen one
+  // after the other, and whichever comes last leaves a boundary that
+  // matches the plan in place.
+  {
+    juce::ScopedLock lock(chainMutex);
+    deviceChannels = std::move(deviceMap);
+    int numUpPorts = 1, numDownPorts = 1;
+    // A grid plan's strips and buses depend on which channels the device
+    // has (a missing input is silence, a missing output pair falls back to
+    // Out 1/2), so it is compiled again for the map just recorded. A legacy
+    // plan does not look at the device.
+    if (routingMode == RoutingMode::Grid)
+      compileActivePlan();
+    adoptPlanIo();
+    lastPlanStrips = activePlan.numStrips;
+    lastPlanBuses = activePlan.numBuses;
+    numUpPorts = juce::jlimit(1, ChainBoundaryMulti::kMaxPorts, rtIo.numStrips);
+    numDownPorts = juce::jlimit(1, ChainBoundaryMulti::kMaxPorts, rtIo.numBuses);
+
+    // Chain-domain resampling boundary.
+    // Engaged whenever the host rate differs from the chain base rate, even
+    // for an empty chain, so reported latency is a constant per host rate
+    // and chain edits never trigger a PDC change. At a 48k host the
+    // boundary is dropped entirely and the chain stage runs directly on the
+    // host buffer.
+    if (std::abs(sampleRate - kChainBaseSampleRate) > 0.1) {
+      if (chainBoundary == nullptr)
+        chainBoundary = std::make_unique<ChainBoundaryMulti>();
+      // With the rates, block size and port counts unchanged this only
+      // clears the audio history, as the single-port container did.
+      const bool opened = chainBoundary->reset(sampleRate, kChainBaseSampleRate,
+                                               juce::jmax(1, samplesPerBlock), numUpPorts,
+                                               numDownPorts);
+      jassert(opened);
+      // The measured delay of the round trip, the same for every port: the
+      // warm-up prefill alone under-reports by the Lanczos kernels' group
+      // delay, and hosts align dry paths against this number.
+      chainBoundaryLatency = opened ? chainBoundary->latencySamples() : 0;
+      if (!opened)
+        chainBoundary.reset();
+    } else {
+      chainBoundary.reset();
+      chainBoundaryLatency = 0;
+    }
   }
+  const bool boundaryNeeded = std::abs(sampleRate - kChainBaseSampleRate) > 0.1;
+  juce::ignoreUnused(boundaryNeeded);  // only the debug line below reads it
   // The oversampler is minimum-phase (zero reported latency), so the boundary
   // and a powered pitch shifter are the only latency sources at any factor.
   pitchShift.prepare(sampleRate, juce::jmax(1, samplesPerBlock));
+  {
+    // Room for the longest window the shifter has.
+    int longest = 0;
+    for (int w = 0; w < static_cast<int>(PitchShift::kWindowMs.size()); ++w)
+      longest = juce::jmax(longest,
+                           PitchShift::latencySamples(PitchShift::windowFromIndex(w), sampleRate));
+    for (auto& strip : inputStrips)
+      strip.preparePad(longest + 1);
+    stripPadSamples.store(paramRefs.pitchEnabled->load() >= 0.5f
+                              ? PitchShift::latencySamples(
+                                    PitchShift::windowFromIndex(static_cast<int>(
+                                        std::lround(paramRefs.pitchWindow->load()))),
+                                    sampleRate)
+                              : 0);
+  }
   updateLatency();
   DBG("Chain boundary " << (boundaryNeeded ? "engaged" : "bypassed")
       << " (latency: " << chainBoundaryLatency << " samples)");
@@ -895,36 +1255,47 @@ void TONE3000Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
   {
     juce::ScopedLock lock(chainMutex);
     chainOversampleFactor.store(resolvedOversampleFactor());
-    chainOversampler.prepare(chainOversampleFactor.load(), juce::jmax(1, chainBaseBlockSize()));
+    prepareChainOversamplers(chainOversampleFactor.load());
     DBG("Chain oversampling ×" << chainOversampleFactor.load() << " (chain rate: "
         << chainSampleRate() << " Hz)");
 
-    for (auto& l : lanes) {
+    for (int row = 0; row < kNumLanes; ++row) {
       // Restore-time loads can land before the host resolves the saved
       // factor here. prepare() cannot change an engine's phase count.
       // In-flight loads already have a factor guard at installation.
-      for (auto& block : l) {
-        if (block->type == ChainBlockType::NAM && block->loaded && !block->modelLoading &&
-            block->namEngine != nullptr &&
-            block->namEngine->getOversampleFactor() != chainOversampleFactor.load()) {
+      for (auto& block : lanes[static_cast<size_t>(row)]) {
+        const NamBlockProcessor* nam = block->nam();
+        if (nam != nullptr && block->loaded && !block->modelLoading && nam->engine() != nullptr &&
+            nam->engine()->getOversampleFactor() != chainOversampleFactor.load()) {
           block->loaded = false;
           block->modelLoading = true;
           queueActiveModelLoad(*block);
         }
       }
-      prepareChain(l);
+      prepareChain(row);
     }
+    for (auto& gridRow : grid.rows)
+      gridRow.outAlign.clear();
+    sizeGridBuffers();
+    prepareGridRows();
+    prepareGridSplits();
+    refreshLatencyCompensation();
   }
+  // Again now that the chain is prepared: block latency is counted in
+  // chain-rate samples, and the factor was only just resolved.
+  updateLatency();
 
   juce::dsp::ProcessSpec spec{sampleRate, static_cast<juce::uint32>(samplesPerBlock), 2};
   bassFilter.prepare(spec);
   midFilter.prepare(spec);
   trebleFilter.prepare(spec);
-  dcBlocker.prepare(spec);
+  for (auto& bus : outputBuses)
+    bus.dcBlocker.prepare(spec);
   spread.prepare(sampleRate, samplesPerBlock);
   stereoOffset.prepare(sampleRate, samplesPerBlock);
   autoOffset.prepare(sampleRate);
-  inputGate.prepare(sampleRate);
+  for (auto& strip : inputStrips)
+    strip.gate.prepare(sampleRate);
 
   // Chain-edit fade: host-rate. Primed audible normally, but a device can
   // start while a fade session holds the chain (launch: state restore arms
@@ -934,6 +1305,12 @@ void TONE3000Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
   // is safe; this also unblocks any requester waiting out a device
   // restart).
   chainEditFadeGain.reset(sampleRate, kWetFadeSeconds);
+  // One value more than the glide has steps (the smoother's own count, and
+  // one to spare): see advanceChainEditFade.
+  chainEditFadeRamp.assign(
+      static_cast<size_t>(juce::jmax(0, static_cast<int>(std::floor(kWetFadeSeconds * sampleRate))) +
+                          2),
+      1.0f);
   const bool editFadeHeld = chainEditFadePending.load();
   chainEditFadeGain.setCurrentAndTargetValue(editFadeHeld ? 0.0f : 1.0f);
   if (editFadeHeld)
@@ -972,13 +1349,15 @@ void TONE3000Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
   // First-order high-pass at 5 Hz: removes DC offset from nonlinear NAM models
   // while staying audibly and phase-wise transparent down to the lowest bass
   // fundamentals (matches the reference NeuralAmpModelerPlugin behavior).
-  *dcBlocker.state =
-      *juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighPass(sampleRate, 5.0f);
+  for (auto& bus : outputBuses)
+    *bus.dcBlocker.state =
+        *juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighPass(sampleRate, 5.0f);
 
   bassFilter.reset();
   midFilter.reset();
   trebleFilter.reset();
-  dcBlocker.reset();
+  for (auto& bus : outputBuses)
+    bus.dcBlocker.reset();
 
   // Scratch buffers, sized once here; the RT path never resizes them.
   // The lane dry scratches live in the chain domain, where a callback can
@@ -989,6 +1368,16 @@ void TONE3000Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
   }
   chainScratchChannel.setSize(1, samplesPerBlock, false, false, true);
   chainScratchChannel.clear();
+  // Host-rate working pairs of the strips and buses that are not in place
+  // on the host buffer. A legacy rig uses none of them.
+  for (auto& strip : inputStrips) {
+    strip.work.setSize(2, juce::jmax(1, samplesPerBlock), false, false, true);
+    strip.work.clear();
+  }
+  for (auto& bus : outputBuses) {
+    bus.work.setSize(2, juce::jmax(1, samplesPerBlock), false, false, true);
+    bus.work.clear();
+  }
 
   // (Re)start the worker pool with the new callback geometry. It idles until
   // a callback actually forks (lanes or NAM phases); starting it here
@@ -1019,11 +1408,31 @@ void TONE3000Processor::releaseResources() {
   bassFilter.reset();
   midFilter.reset();
   trebleFilter.reset();
-  dcBlocker.reset();
-  inputGate.reset();
+  for (auto& bus : outputBuses)
+    bus.dcBlocker.reset();
+  for (auto& strip : inputStrips)
+    strip.gate.reset();
 }
 
 bool TONE3000Processor::isBusesLayoutSupported(const BusesLayout& layouts) const {
+  return isMainBusLayoutSupported(wrapperType, layouts);
+}
+
+bool TONE3000Processor::isMainBusLayoutSupported(WrapperType wrapper,
+                                                 const BusesLayout& layouts) {
+  // The standalone app's player offers the device's active channel counts
+  // as one main-bus layout, so a wide main bus is how more than two device
+  // channels reach processBlock (extra buses never do: the standalone
+  // holder disables them). A processor made outside any wrapper (the tests,
+  // the render tool) takes the same layouts so they can be exercised
+  // without a device. Counts only: a wide set is discrete channels, not a
+  // surround format.
+  if (wrapper == wrapperType_Standalone || wrapper == wrapperType_Undefined) {
+    const int numIns = layouts.getMainInputChannelSet().size();
+    const int numOuts = layouts.getMainOutputChannelSet().size();
+    return numIns >= 1 && numIns <= kMaxIoChannels && numOuts >= 1 && numOuts <= kMaxIoChannels;
+  }
+
   if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono() &&
       layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
     return false;
@@ -1034,6 +1443,55 @@ bool TONE3000Processor::isBusesLayoutSupported(const BusesLayout& layouts) const
 #endif
 
   return true;
+}
+
+// See getDeviceChannelMap. The standalone player packs the device's active
+// channels into the buffer in ascending order, the first as channel 0.
+TONE3000Processor::DeviceChannelMap TONE3000Processor::getDeviceChannelMap() const {
+  juce::ScopedLock lock(chainMutex);
+  return deviceChannels;
+}
+
+TONE3000Processor::DeviceChannelMap TONE3000Processor::readDeviceChannelMap() const {
+  DeviceChannelMap map;
+  map.numInputs = juce::jlimit(0, kMaxIoChannels, getMainBusNumInputChannels());
+  map.numOutputs = juce::jlimit(0, kMaxIoChannels, getMainBusNumOutputChannels());
+  for (int i = 0; i < map.numInputs; ++i) {
+    map.inputPhysical[static_cast<size_t>(i)] = i;
+    map.inputNames.add("Input " + juce::String(i + 1));
+  }
+  for (int i = 0; i < map.numOutputs; ++i) {
+    map.outputPhysical[static_cast<size_t>(i)] = i;
+    map.outputNames.add("Output " + juce::String(i + 1));
+  }
+
+#if !HEADLESS && JucePlugin_Build_Standalone && ! JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP
+  if (wrapperType == wrapperType_Standalone)
+    if (auto* holder = juce::StandalonePluginHolder::getInstance())
+      if (auto* device = holder->deviceManager.getCurrentAudioDevice()) {
+        const auto fill = [](const juce::BigInteger& active, const juce::StringArray& deviceNames,
+                             int busChannels, std::array<int, kMaxIoChannels>& physical,
+                             juce::StringArray& names) {
+          names.clear();
+          physical.fill(-1);
+          int count = 0;
+          for (int bit = active.findNextSetBit(0); bit >= 0 && count < busChannels;
+               bit = active.findNextSetBit(bit + 1)) {
+            physical[static_cast<size_t>(count++)] = bit;
+            names.add(bit < deviceNames.size() ? deviceNames[bit]
+                                               : "Channel " + juce::String(bit + 1));
+          }
+          return count;
+        };
+        map.numInputs = fill(device->getActiveInputChannels(), device->getInputChannelNames(),
+                             map.numInputs, map.inputPhysical, map.inputNames);
+        map.numOutputs = fill(device->getActiveOutputChannels(), device->getOutputChannelNames(),
+                              map.numOutputs, map.outputPhysical, map.outputNames);
+        map.fromDevice = true;
+      }
+#endif
+
+  return map;
 }
 
 // ######################
@@ -1157,6 +1615,20 @@ void TONE3000Processor::updateCachedParameters() {
       PitchShift::windowFromIndex(static_cast<int>(std::lround(paramRefs.pitchWindow->load())));
 }
 
+// See the declaration: the "is there an amp after me" scan of one stretch of
+// a row, which the plan executor runs for each segment before it calls the
+// block loop below.
+int TONE3000Processor::lastActiveNamIndex(const Lane& l, int scanBegin, int scanEnd) noexcept {
+  int lastNamIndex = -1;
+  const int last = juce::jmin(scanEnd, static_cast<int>(l.size()));
+  for (int i = juce::jmax(0, scanBegin); i < last; ++i) {
+    const auto& b = l[static_cast<size_t>(i)];
+    if (b->type == ChainBlockType::NAM && b->loaded && b->enabled)
+      lastNamIndex = i;
+  }
+  return lastNamIndex;
+}
+
 // ##########################
 // RT PROCESS A SINGLE CHAIN
 // ##########################
@@ -1166,27 +1638,31 @@ void TONE3000Processor::updateCachedParameters() {
 void TONE3000Processor::processChainOnBuffer(std::vector<std::unique_ptr<ChainBlock>>& blocks,
                                              juce::AudioBuffer<float>& buffer,
                                              juce::AudioBuffer<float>& dryScratch, int beginIdx,
-                                             int endIdx) {
+                                             int endIdx, const SegmentCtx& segment) {
   const int numSamples = buffer.getNumSamples();
   const int numChannels = buffer.getNumChannels();
 
-  if (endIdx < 0)
-    endIdx = static_cast<int>(blocks.size());
   beginIdx = juce::jlimit(0, static_cast<int>(blocks.size()), beginIdx);
   endIdx = juce::jlimit(beginIdx, static_cast<int>(blocks.size()), endIdx);
 
-  // Highest index of an enabled+loaded NAM block. Used twice: a stereo IR is only worth
-  // processing in true stereo when there is no NAM downstream to collapse the image back to
-  // mono, and NAM blocks *before* this index hand off at calibrated output level (see the
-  // post-model gain stage below) while the last one keeps loudness normalization.
-  // Computed over the whole lane even for a partial range: a branched trunk
-  // is still one chain split around the tap, not two chains.
-  int lastNamIndex = -1;
-  for (int i = 0; i < static_cast<int>(blocks.size()); ++i) {
-    const auto& b = blocks[i];
-    if (b->type == ChainBlockType::NAM && b->loaded && b->enabled)
-      lastNamIndex = i;
-  }
+  // segment.lastNamIndex: highest index of an enabled+loaded NAM block on this segment's
+  // signal path. Used twice: a stereo IR is only worth processing in true stereo when there
+  // is no NAM downstream to collapse the image back to mono, and NAM blocks *before* this
+  // index hand off at calibrated output level (see the post-model gain stage below) while the
+  // last one keeps loudness normalization. The caller works it out, because the path is more
+  // than this range: a branched trunk is still one chain split around the tap, not two
+  // chains, so its two segments both answer for the whole lane.
+
+  // What every block reads from the lane and the callback's cached
+  // parameters; only the index moves per block.
+  BlockProcessContext ctx;
+  ctx.dualMono = segment.dualMono;
+  ctx.transport = rtTransport;
+  ctx.nam.lastNamIndex = segment.lastNamIndex;
+  ctx.nam.calibrateInput = cacheCalibrateInput;
+  ctx.nam.inputCalibrationLevel = cacheInputCalibrationLevel;
+  ctx.nam.targetLoudness = cacheTargetLoudness;
+  ctx.nam.workerPool = rtPhasePool;
 
   for (int idx = beginIdx; idx < endIdx; ++idx) {
     const auto& block = blocks[idx];
@@ -1201,17 +1677,69 @@ void TONE3000Processor::processChainOnBuffer(std::vector<std::unique_ptr<ChainBl
     // dry share of the user's mix holds and never exposes the un-processed
     // input). A disabled block keeps processing until the glide reaches
     // bypass, then is skipped exactly like before.
+    const bool hasLatency = block->dryDelay.delaySamples() > 0;
     const bool swapPending = block->swapFadePending.load();
     const bool muteSwap = swapPending && block->swapMuteWet.load();
-    const bool wantsWet = block->enabled && !(swapPending && !muteSwap);
+    const bool wantsWet = block->enabled && !block->released.load(std::memory_order_relaxed) &&
+                          !(swapPending && !muteSwap);
     block->wetFadeGain.setTargetValue(block->loaded && wantsWet ? 1.0f : 0.0f);
     block->swapWetMuteGain.setTargetValue(muteSwap ? 0.0f : 1.0f);
-    const bool wetSilent =
-        !block->wetFadeGain.isSmoothing() && block->wetFadeGain.getCurrentValue() <= 0.001f;
+
+    // Tail spillover (see ChainBlock.h), for the kinds that declare it. A
+    // block that is switched off with its spillover switch on is "releasing"
+    // until its reported tail has passed: the input closes, the wet term
+    // stays up. A pending splice (removal, replacement) is not a release:
+    // the block is about to go, so the tail closes with the fade. Kinds
+    // without the capability never enter here and take the paths below
+    // exactly as before.
+    BlockProcessor* const engine = block->processor.get();
+    const bool spillCapable = engine != nullptr && engine->supportsSpillover();
+    if (spillCapable) {
+      const bool on = block->loaded && wantsWet;
+      const bool spillOn = engine->spilloverEnabled();
+      bool releasing = false;
+      if (on) {
+        block->spillElapsedSamples = 0;
+      } else if (block->loaded && spillOn && !swapPending) {
+        // The tail, the wet path's own latency and the input fade, in
+        // chain-rate frames. Read every callback: a tail can follow a
+        // parameter or the tempo. The reported tail stops at
+        // kMaxBlockTailSeconds; a tail still ringing there is not cut but
+        // faded, because running out of time closes the tail gain below
+        // over its ramp like any other end of a release.
+        const double chainRate = chainSampleRate();
+        const double tailSamples = (engine->reportedTailSeconds() + kWetFadeSeconds) * chainRate +
+                                   static_cast<double>(engine->chainLatencySamples());
+        releasing = static_cast<double>(block->spillElapsedSamples) < tailSamples;
+      }
+      // Held open while the block is on, so a release starts with the wet
+      // term already at its level; it has no effect on the mix until the
+      // wet fade moves (see the spillover mix below).
+      block->spillTailGain.setTargetValue((on && spillOn) || releasing ? 1.0f : 0.0f);
+      // The input closes for a release and stays closed once the tail is
+      // over; a cut (switch off, or a splice) leaves it to the wet fade.
+      block->spillInputGain.setTargetValue(on || !spillOn || swapPending ? 1.0f : 0.0f);
+    }
+    // Never touched for other kinds: settled at zero, so this is true.
+    const bool tailSilent =
+        !block->spillTailGain.isSmoothing() && block->spillTailGain.getCurrentValue() <= 0.0f;
+
+    const bool wetSilent = !block->wetFadeGain.isSmoothing() &&
+                           block->wetFadeGain.getCurrentValue() <= 0.001f && tailSilent;
     if (wetSilent)
       block->swapFadeDone.store(true);  // a waiting requester may splice now
 
     if (!block->loaded || (!wantsWet && wetSilent)) {
+      // Going idle: let the engine drop what it holds, so a later power-on
+      // starts from silence rather than from audio of before. Once per
+      // transition, and a no-op for the kinds that keep nothing to replay
+      // (the default BlockProcessor::reset).
+      if (block->engineHoldsAudio && block->loaded && engine != nullptr) {
+        engine->reset();
+        block->engineHoldsAudio = false;
+      }
+      block->spillElapsedSamples = ChainBlock::kSpillDone;
+
       // Not processing: park the block's meters at the floor. The EQ view can
       // still be open, so keep its analyzer fed with the pass-through audio.
       block->inputMeterDb.store(-60.0f);
@@ -1219,7 +1747,13 @@ void TONE3000Processor::processChainOnBuffer(std::vector<std::unique_ptr<ChainBl
       if (block->spectrum.isEnabled())
         block->spectrum.pushSamples(buffer.getReadPointer(0),
                                     numChannels > 1 ? buffer.getReadPointer(1) : nullptr,
-                                    numSamples, rtDualMono);
+                                    numSamples, segment.dualMono);
+      // A block with latency keeps delaying while it is bypassed: the lane's
+      // latency (and what the host compensates) follows the chain's
+      // structure, not the power switch, and the bypass fade then lands on
+      // exactly this signal.
+      if (hasLatency)
+        block->dryDelay.process(buffer.getArrayOfWritePointers(), numChannels, numSamples);
       continue;
     }
 
@@ -1230,6 +1764,10 @@ void TONE3000Processor::processChainOnBuffer(std::vector<std::unique_ptr<ChainBl
     if (numChannels > 1) {
       dryScratch.copyFrom(1, 0, buffer, 1, 0, numSamples);
     }
+    // The dry share of the mix waits for the wet path, or the two would
+    // comb-filter at any mix below 100%.
+    if (hasLatency)
+      block->dryDelay.process(dryScratch.getArrayOfWritePointers(), numChannels, numSamples);
 
     // Per-block input gain (0.5 == unity, ±24 dB), applied after the dry copy
     // so Mix still blends against the untouched signal; this drives the
@@ -1266,103 +1804,67 @@ void TONE3000Processor::processChainOnBuffer(std::vector<std::unique_ptr<ChainBl
       block->inputMeterDb.store(std::max(-60.0f, blockInputDb));
     }
 
-    if (block->type == ChainBlockType::NAM) {
-      // NAM Processing (the engine runs at the chain rate, no per-block resampling)
-      try {
-        jassert(numSamples <= dryScratch.getNumSamples());
-
-        if (block->namEngine == nullptr) {
-          DBG("Warning: NAM block " << block->id << " has no engine - skipping");
-          continue;
-        }
-
-        // Calculate additional calibration gain for this specific NAM block
-        float calibrationGain = 1.0f;
-        if (cacheCalibrateInput && block->namEngine->hasInputLevel()) {
-          const double modelInputLevel = block->namEngine->getInputLevel();
-          const double calibrationAdjustmentDb = cacheInputCalibrationLevel - modelInputLevel;
-          calibrationGain = juce::Decibels::decibelsToGain(static_cast<float>(calibrationAdjustmentDb));
-        }
-
-        // Apply calibration gain to the buffer
-        if (calibrationGain != 1.0f) {
-          buffer.applyGain(0, 0, numSamples, calibrationGain);
-          if (numChannels > 1) {
-            buffer.applyGain(1, 0, numSamples, calibrationGain);
-          }
-        }
-
-        // Process with the NAM engine: channel 0 through the model, fanned
-        // out to channel 1, or in dual mono (rtDualMono, a two-voice engine)
-        // each channel through its own voice. With multi-core on, the
-        // engine forks its voice × phase instances across the worker pool
-        // (rtPhasePool, resolved per callback); nested inside a lane fork
-        // this is the pool's supported one-deep nesting (dual mono never
-        // nests: it only runs in mono chain mode, which has no lane fork).
-        // Null = instances run serially on this thread.
-        block->namEngine->process(buffer, rtPhasePool, rtDualMono);
-
-        // Post-model gain: calibrated hand-off OR loudness normalization,
-        // never both; they have contradictory goals (reproduce the capture
-        // rig's true level vs. make every capture equally loud).
-        //
-        // Calibrated hand-off applies only mid-chain (another NAM downstream)
-        // when calibration is on and the model carries output_level_dbu.
-        // Gain = model output dBu - user's calibration dBu converts the
-        // model's output back into the user's analog reference frame; the
-        // downstream NAM's input calibration then converts from that frame
-        // into its own model's, so the user's setting cancels and the
-        // hand-off carries exactly the level of physically plugging device A
-        // into device B. Normalizing mid-chain instead would wreck the drive
-        // level into the next model that calibration exists to preserve.
-        //
-        // The last NAM block deliberately stays on normalization: calibrated
-        // output at the chain's end would swing overall volume with each
-        // capture's metadata (a cranked-amp model can sit 20+ dB hot). Net
-        // effect: calibration governs drive/character, normalization governs
-        // listening level. No clamp on the hand-off gain (it's a physical
-        // level difference, not a guess), only a metadata sanity check that
-        // falls back to normalization when the value is junk.
-        // The smoother was prepared off the RT path (prepareChain / model
-        // apply); here we only ever move its target.
-        const float targetLufs = cacheTargetLoudness;  // use live target
-        float blockGain = 1.0f;
-        bool calibratedHandOff = false;
-        if (cacheCalibrateInput && idx < lastNamIndex && block->namEngine->hasOutputLevel()) {
-          const float modelOutputLevel = static_cast<float>(block->namEngine->getOutputLevel());
-          if (std::isfinite(modelOutputLevel) && modelOutputLevel >= -60.0f &&
-              modelOutputLevel <= 60.0f) {
-            blockGain =
-                juce::Decibels::decibelsToGain(modelOutputLevel - cacheInputCalibrationLevel);
-            calibratedHandOff = true;
-          }
-        }
-        if (!calibratedHandOff && block->normalizeEnabled) {
-          float modelLoudnessDb = targetLufs;  // Default fallback
-          if (block->namEngine->hasLoudness()) {
-            modelLoudnessDb = static_cast<float>(block->namEngine->getLoudness());
-          }
-          if (!std::isfinite(modelLoudnessDb) || modelLoudnessDb < -100.0f || modelLoudnessDb > 0.0f) {
-            modelLoudnessDb = targetLufs;
-          }
-          const float gainAdjustmentDb = juce::jlimit(-12.0f, 12.0f, targetLufs - modelLoudnessDb);
-          blockGain = juce::Decibels::decibelsToGain(gainAdjustmentDb);
-        }
-        block->namNormalizationSmoother.setTargetValue(blockGain);
-
-        // Apply per-block normalization / hand-off gain to the buffer
+    // The block's own engine, on the wet path (see BlockProcessor.h), at
+    // the rate its kind runs at. What a failure means is the kind's call:
+    // an IR that throws carries on, an engine that would throw again on
+    // every callback reports Failed.
+    if (spillCapable) {
+      auto& inputFade = block->spillInputGain;
+      if (!block->engineHoldsAudio) {
+        // Waking up (first block after going idle, a prepare or an install):
+        // the engine is empty, so there is no tail to hold and the two
+        // spillover gains can take whatever position makes the way in one
+        // single fade. With the switch on that is the input fade, starting
+        // where the wet fade stands (closed after idle, open after a
+        // prepare) under a wet term already at its level; with it off, the
+        // plain wet fade over an open input, as for any other kind.
+        const bool spillOn = engine->spilloverEnabled();
+        block->spillTailGain.setCurrentAndTargetValue(spillOn ? 1.0f : 0.0f);
+        inputFade.setCurrentAndTargetValue(spillOn ? block->wetFadeGain.getCurrentValue() : 1.0f);
+        inputFade.setTargetValue(1.0f);
+      }
+      // The input fade of a release (and of the power-on that follows one):
+      // the engine hears silence while its tail rings out. Applied after the
+      // meter, which goes on showing what arrives at the block.
+      if (inputFade.isSmoothing()) {
         auto* left = buffer.getWritePointer(0);
         auto* right = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
-
         for (int i = 0; i < numSamples; ++i) {
-          const float g = block->namNormalizationSmoother.getNextValue();
+          const float g = inputFade.getNextValue();
           left[i] *= g;
-          if (right) right[i] *= g;
+          if (right)
+            right[i] *= g;
         }
-      } catch (const std::exception&) {
-        // RT-safe failure path: disable the block (stops it re-throwing every
-        // block) and flag it; the message thread writes the log line when it
-        // next serializes the chain; string building/logging can't run here.
+      } else if (inputFade.getCurrentValue() <= 0.0f) {
+        buffer.clear(0, numSamples);
+      }
+    }
+
+    if (block->processor != nullptr) {
+      ctx.blockIndex = idx;
+      block->engineHoldsAudio = true;
+      // Two clock reads around the block: its share of one core, averaged
+      // (the plan CPU value). Only here, where the block really runs, so a
+      // bypassed block keeps the figure it had.
+      const juce::int64 cpuStart = juce::Time::getHighResolutionTicks();
+      const BlockProcessResult result = block->processor->processInChain(buffer, ctx);
+      if (numSamples > 0 && result != BlockProcessResult::Idle) {
+        const double seconds = juce::Time::highResolutionTicksToSeconds(
+            juce::Time::getHighResolutionTicks() - cpuStart);
+        const float share = static_cast<float>(seconds * chainSampleRate() / numSamples);
+        const float previous = block->cpuCost.load(std::memory_order_relaxed);
+        block->cpuCost.store(block->cpuCostMeasured ? previous + 0.05f * (share - previous) : share,
+                             std::memory_order_relaxed);
+        block->cpuCostMeasured = true;
+      }
+      if (result == BlockProcessResult::Idle)
+        continue;
+      if (result == BlockProcessResult::Failed) {
+        // RT-safe failure path, the same for every kind: take the block out
+        // of processing (stops it failing every callback) and flag it; the
+        // message thread writes the log line and marks the block failed
+        // when it next serializes the chain; string building/logging can't
+        // run here.
         block->loaded = false;
         block->rtProcessingFailed.store(true);
         bumpChainRevision();  // wake the UI poll so the flag is drained
@@ -1371,49 +1873,6 @@ void TONE3000Processor::processChainOnBuffer(std::vector<std::unique_ptr<ChainBl
           buffer.copyFrom(1, 0, dryScratch, 1, 0, numSamples);
         }
         continue;
-      }
-    } else if (block->type == ChainBlockType::IR && block->convolverMono != nullptr) {
-      // IR Processing.
-      try {
-        // True-stereo only when: the IR file is stereo, the working buffer is stereo, and no
-        // NAM block downstream would collapse the image back to mono. Otherwise apply the IR's
-        // left channel to every audio channel (convolverMono, Stereo::no). Dual mono always
-        // takes the mono path: each channel is its own mono chain, and inside a stereo-mode
-        // lane (the definition of dual mono) a stereo IR convolves its left channel too.
-        const bool noNamAfter = (idx > lastNamIndex);
-        const bool useStereoIr = block->irNumChannels > 1 && numChannels > 1 && noNamAfter &&
-                                 !rtDualMono && block->convolverStereo != nullptr;
-        auto& convolver = useStereoIr ? *block->convolverStereo : *block->convolverMono;
-
-        // Convolution runs at the base rate inside the block's island: when
-        // the chain is oversampled the island decimates the wet path, hands
-        // the convolver base-rate frames, and interpolates back (a direct
-        // pass at ×1). Linear processing gains nothing above the base rate;
-        // this keeps IR CPU flat across oversampling factors and the IR
-        // sound bit-identical to the non-oversampled chain.
-        block->irBaseRateIsland.processBaseRateIsland(
-            buffer.getArrayOfWritePointers(), numChannels, numSamples,
-            [&convolver, numChannels](float* const* baseChannels, int baseFrames) {
-              juce::dsp::AudioBlock<float> irBlock(baseChannels, static_cast<size_t>(numChannels),
-                                                   static_cast<size_t>(baseFrames));
-              processConvolverInChunks(convolver, irBlock);
-            });
-
-        // Unit-energy normalization, always on: an IR file's absolute level
-        // is an accident of capture/export (unlike a NAM capture's, which is
-        // real information, hence NAM's normalize toggle). Attenuation-only;
-        // smoother is prepared in prepareChain / model apply, only the
-        // target moves on the RT path.
-        block->irNormalizationSmoother.setTargetValue(
-            juce::jlimit(0.0f, 1.0f, block->irNormalizationGainLinear));
-        for (int i = 0; i < numSamples; ++i) {
-          const float g = block->irNormalizationSmoother.getNextValue();
-          for (int ch = 0; ch < numChannels; ++ch) {
-            buffer.getWritePointer(ch)[i] *= g;
-          }
-        }
-      } catch (const std::exception& e) {
-        DBG("Error in IR processing for block " << block->id << ": " << e.what());
       }
     }
 
@@ -1435,39 +1894,74 @@ void TONE3000Processor::processChainOnBuffer(std::vector<std::unique_ptr<ChainBl
     // too hot at unity. The pad stays on the wet term, never the blend; at
     // mix < 100% the dry share passes at its natural level. Long
     // (reverb-like) IRs get no pad; unit-energy normalization already puts
-    // them at ≈ dry level (see irIsLong in ChainBlock.h). The UI knob still
+    // them at ≈ dry level (see IrBlockProcessor::isLong). The UI knob still
     // reads relative dB (0 at center); the pad is invisible chain gain
     // staging (see gainDbScale in knobScale.ts). Classified at load, so pad
-    // steps land while the engine-swap fade holds the wet term silent.
-    const float irOffsetDb =
-        (block->type == ChainBlockType::IR && !block->irIsLong) ? -18.0f : 0.0f;
+    // steps land while the engine-swap fade holds the wet term silent. The
+    // loop only knows it as the kind's wet pad (BlockProcessor::wetPadDb).
+    const float irOffsetDb = block->processor != nullptr ? block->processor->wetPadDb() : 0.0f;
     const float cabPadGain = juce::Decibels::decibelsToGain(irOffsetDb);
     const float gainDb = (block->outputGainNormalized - 0.5f) * 48.0f;
     block->outputGainSmoother.setTargetValue(juce::Decibels::decibelsToGain(gainDb));
     block->mixSmoother.setTargetValue(juce::jlimit(0.0f, 1.0f, block->mixNormalized));
 
     float blockOutputPeak = 0.0f;
-    for (int i = 0; i < numSamples; ++i) {
-      // wetFadeGain rides the mix (bypass-bound glides crossfade toward
-      // dry) and glides the post-mix Out Gain to unity in step, so a
-      // completed fade lands exactly on the skipped block's pass-through.
-      // swapWetMuteGain and the cab pad ride the wet term only, pre-mix
-      // (engine swaps dip the wet path to silence without exposing the dry
-      // input); see ChainBlock.h.
-      const float wetGain = block->swapWetMuteGain.getNextValue() * cabPadGain;
-      const float outGain = block->outputGainSmoother.getNextValue();
-      const float fade = block->wetFadeGain.getNextValue();
-      const float m = block->mixSmoother.getNextValue() * fade;
-      const float postGain = 1.0f + (outGain - 1.0f) * fade;
-      float wetL = buffer.getWritePointer(0)[i] * wetGain;
-      float dryL = dryScratch.getReadPointer(0)[i];
-      buffer.getWritePointer(0)[i] = (dryL * (1.0f - m) + wetL * m) * postGain;
-      blockOutputPeak = std::max(blockOutputPeak, std::abs(buffer.getWritePointer(0)[i]));
-      if (numChannels > 1) {
-        float wetR = buffer.getWritePointer(1)[i] * wetGain;
-        float dryR = dryScratch.getReadPointer(1)[i];
-        buffer.getWritePointer(1)[i] = (dryR * (1.0f - m) + wetR * m) * postGain;
-        blockOutputPeak = std::max(blockOutputPeak, std::abs(buffer.getWritePointer(1)[i]));
+    const BlockMixLaw mixLaw = block->mixLaw;
+    if (spillCapable || mixLaw != BlockMixLaw::Crossfade) {
+      // The general mix, for kinds with spillover or with a mix law of their
+      // own (every other kind runs the loop below, as it always has).
+      //
+      // The mix knob gives a dry and a wet share (BlockMixLaw). The dry
+      // coefficient glides from that share to exactly 1 with the bypass
+      // fade, and Out Gain to unity in step, as below: so a block that is
+      // off, released or not, passes the dry signal at unity. The wet term
+      // keeps its level (wet share x Out Gain) for as long as either the
+      // block is on (fade) or its tail is held open by spillover (tail),
+      // instead of following the fade down. For a kind without spillover the
+      // tail gain rests at zero and this is the plain bypass crossfade.
+      for (int i = 0; i < numSamples; ++i) {
+        const float wetGain = block->swapWetMuteGain.getNextValue() * cabPadGain;
+        const float outGain = block->outputGainSmoother.getNextValue();
+        const float fade = block->wetFadeGain.getNextValue();
+        const float tail = block->spillTailGain.getNextValue();
+        const float mix = block->mixSmoother.getNextValue();
+        const float postGain = 1.0f + (outGain - 1.0f) * fade;
+        const float dryCoef = (1.0f + (blockMixDryShare(mixLaw, mix) - 1.0f) * fade) * postGain;
+        const float wetCoef = blockMixWetShare(mixLaw, mix) * outGain *
+                              (fade + (1.0f - fade) * tail) * wetGain;
+        for (int ch = 0; ch < numChannels; ++ch) {
+          float* out = buffer.getWritePointer(ch);
+          out[i] = dryScratch.getReadPointer(ch)[i] * dryCoef + out[i] * wetCoef;
+          blockOutputPeak = std::max(blockOutputPeak, std::abs(out[i]));
+        }
+      }
+      // The release clock runs while the block is off (it is zeroed while on).
+      if (block->spillElapsedSamples < ChainBlock::kSpillDone - numSamples &&
+          !(block->loaded && wantsWet))
+        block->spillElapsedSamples += numSamples;
+    } else {
+      for (int i = 0; i < numSamples; ++i) {
+        // wetFadeGain rides the mix (bypass-bound glides crossfade toward
+        // dry) and glides the post-mix Out Gain to unity in step, so a
+        // completed fade lands exactly on the skipped block's pass-through.
+        // swapWetMuteGain and the cab pad ride the wet term only, pre-mix
+        // (engine swaps dip the wet path to silence without exposing the dry
+        // input); see ChainBlock.h.
+        const float wetGain = block->swapWetMuteGain.getNextValue() * cabPadGain;
+        const float outGain = block->outputGainSmoother.getNextValue();
+        const float fade = block->wetFadeGain.getNextValue();
+        const float m = block->mixSmoother.getNextValue() * fade;
+        const float postGain = 1.0f + (outGain - 1.0f) * fade;
+        float wetL = buffer.getWritePointer(0)[i] * wetGain;
+        float dryL = dryScratch.getReadPointer(0)[i];
+        buffer.getWritePointer(0)[i] = (dryL * (1.0f - m) + wetL * m) * postGain;
+        blockOutputPeak = std::max(blockOutputPeak, std::abs(buffer.getWritePointer(0)[i]));
+        if (numChannels > 1) {
+          float wetR = buffer.getWritePointer(1)[i] * wetGain;
+          float dryR = dryScratch.getReadPointer(1)[i];
+          buffer.getWritePointer(1)[i] = (dryR * (1.0f - m) + wetR * m) * postGain;
+          blockOutputPeak = std::max(blockOutputPeak, std::abs(buffer.getWritePointer(1)[i]));
+        }
       }
     }
 
@@ -1476,8 +1970,12 @@ void TONE3000Processor::processChainOnBuffer(std::vector<std::unique_ptr<ChainBl
     // gain carried the fade depends on the swap's shape (see ChainBlock.h).
     {
       const auto& fadeGain = muteSwap ? block->swapWetMuteGain : block->wetFadeGain;
+      // A bypass-shaped fade is only over once a tail held open by
+      // spillover has closed too (always true for the other kinds).
+      const bool tailClosed = muteSwap || (!block->spillTailGain.isSmoothing() &&
+                                           block->spillTailGain.getCurrentValue() <= 0.0f);
       if (block->swapFadePending.load() && !fadeGain.isSmoothing() &&
-          fadeGain.getCurrentValue() <= 0.001f)
+          fadeGain.getCurrentValue() <= 0.001f && tailClosed)
         block->swapFadeDone.store(true);
     }
 
@@ -1494,44 +1992,14 @@ void TONE3000Processor::processChainOnBuffer(std::vector<std::unique_ptr<ChainBl
     if (block->spectrum.isEnabled())
       block->spectrum.pushSamples(buffer.getReadPointer(0),
                                   numChannels > 1 ? buffer.getReadPointer(1) : nullptr,
-                                  numSamples, rtDualMono);
+                                  numSamples, segment.dualMono);
   }
 }
 
-// Fork/join for the stereo lanes (see RtWorkerPool.h). The job contexts live
-// on this stack frame and stay valid until forkJoin returns; the lambda
-// decays to a plain function pointer, so forking allocates nothing on the RT
-// path. Job 0 (the `local*` section) always runs on this thread; job 1 goes
-// to a pool worker, or is stolen back inline when none picks it up.
-void TONE3000Processor::processLanePair(Lane& workerBlocks,
-                                        juce::AudioBuffer<float>& workerBuffer,
-                                        juce::AudioBuffer<float>& workerScratch,
-                                        int workerBeginIdx, Lane& localBlocks,
-                                        juce::AudioBuffer<float>& localBuffer,
-                                        juce::AudioBuffer<float>& localScratch,
-                                        int localBeginIdx) {
-  if (rtParallelLanes) {
-    struct LaneJob {
-      TONE3000Processor* proc;
-      Lane* blocks;
-      juce::AudioBuffer<float>* buffer;
-      juce::AudioBuffer<float>* scratch;
-      int beginIdx;
-    } jobs[2] = {{this, &localBlocks, &localBuffer, &localScratch, localBeginIdx},
-                 {this, &workerBlocks, &workerBuffer, &workerScratch, workerBeginIdx}};
-    void* ctxs[2] = {&jobs[0], &jobs[1]};
-
-    rtWorkerPool.forkJoin(
-        [](void* ctx) {
-          auto& j = *static_cast<LaneJob*>(ctx);
-          j.proc->processChainOnBuffer(*j.blocks, *j.buffer, *j.scratch, j.beginIdx);
-        },
-        ctxs, 2);
-    return;
-  }
-
-  processChainOnBuffer(localBlocks, localBuffer, localScratch, localBeginIdx);
-  processChainOnBuffer(workerBlocks, workerBuffer, workerScratch, workerBeginIdx);
+// A plan port as an array index. The compiler numbers ports below
+// kMaxIoPairs (validatePlan); the clamp keeps a corrupt plan in bounds.
+static size_t planPortIndex(std::uint8_t port) noexcept {
+  return static_cast<size_t>(juce::jmin<int>(port, kMaxIoPairs - 1));
 }
 
 // ##############################
@@ -1539,71 +2007,126 @@ void TONE3000Processor::processLanePair(Lane& workerBlocks,
 // ##############################
 // The oversampled entry to the chain stage: the callable both invocation
 // paths share (the boundary callback and the direct 48k-host path). Raises
-// the rate by the current factor around processChainStage; transparent
-// passthrough when oversampling is off. Called with chainMutex held.
-void TONE3000Processor::processOversampledChainStage(float** inputs, float** outputs,
+// every input port by the current factor, runs processChainStage once on
+// the raised blocks, and lowers every output port; with oversampling off
+// the ports go to the chain stage as they are. Port p's oversampler serves
+// both directions, and its chain-rate block is where the chain stage works
+// in place, which for the one main pair is what ChainOversampler::process
+// did. Called with chainMutex held.
+void TONE3000Processor::processOversampledChainStage(float* const* const* inputs,
+                                                     float* const* const* outputs,
                                                      int numFrames) {
-  chainOversampler.process(inputs, outputs, numFrames,
-                           [this](float** chainIns, float** chainOuts, int chainFrames) {
-                             processChainStage(chainIns, chainOuts, chainFrames);
-                           });
+  const int factor = chainOversampleFactor.load(std::memory_order_relaxed);
+  if (factor <= 1) {
+    processChainStage(inputs, outputs, numFrames);
+    return;
+  }
+
+  const int numUp = juce::jlimit(0, kMaxIoPairs, rtIo.numStrips);
+  const int numDown = juce::jlimit(0, kMaxIoPairs, rtIo.numBuses);
+  std::array<float* const*, kMaxIoPairs> chainPorts{};
+  for (size_t p = 0; p < static_cast<size_t>(kMaxIoPairs); ++p)
+    chainPorts[p] = chainOversamplers[p].chainBuffer();
+
+  int chainFrames = numFrames * factor;
+  for (int p = 0; p < numUp; ++p)
+    chainFrames = chainOversamplers[static_cast<size_t>(p)].processUp(
+        inputs[p], chainPorts[static_cast<size_t>(p)], numFrames);
+
+  if (rtIo.legacy) {
+    processChainStage(chainPorts.data(), chainPorts.data(), chainFrames);
+
+    for (int p = 0; p < numDown; ++p)
+      chainOversamplers[static_cast<size_t>(p)].processDown(chainPorts[static_cast<size_t>(p)],
+                                                            outputs[p], chainFrames);
+    return;
+  }
+
+  // A grid plan reads the strips and writes the buses, and port p's raised
+  // block is strip p's input: a bus must not land on it while a row may
+  // still have to read it. So the buses are summed in buffers of their own
+  // and lowered from there.
+  std::array<std::array<float*, 2>, kMaxIoPairs> busChannels{};
+  std::array<float* const*, kMaxIoPairs> busPorts{};
+  for (size_t b = 0; b < static_cast<size_t>(kMaxIoPairs); ++b) {
+    busChannels[b] = {busWork[b].getWritePointer(0), busWork[b].getWritePointer(1)};
+    busPorts[b] = busChannels[b].data();
+  }
+  if (chainFrames > busWork[0].getNumSamples()) {
+    // More frames than the buffers were sized for (never, with the slicing
+    // in processBlock): silence rather than an overrun.
+    unresolvedPlanRefs.fetch_add(1, std::memory_order_relaxed);
+    for (int p = 0; p < numDown; ++p)
+      for (int ch = 0; ch < 2; ++ch)
+        juce::FloatVectorOperations::clear(outputs[p][ch], numFrames);
+    return;
+  }
+
+  processChainStage(chainPorts.data(), busPorts.data(), chainFrames);
+
+  for (int p = 0; p < numDown; ++p)
+    chainOversamplers[static_cast<size_t>(p)].processDown(busPorts[static_cast<size_t>(p)],
+                                                          outputs[p], chainFrames);
 }
 
-// The encapsulated side of the chain-domain boundary: lane L (and lane R in
-// stereo mode) over the given channel pointers. Invoked at the chain rate
-// (48 kHz × oversampling factor) via processOversampledChainStage. Called
-// with chainMutex held (processBlock takes it).
-void TONE3000Processor::processChainStage(float** inputs, float** outputs, int numFrames) {
-  // The boundary hands us distinct input/output buffers; the chain processes
-  // in place, so move the audio to the output side first. On the direct path
-  // the pointers alias and the copies are skipped.
-  for (int ch = 0; ch < 2; ++ch) {
-    if (outputs[ch] != inputs[ch])
-      std::memcpy(outputs[ch], inputs[ch], sizeof(float) * static_cast<size_t>(numFrames));
-  }
+// The encapsulated side of the chain-domain boundary: the active plan over
+// the given ports (see ProcessorPlanExec.cpp). Invoked at the chain rate
+// (48 kHz × oversampling factor) via processOversampledChainStage.
+// Called with chainMutex held (processBlock takes it).
+void TONE3000Processor::processChainStage(float* const* const* inputs,
+                                          float* const* const* outputs, int numFrames) {
+  const int numUp = juce::jlimit(0, kMaxIoPairs, rtIo.numStrips);
+  const int numDown = juce::jlimit(0, kMaxIoPairs, rtIo.numBuses);
 
-  if (rtStereoChains) {
-    if (rtBranchTapIndex >= 0) {
-      // Branched routing: the trunk lane runs on its own channel; the branch
-      // lane's input is the trunk's signal after the tapped block (not the
-      // raw channel input). Split the trunk around the tap: prefix → copy the
-      // tap signal across → remainder and branch lane run independently.
-      const int trunkCh = branchSourceSide == ChainSide::Right ? 1 : 0;
-      const int branchCh = 1 - trunkCh;
-      const ChainSide branchSide =
-          branchSourceSide == ChainSide::Right ? ChainSide::Left : ChainSide::Right;
+  // The boundary hands us distinct input/output buffers; a legacy plan
+  // processes in place on the output side, so move the audio there first.
+  // On the direct path and behind the oversampler the pointers alias and
+  // the copies are skipped.
+  if (rtIo.legacy)
+    for (int p = 0; p < juce::jmin(numUp, numDown); ++p)
+      for (int ch = 0; ch < 2; ++ch) {
+        if (outputs[p][ch] != inputs[p][ch])
+          std::memcpy(outputs[p][ch], inputs[p][ch],
+                      sizeof(float) * static_cast<size_t>(numFrames));
+      }
 
-      float* trunkPtr[] = {outputs[trunkCh]};
-      float* branchPtr[] = {outputs[branchCh]};
-      juce::AudioBuffer<float> trunkBuf(trunkPtr, 1, numFrames);
-      juce::AudioBuffer<float> branchBuf(branchPtr, 1, numFrames);
+  // The plan was compiled for these lanes under this lock (rebuildTopology),
+  // so the two can only disagree if a structural mutator skipped the funnel.
+  // Should that ever happen the plan still runs (every range is clamped to
+  // the lane it names), and the count says so.
+  const bool planIsCurrent = planMatchesLanes();
+  jassert(planIsCurrent);
+  if (!planIsCurrent)
+    stalePlanCallbacks.fetch_add(1, std::memory_order_relaxed);
 
-      auto& trunk = lane(branchSourceSide);
-      auto& trunkScratch = laneDryScratch[static_cast<size_t>(laneIndex(branchSourceSide))];
-      auto& branchScratch = laneDryScratch[static_cast<size_t>(laneIndex(branchSide))];
-      // The prefix must complete before the tap copy, so it always runs
-      // serially here; after the copy the trunk remainder and the branch
-      // lane are independent and can fork (branch to the worker).
-      processChainOnBuffer(trunk, trunkBuf, trunkScratch, 0, rtBranchTapIndex + 1);
-      std::memcpy(outputs[branchCh], outputs[trunkCh],
-                  sizeof(float) * static_cast<size_t>(numFrames));
-      processLanePair(lane(branchSide), branchBuf, branchScratch, 0, trunk, trunkBuf,
-                      trunkScratch, rtBranchTapIndex + 1);
-    } else {
-      // Stereo mode: each channel is an independent mono lane, processed in
-      // place, no split/merge copies needed. Right lane to the worker (when
-      // this callback forked, see rtParallelLanes), Left on this thread.
-      float* left[] = {outputs[0]};
-      float* right[] = {outputs[1]};
-      juce::AudioBuffer<float> bufferL(left, 1, numFrames);
-      juce::AudioBuffer<float> bufferR(right, 1, numFrames);
-      processLanePair(lane(ChainSide::Right), bufferR, laneDryScratch[1], 0,
-                      lane(ChainSide::Left), bufferL, laneDryScratch[0], 0);
-    }
+  PlanStageIo io;
+  io.numFrames = numFrames;
+  if (rtIo.legacy) {
+    for (int p = 0; p < numDown; ++p)
+      io.ports[static_cast<size_t>(p)] = outputs[p];
   } else {
-    juce::AudioBuffer<float> chainBuffer(outputs, rtChainChannels, numFrames);
-    processChainOnBuffer(lane(ChainSide::Left), chainBuffer, laneDryScratch[0]);
+    // A grid plan reads the strips' ports and writes the buses' (other
+    // buffers, see processOversampledChainStage).
+    for (int p = 0; p < numUp; ++p)
+      io.ports[static_cast<size_t>(p)] = inputs[p];
+    for (int p = 0; p < numDown; ++p)
+      io.busPorts[static_cast<size_t>(p)] = outputs[p];
+
+    // A bus no row writes is silence.
+    for (int b = 0; b < numDown; ++b) {
+      const ProcessingPlan::Bus& bus = activePlan.buses[static_cast<size_t>(b)];
+      if (bus.hasWriter)
+        continue;
+      float* const* channels = outputs[planPortIndex(bus.port)];
+      for (int ch = 0; ch < 2; ++ch)
+        juce::FloatVectorOperations::clear(channels[ch], numFrames);
+    }
+
+    // Solo acts at the physical outputs: one soloed row silences the sends
+    // of the rows that are not soloed and carry no soloed row.
+    rtGridSoloMask = gridSoloMask();
   }
+  runPlanSeq(activePlan, 0, io);
 }
 
 // ##############################
@@ -1730,6 +2253,481 @@ void TONE3000Processor::processImageStage(float* chL, float* chR, int numFrames,
   }
 }
 
+// ##############################
+// INPUT STRIPS AND OUTPUT BUSES (host rate)
+// ##############################
+// processBlock is the input strips, the chain stage and the output strips.
+// A legacy rig has one strip and
+// one bus, both the host buffer's first two channels in place, and for
+// those every operation below is the one processBlock always ran, in the
+// same order on the same samples: the reference renders are bit-exact
+// across this split and must stay so.
+
+static float peakToMeterDb(float peak) {
+  return peak > 0.0f ? std::max(-60.0f, juce::Decibels::gainToDecibels(peak)) : -60.0f;
+}
+
+static bool samePlanStrip(const ProcessingPlan::Strip& a, const ProcessingPlan::Strip& b) noexcept {
+  return a.in.type == b.in.type && a.in.channel == b.in.channel && a.in.stereo == b.in.stereo &&
+         a.in.fold == b.in.fold && juce::exactlyEqual(a.in.trimDb, b.in.trimDb) &&
+         a.in.gate == b.in.gate &&
+         a.in.pitch == b.in.pitch && a.port == b.port && a.padHostSamples == b.padHostSamples &&
+         a.hostMainPair == b.hostMainPair;
+}
+
+static bool samePlanBus(const ProcessingPlan::Bus& a, const ProcessingPlan::Bus& b) noexcept {
+  return a.pair == b.pair && a.port == b.port && a.mainStrip == b.mainStrip &&
+         a.hostMainPair == b.hostMainPair;
+}
+
+bool TONE3000Processor::planIoMatchesRt() const noexcept {
+  if (activePlan.numStrips != rtIo.numStrips || activePlan.numBuses != rtIo.numBuses ||
+      activePlan.legacy != rtIo.legacy)
+    return false;
+  for (int s = 0; s < rtIo.numStrips; ++s)
+    if (!samePlanStrip(activePlan.strips[static_cast<size_t>(s)], rtIo.strips[static_cast<size_t>(s)]))
+      return false;
+  for (int b = 0; b < rtIo.numBuses; ++b)
+    if (!samePlanBus(activePlan.buses[static_cast<size_t>(b)], rtIo.buses[static_cast<size_t>(b)]))
+      return false;
+  return true;
+}
+
+void TONE3000Processor::adoptPlanIo() noexcept {
+  rtIo.strips = activePlan.strips;
+  rtIo.buses = activePlan.buses;
+  rtIo.numStrips = juce::jlimit(0, kMaxIoPairs, activePlan.numStrips);
+  rtIo.numBuses = juce::jlimit(0, kMaxIoPairs, activePlan.numBuses);
+  rtIo.legacy = activePlan.legacy;
+  rtIo.pitchStrip = -1;
+  for (int s = rtIo.numStrips - 1; s >= 0; --s)
+    if (rtIo.strips[static_cast<size_t>(s)].in.pitch)
+      rtIo.pitchStrip = s;
+}
+
+void TONE3000Processor::adoptPlanIoOnAudioThread() noexcept {
+  adoptPlanIo();
+  // Cheap resets only: zeroing filter state and clearing preallocated
+  // rings. A legacy rig never comes here after its first callback (its
+  // strip and bus are always the same main pair).
+  for (auto& strip : inputStrips) {
+    strip.gate.reset();
+    strip.gateWasEnabled = true;
+    strip.clearPad();
+  }
+  for (auto& bus : outputBuses)
+    bus.dcBlocker.reset();
+}
+
+void TONE3000Processor::bindHostIo(juce::AudioBuffer<float>& buffer, HostIo& io) noexcept {
+  const int numSamples = buffer.getNumSamples();
+  const int numChannels = buffer.getNumChannels();
+
+  // The main pair is the host buffer itself while that has no more than two
+  // channels, so whatever a strip does to it is literally what processBlock
+  // did to the buffer; on a wider buffer it is a view of the first two.
+  io.mainPair = &buffer;
+  if (numChannels > 2) {
+    io.mainPairView.setDataToReferTo(buffer.getArrayOfWritePointers(), 2, numSamples);
+    io.mainPair = &io.mainPairView;
+  }
+  bool mainPairInPlace = false;
+
+  for (int s = 0; s < rtIo.numStrips; ++s) {
+    const ProcessingPlan::Strip& strip = rtIo.strips[static_cast<size_t>(s)];
+    io.strips[static_cast<size_t>(s)] = nullptr;
+    if (strip.hostMainPair) {
+      io.strips[static_cast<size_t>(s)] = io.mainPair;
+      mainPairInPlace = true;
+      continue;
+    }
+
+    juce::AudioBuffer<float>& work = inputStrips[static_cast<size_t>(s)].work;
+    if (work.getNumChannels() < 2 || work.getNumSamples() < numSamples) {
+      // The host handed over more than it promised and the working pair
+      // cannot hold it: the strip sits this callback out, silent. (The
+      // main pair is in place and never comes here.)
+      work.clear();
+      continue;
+    }
+    float* const* dest = work.getArrayOfWritePointers();
+    for (int ch = 0; ch < 2; ++ch) {
+      // A mono source goes onto both channels, like a host feeding a mono
+      // source to a stereo bus, and so does the first channel of a pair
+      // whose second the device lacks (a mono device). A strip whose first
+      // channel is missing is silence.
+      int source = -1;
+      if (strip.in.type == RowInput::Type::Device) {
+        source = deviceChannels.inputBufferChannel(strip.in.channel + (strip.in.stereo ? ch : 0));
+        if (ch == 1 && (source < 0 || source >= numChannels))
+          source = deviceChannels.inputBufferChannel(strip.in.channel);
+        if (deviceChannels.inputBufferChannel(strip.in.channel) < 0)
+          source = -1;
+      }
+      if (source >= 0 && source < numChannels)
+        juce::FloatVectorOperations::copy(dest[ch], buffer.getReadPointer(source), numSamples);
+      else
+        juce::FloatVectorOperations::clear(dest[ch], numSamples);
+    }
+    io.stripViews[static_cast<size_t>(s)].setDataToReferTo(dest, 2, numSamples);
+    io.strips[static_cast<size_t>(s)] = &io.stripViews[static_cast<size_t>(s)];
+  }
+
+  for (int b = 0; b < rtIo.numBuses; ++b) {
+    const ProcessingPlan::Bus& bus = rtIo.buses[static_cast<size_t>(b)];
+    io.buses[static_cast<size_t>(b)] = nullptr;
+    if (bus.hostMainPair) {
+      io.buses[static_cast<size_t>(b)] = io.mainPair;
+      mainPairInPlace = true;
+      continue;
+    }
+    juce::AudioBuffer<float>& work = outputBuses[static_cast<size_t>(b)].work;
+    // Silent until the chain stage fills it, so a callback that skips the
+    // stage outputs silence here too.
+    work.clear();
+    if (work.getNumChannels() < 2 || work.getNumSamples() < numSamples)
+      continue;
+    io.busViews[static_cast<size_t>(b)].setDataToReferTo(work.getArrayOfWritePointers(), 2,
+                                                         numSamples);
+    io.buses[static_cast<size_t>(b)] = &io.busViews[static_cast<size_t>(b)];
+  }
+
+  // The inputs have been taken; every host channel that is not an in-place
+  // pair is an output from here on. In a legacy rig nothing writes them:
+  // inputs past the first two are ignored and outputs past the first two
+  // are silent.
+  for (int ch = mainPairInPlace ? 2 : 0; ch < numChannels; ++ch)
+    buffer.clear(ch, 0, numSamples);
+}
+
+void TONE3000Processor::scatterOutputBuses(juce::AudioBuffer<float>& buffer,
+                                           const HostIo& io) noexcept {
+  const int numSamples = buffer.getNumSamples();
+  const int numChannels = buffer.getNumChannels();
+  for (int b = 0; b < rtIo.numBuses; ++b) {
+    const ProcessingPlan::Bus& bus = rtIo.buses[static_cast<size_t>(b)];
+    const juce::AudioBuffer<float>* view = io.buses[static_cast<size_t>(b)];
+    if (bus.hostMainPair || view == nullptr)
+      continue;
+    // Copied: every bus has its own pair (a pair the device lacks was put
+    // on Out 1/2's bus when the plan was compiled).
+    const int destL = deviceChannels.outputBufferChannel(2 * bus.pair);
+    const int destR = deviceChannels.outputBufferChannel(2 * bus.pair + 1);
+    const bool hasL = destL >= 0 && destL < numChannels;
+    const bool hasR = destR >= 0 && destR < numChannels;
+    if (hasL && hasR) {
+      juce::FloatVectorOperations::copy(buffer.getWritePointer(destL), view->getReadPointer(0),
+                                        numSamples);
+      juce::FloatVectorOperations::copy(buffer.getWritePointer(destR), view->getReadPointer(1),
+                                        numSamples);
+    } else if (hasL) {
+      // One channel for a pair: the mono fold a host applies, half of
+      // (L + R). A centred signal passes exactly.
+      const float* l = view->getReadPointer(0);
+      const float* r = view->getReadPointer(1);
+      float* out = buffer.getWritePointer(destL);
+      for (int i = 0; i < numSamples; ++i)
+        out[i] = (l[i] + r[i]) * 0.5f;
+    }
+  }
+}
+
+// Input fold-down of the legacy main pair, so everything downstream (meters,
+// tuner, chains) sees the effective source:
+// - Mono source (a mono input device in the standalone app, or a main bus
+//   with one input channel on a wider buffer): signal only arrives on
+//   channel 0, so mirror it.
+// - Input mode L/R on a stereo source: duplicate the chosen channel onto
+//   both, exactly like a host feeding a mono source to a stereo bus.
+// - Stereo on a mono chain: sum to mono, ½(L+R), the host's own fold law
+//   (a mono source on a stereo track, L == R, passes bit-identically; a
+//   real stereo source reaches the chain whole instead of left-only).
+//   Dual Mono folds the same way whenever it can't engage (mono rig; see
+//   dualMonoEngaged), so the two modes only differ when both takes can
+//   actually be processed and heard. With stereo chains neither folds:
+//   channel 0 feeds the Left chain and channel 1 the Right.
+TONE3000Processor::InputFold TONE3000Processor::legacyInputFold() const noexcept {
+  if (standaloneMonoInput.load() || rtMonoMainInput)
+    return InputFold::MirrorFirst;
+  const auto mode = static_cast<InputMode>(inputMode.load());
+  const bool sumToMono =
+      !stereoEnabled.load() &&
+      (mode == InputMode::Stereo || (mode == InputMode::DualMono && !rtDualMono));
+  switch (mode) {
+    case InputMode::Left: return InputFold::MirrorFirst;
+    case InputMode::Right: return InputFold::MirrorSecond;
+    case InputMode::Stereo:
+    case InputMode::DualMono: return sumToMono ? InputFold::SumToMono : InputFold::None;
+  }
+  return InputFold::None;
+}
+
+void TONE3000Processor::runInputStrip(int index, juce::AudioBuffer<float>& buffer) {
+  const ProcessingPlan::Strip& plan = rtIo.strips[static_cast<size_t>(index)];
+  InputStripState& state = inputStrips[static_cast<size_t>(index)];
+  const int numSamples = buffer.getNumSamples();
+  const int numChannels = buffer.getNumChannels();
+  // The first strip is the faceplate's: its meters, and the tuner's source.
+  const bool firstStrip = index == 0;
+
+  // Fold, up front. The legacy main pair follows the input mode (see
+  // legacyInputFold); any other strip folds as its row asks, and its
+  // channels were gathered from the device already (see bindHostIo).
+  if (numChannels > 1) {
+    const InputFold fold = plan.hostMainPair
+                               ? legacyInputFold()
+                               : plan.in.fold == RowInput::Fold::SumToMono ? InputFold::SumToMono
+                                                                            : InputFold::None;
+    switch (fold) {
+      case InputFold::None: break;
+      case InputFold::MirrorFirst: buffer.copyFrom(1, 0, buffer, 0, 0, numSamples); break;
+      case InputFold::MirrorSecond: buffer.copyFrom(0, 0, buffer, 1, 0, numSamples); break;
+      case InputFold::SumToMono:
+        buffer.applyGain(0, 0, numSamples, 0.5f);
+        buffer.addFrom(0, 0, buffer, 1, 0, numSamples, 0.5f);
+        buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+        break;
+    }
+  }
+
+  // #########################
+  // Input gain + noise gate
+  // #########################
+
+  // Input gain (level ±24 dB), constant across the block. Computed up front
+  // so the meters can show the post-gain level without a second pass over
+  // the samples. The level is the rig's; a row adds its own trim.
+  float inputGain = mainStageGain(cacheInputLevel);
+  if (!juce::exactlyEqual(plan.in.trimDb, 0.0f))
+    inputGain *= juce::Decibels::decibelsToGain(plan.in.trimDb);
+
+  // Per-channel input meters: raw peaks scaled by the input gain, so the
+  // meter tracks the knob. Pre-gate on purpose: a closed gate would
+  // otherwise read as a dead input. Mono sources report the same level on
+  // both channels.
+  {
+    float peakL = 0.0f, peakR = 0.0f;
+    const auto* l = buffer.getReadPointer(0);
+    for (int i = 0; i < numSamples; ++i)
+      peakL = std::max(peakL, std::abs(l[i]));
+    if (numChannels > 1) {
+      const auto* r = buffer.getReadPointer(1);
+      for (int i = 0; i < numSamples; ++i)
+        peakR = std::max(peakR, std::abs(r[i]));
+    } else {
+      peakR = peakL;
+    }
+    (firstStrip ? inputMeterLevelL : state.meterL).store(peakToMeterDb(peakL * inputGain));
+    (firstStrip ? inputMeterLevelR : state.meterR).store(peakToMeterDb(peakR * inputGain));
+  }
+
+  // Feed the tuner from the raw input (pre-gain, pre-gate) while the tuner
+  // screen is open. Channel 0 only: guitar sources are mono, and mixing
+  // channels risks phase cancellation.
+  if (firstStrip && tuner.isEnabled())
+    tuner.pushSamples(buffer.getReadPointer(0), numSamples);
+
+  // Apply the input gain (vectorized).
+  for (int ch = 0; ch < numChannels; ++ch)
+    buffer.applyGain(ch, 0, numSamples, inputGain);
+
+  // Noise gate, post input gain so the threshold knob's dB meaning matches
+  // the level heading into the chain. Envelope/hysteresis gate (NoiseGate.h);
+  // re-enabling resets the detector so a stale envelope never gates the
+  // first block. The parameters are the rig's; a row can switch its strip's
+  // gate off.
+  const bool gateEnabled = cacheGateEnabled && plan.in.gate;
+  if (gateEnabled) {
+    if (!state.gateWasEnabled)
+      state.gate.reset();
+    state.gate.setParams({cacheGateThreshold, cacheGateRelease, cacheGateHold, cacheGateRange});
+    state.gate.process(buffer);
+  }
+  state.gateWasEnabled = gateEnabled;
+
+  // Pitch shift (PitchShift.h): shifts the instrument before the chain, so
+  // the amp sees a down-tuned (or whammy-bent) guitar. After the gate so it
+  // decides on the real transients; before the auto-align probe below,
+  // whose sweep must never be shifted. Runs while powered and through the
+  // power-off blend; once that lands it is a bit-exact, zero-latency
+  // passthrough. The latency report rides the power parameter
+  // (updateLatency), not this path. There is one shifter, so one strip
+  // runs it.
+  if (index == rtIo.pitchStrip) {
+    pitchShift.setEnabled(cachePitchEnabled);
+    if (pitchShift.isRunning()) {
+      pitchShift.setParams(cachePitch);
+      pitchShift.process(buffer);
+    }
+  } else {
+    // This strip does not run the shifter: wait as long as the shifter
+    // makes a strip late, so the rows stay in step and the one latency the
+    // host is told (updateLatency, which follows the power parameter and
+    // not the plan) holds for every row. Also when no strip runs it at all
+    // (no row asks for it, or the one that does is on an input this device
+    // lacks): what is reported and what is heard must never differ. Zero (a
+    // pass-through) while the shifter is off. A legacy rig's one strip is
+    // always the shifter's and never comes here.
+    state.processPad(buffer, stripPadSamples.load(std::memory_order_relaxed));
+  }
+
+  // #########################
+  // Auto-align probe injection (see AutoOffset.h): while a measurement is
+  // running, both chains eat the pre-generated sweep instead of the
+  // instrument. Injected downstream of the whole input stage, so the meters
+  // and gate keep tracking the live signal but none of it reaches the
+  // measurement; the output is muted for the duration (the probe mute stage
+  // of the main output strip). Stereo chain mode only (any rig: on a mono
+  // buffer the scratch mirror in the chain-stage loop feeds the probe to
+  // the Right lane); losing the mode mid-run cancels (the atomic flip is
+  // audio-thread safe). A legacy construct, so the legacy main pair only.
+  // #########################
+  if (plan.hostMainPair) {
+    if (autoOffset.state() != AutoOffset::State::Idle && !stereoEnabled.load())
+      autoOffset.cancel();
+    if (autoOffset.renderProbeInput(buffer.getWritePointer(0), numSamples) && numChannels > 1)
+      buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+  } else if (firstStrip) {
+    // A grid has neither the probe nor the image stage the two legacy
+    // measurements tap. One still in flight when the rig became a grid
+    // (a preset, an undo, a conversion) would never finish, and the
+    // auto-align's output mute would never lift: end both here.
+    cancelLegacyMeasurements();
+  }
+}
+
+// The gain is one smoother for the whole rig, so it is advanced once per
+// callback and the values kept: every bus is then multiplied by the very
+// same per-sample gains, however many buses there are.
+TONE3000Processor::EditFade TONE3000Processor::advanceChainEditFade(int numSamples) noexcept {
+  EditFade fade;
+  const bool editPending = chainEditFadePending.load();
+  chainEditFadeGain.setTargetValue(editPending ? 0.0f : 1.0f);
+  if (chainEditFadeGain.isSmoothing()) {
+    fade.state = EditFade::State::Ramp;
+    fade.rampSamples = juce::jmin(numSamples, static_cast<int>(chainEditFadeRamp.size()));
+    for (int i = 0; i < fade.rampSamples; ++i)
+      chainEditFadeRamp[static_cast<size_t>(i)] = chainEditFadeGain.getNextValue();
+    // A callback longer than the array (a host exceeding its promised block
+    // size) has reached the target by the array's end, because the array
+    // holds more values than the glide has steps. The rest of the callback
+    // is at the target, which is what the smoother would keep returning.
+    jassert(fade.rampSamples == numSamples || !chainEditFadeGain.isSmoothing());
+    fade.tailGain = chainEditFadeGain.getCurrentValue();
+  } else if (editPending && chainEditFadeGain.getCurrentValue() <= 0.001f) {
+    fade.state = EditFade::State::Silent;
+  }
+  return fade;
+}
+
+void TONE3000Processor::runOutputStrip(int index, juce::AudioBuffer<float>& buffer,
+                                       const EditFade& fade) {
+  const ProcessingPlan::Bus& plan = rtIo.buses[static_cast<size_t>(index)];
+  OutputBusState& state = outputBuses[static_cast<size_t>(index)];
+  const int numSamples = buffer.getNumSamples();
+  const int numChannels = buffer.getNumChannels();
+
+  // ##########
+  // DC blocker
+  // ##########
+  {
+    // ProcessorDuplicator runs an independent filter instance per channel, so a
+    // single duplicator covers the whole (mono or stereo) buffer. Running a
+    // second one here would high-pass every channel twice.
+    juce::dsp::AudioBlock<float> block(buffer);
+    juce::dsp::ProcessContextReplacing<float> context(block);
+    state.dcBlocker.process(context);
+  }
+
+  // ##########
+  // Chain-edit fade (see ChainEditFade): structural edits that can't be
+  // expressed as one block's wet fade (reorder, cross-lane move, preset /
+  // undo restores) glide the whole chain output to silence, splice the edit
+  // in between callbacks, and glide back. Idle cost: one branch (the gain
+  // was advanced once for all buses, see advanceChainEditFade).
+  //
+  // The tap deliberately sits AFTER the image stage and DC blocker:
+  //  - Image stage: its hard stops on mode switches (forceIdle) land
+  //    upstream of this gain, so they still splice into silence.
+  //  - DC blocker: NAM models can idle at a DC offset, and a restored rig's
+  //    blocks fade in while the chain is held muted. With the tap upstream
+  //    of the blocker, the blocker would settle to zero state during the
+  //    hold and the new rig's DC would step through it at release, an
+  //    audible thump on every preset/undo switch. Downstream of the
+  //    blocker, the blocker tracks the live chain (including its DC)
+  //    throughout the hold, so release ramps in an already-centered signal.
+  // ##########
+  if (fade.state == EditFade::State::Ramp) {
+    const float* ramp = chainEditFadeRamp.data();
+    for (int ch = 0; ch < numChannels; ++ch) {
+      float* samples = buffer.getWritePointer(ch);
+      for (int i = 0; i < fade.rampSamples; ++i)
+        samples[i] *= ramp[i];
+      for (int i = fade.rampSamples; i < numSamples; ++i)
+        samples[i] *= fade.tailGain;
+    }
+  } else if (fade.state == EditFade::State::Silent) {
+    // Fully faded: hold silence until the editor thread finishes its splice.
+    buffer.clear();
+    chainEditFadeDone.store(true);
+  }
+
+  if (!plan.mainStrip) {
+    // Any other bus stops here: the tone stack and the master level belong
+    // to the main output. Its own meters only.
+    float peakL = 0.0f, peakR = 0.0f;
+    const auto* l = buffer.getReadPointer(0);
+    const auto* r = numChannels > 1 ? buffer.getReadPointer(1) : l;
+    for (int i = 0; i < numSamples; ++i) {
+      peakL = std::max(peakL, std::abs(l[i]));
+      peakR = std::max(peakR, std::abs(r[i]));
+    }
+    state.meterL.store(peakToMeterDb(peakL));
+    state.meterR.store(peakToMeterDb(peakR));
+    return;
+  }
+
+  // ##########
+  // EQ section (global 3-band tone stack), post-chain.
+  // ##########
+  processToneStack(buffer);
+
+  // ##########
+  // Auto-align probe mute: fades the output before the probe starts, holds
+  // silence through capture and analysis, ramps back after the result is
+  // applied (see AutoOffset.h). Sits before the output stage so the meters
+  // show the mute honestly. Idle cost: one atomic load.
+  // ##########
+  autoOffset.applyOutputGain(buffer);
+
+  // ###########
+  // Output gain (level ±24 dB, same on both channels; the balance trim
+  // lives in the post-chain image matrix, pre-pan). Smoothed so knob
+  // moves glide instead of stepping once per block. Per-channel output
+  // meters ride the same pass.
+  // ###########
+  {
+    outputGainSmoother.setTargetValue(mainStageGain(cacheOutputLevel));
+
+    float peakL = 0.0f, peakR = 0.0f;
+    auto* l = buffer.getWritePointer(0);
+    auto* r = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
+    for (int i = 0; i < numSamples; ++i) {
+      const float g = outputGainSmoother.getNextValue();
+      l[i] *= g;
+      peakL = std::max(peakL, std::abs(l[i]));
+      if (r) {
+        r[i] *= g;
+        peakR = std::max(peakR, std::abs(r[i]));
+      }
+    }
+    if (numChannels < 2)
+      peakR = peakL;
+    outputMeterLevelL.store(peakToMeterDb(peakL));
+    outputMeterLevelR.store(peakToMeterDb(peakR));
+  }
+}
+
 // ################
 // RT PROCESS BLOCK
 // ################
@@ -1753,133 +2751,114 @@ void TONE3000Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     return;
   }
 
+  // A capture run (CaptureAudio.h) listens to the input first, hands the rig
+  // silence, and owns the output when the callback is done, whichever way it
+  // leaves. Idle, this is one atomic read.
+  CaptureAudio::BlockScope captureScope(captureAudio, buffer);
+
+  // The raw input, before anything touches it, for a guitar profile take
+  // that is being recorded (nothing happens otherwise).
+  inputRecorder.capture(buffer);
+
   updateCachedParameters();
+
+  // Tempo and transport for this callback's blocks (see BlockTransport): the
+  // host's playhead when it reports one, else the rig's own tempo with no
+  // transport. Read once here; every block sees the same copy.
+  {
+    BlockTransport transport;
+    transport.bpm = internalTempoBpm.load(std::memory_order_relaxed);
+    transport.samplePosition = rtProcessedSamples;
+    juce::Optional<double> hostSeconds, hostPpq, hostBarStart;
+    if (auto* playHead = getPlayHead()) {
+      if (const auto position = playHead->getPosition()) {
+        if (const auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 0.0) {
+          transport.bpm = *bpm;
+          transport.fromHost = true;
+          transport.playing = position->getIsPlaying();
+          if (const auto signature = position->getTimeSignature()) {
+            transport.timeSigNumerator = signature->numerator;
+            transport.timeSigDenominator = signature->denominator;
+          }
+          if (const auto samples = position->getTimeInSamples())
+            transport.samplePosition = *samples;
+          hostSeconds = position->getTimeInSeconds();
+          hostPpq = position->getPpqPosition();
+          hostBarStart = position->getPpqPositionOfLastBarStart();
+        }
+      }
+    }
+    // The musical position (see BlockTransport): the host's where it gives
+    // one, else what the sample position and the tempo imply.
+    const double rate = hostSampleRate > 0.0 ? hostSampleRate : kChainBaseSampleRate;
+    transport.timeSeconds =
+        hostSeconds.hasValue() ? *hostSeconds : static_cast<double>(transport.samplePosition) / rate;
+    transport.ppqPosition =
+        hostPpq.hasValue() ? *hostPpq : transport.timeSeconds * transport.bpm / 60.0;
+    if (hostBarStart.hasValue()) {
+      transport.ppqLastBarStart = *hostBarStart;
+    } else {
+      const double barLength = transport.timeSigNumerator * 4.0 /
+                               juce::jmax(1, transport.timeSigDenominator);
+      transport.ppqLastBarStart =
+          barLength > 0.0 ? std::floor(transport.ppqPosition / barLength) * barLength : 0.0;
+    }
+    rtProcessedSamples += numSamples;
+    rtTransport = transport;
+    lastEffectiveBpm.store(transport.bpm, std::memory_order_relaxed);
+    lastTempoFromHost.store(transport.fromHost, std::memory_order_relaxed);
+  }
 
   // Heartbeat for isAudioActive(): fade handshakes skip their bounded waits
   // when no callbacks are running (nothing is audible then).
   lastAudioCallbackMs.store(juce::Time::currentTimeMillis());
 
-  // Input fold-down, up front so everything downstream (meters, tuner,
-  // chains) sees the effective source:
-  // - Mono input device (standalone): signal only arrives on channel 0,
-  //   so mirror it.
-  // - Input mode L/R on a stereo source: duplicate the chosen channel onto
-  //   both, exactly like a host feeding a mono source to a stereo bus.
-  // - Stereo on a mono chain: sum to mono, ½(L+R), the host's own fold law
-  //   (a mono source on a stereo track, L == R, passes bit-identically; a
-  //   real stereo source reaches the chain whole instead of left-only).
-  //   Dual Mono folds the same way whenever it can't engage (mono rig; see
-  //   dualMonoEngaged), so the two modes only differ when both takes can
-  //   actually be processed and heard. With stereo chains neither folds:
-  //   channel 0 feeds the Left chain and channel 1 the Right.
   // Dual mono is resolved once per callback, here, so the fold and the chain
   // stage below always agree on it (a mode change landing between the two
   // reads could otherwise fold the input and then run two voices on it).
   rtDualMono = numChannels > 1 && dualMonoEngaged();
-  if (numChannels > 1) {
-    if (standaloneMonoInput.load()) {
-      buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
-    } else {
-      const auto mode = static_cast<InputMode>(inputMode.load());
-      const bool sumToMono =
-          !stereoEnabled.load() &&
-          (mode == InputMode::Stereo || (mode == InputMode::DualMono && !rtDualMono));
-      switch (mode) {
-        case InputMode::Left: buffer.copyFrom(1, 0, buffer, 0, 0, numSamples); break;
-        case InputMode::Right: buffer.copyFrom(0, 0, buffer, 1, 0, numSamples); break;
-        case InputMode::Stereo:
-        case InputMode::DualMono:
-          if (sumToMono) {
-            buffer.applyGain(0, 0, numSamples, 0.5f);
-            buffer.addFrom(0, 0, buffer, 1, 0, numSamples, 0.5f);
-            buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
-          }
-          break;
-      }
-    }
-  }
 
-  // #########################
-  // Input gain + noise gate
-  // #########################
-
-  // Input gain (level ±24 dB), constant across the block. Computed up front
-  // so the meters can show the post-gain level without a second pass over
-  // the samples.
-  const float inputGain = mainStageGain(cacheInputLevel);
-
-  // Per-channel input meters: raw peaks scaled by the input gain, so the
-  // meter tracks the knob. Pre-gate on purpose: a closed gate would
-  // otherwise read as a dead input. Mono sources report the same level on
-  // both channels.
-  auto peakToDb = [](float peak) {
-    return peak > 0.0f ? std::max(-60.0f, juce::Decibels::gainToDecibels(peak)) : -60.0f;
-  };
+  // A plan with other strips or buses (a grid edit, a conversion) is taken
+  // over here when the lock is free, before the strips run, so the callback
+  // already runs the new layout whole. When the lock is busy the chain
+  // stage below notices instead and spends one silent callback on it.
   {
-    float peakL = 0.0f, peakR = 0.0f;
-    const auto* l = buffer.getReadPointer(0);
-    for (int i = 0; i < numSamples; ++i)
-      peakL = std::max(peakL, std::abs(l[i]));
-    if (numChannels > 1) {
-      const auto* r = buffer.getReadPointer(1);
-      for (int i = 0; i < numSamples; ++i)
-        peakR = std::max(peakR, std::abs(r[i]));
-    } else {
-      peakR = peakL;
+    juce::ScopedTryLock adoptLock(chainMutex);
+    if (adoptLock.isLocked() && !planIoMatchesRt())
+      adoptPlanIoOnAudioThread();
+  }
+
+  // A grid rig's strips and buses work in pairs of their own, as long as
+  // the block size prepareToPlay was given. A host that hands over more
+  // gets it in slices of that size. (The legacy main pair is in place on
+  // the host buffer and takes any length; it slices the chain stage only,
+  // as it always has.)
+  if (!rtIo.legacy && maxBlockSize > 0 && numSamples > maxBlockSize) {
+    for (int offset = 0; offset < numSamples; offset += maxBlockSize) {
+      juce::AudioBuffer<float> slice(buffer.getArrayOfWritePointers(), numChannels, offset,
+                                     juce::jmin(maxBlockSize, numSamples - offset));
+      processHostBlock(slice);
     }
-    inputMeterLevelL.store(peakToDb(peakL * inputGain));
-    inputMeterLevelR.store(peakToDb(peakR * inputGain));
+    return;
   }
+  processHostBlock(buffer);
+}
 
-  // Feed the tuner from the raw input (pre-gain, pre-gate) while the tuner
-  // screen is open. Channel 0 only: guitar sources are mono, and mixing
-  // channels risks phase cancellation.
-  if (tuner.isEnabled())
-    tuner.pushSamples(buffer.getReadPointer(0), numSamples);
+void TONE3000Processor::processHostBlock(juce::AudioBuffer<float>& buffer) {
+  const int numSamples = buffer.getNumSamples();
+  const int numChannels = buffer.getNumChannels();
 
-  // Apply the input gain (vectorized).
-  for (int ch = 0; ch < numChannels; ++ch)
-    buffer.applyGain(ch, 0, numSamples, inputGain);
-
-  // Noise gate, post input gain so the threshold knob's dB meaning matches
-  // the level heading into the chain. Envelope/hysteresis gate (NoiseGate.h);
-  // re-enabling resets the detector so a stale envelope never gates the
-  // first block.
-  if (cacheGateEnabled) {
-    if (!gateWasEnabled)
-      inputGate.reset();
-    inputGate.setParams({cacheGateThreshold, cacheGateRelease, cacheGateHold, cacheGateRange});
-    inputGate.process(buffer);
-  }
-  gateWasEnabled = cacheGateEnabled;
-
-  // Pitch shift (PitchShift.h): shifts the instrument before the chain, so
-  // the amp sees a down-tuned (or whammy-bent) guitar. After the gate so it
-  // decides on the real transients; before the auto-align probe below,
-  // whose sweep must never be shifted. Runs while powered and through the
-  // power-off blend; once that lands it is a bit-exact, zero-latency
-  // passthrough. The latency report rides the power parameter
-  // (updateLatency), not this path.
-  pitchShift.setEnabled(cachePitchEnabled);
-  if (pitchShift.isRunning()) {
-    pitchShift.setParams(cachePitch);
-    pitchShift.process(buffer);
-  }
-
-  // #########################
-  // Auto-align probe injection (see AutoOffset.h): while a measurement is
-  // running, both chains eat the pre-generated sweep instead of the
-  // instrument. Injected downstream of the whole input stage, so the meters
-  // and gate keep tracking the live signal but none of it reaches the
-  // measurement; the output is muted for the duration (the probe mute stage
-  // below). Stereo chain mode only (any rig: on a mono buffer the scratch
-  // mirror in the chain-stage loop feeds the probe to the Right lane);
-  // losing the mode mid-run cancels (the atomic flip is audio-thread safe).
-  // #########################
-  if (autoOffset.state() != AutoOffset::State::Idle && !stereoEnabled.load())
-    autoOffset.cancel();
-  if (autoOffset.renderProbeInput(buffer.getWritePointer(0), numSamples) && numChannels > 1)
-    buffer.copyFrom(1, 0, buffer, 0, 0, numSamples);
+  // ####################
+  // INPUT STRIPS (host rate): fold, input gain, meters, tuner, gate, pitch
+  // ####################
+  // The strips and buses are the ones the last chain stage saw the plan
+  // with (rtIo); a legacy rig has the main pair of each, in place on the
+  // buffer's first two channels.
+  HostIo io;
+  bindHostIo(buffer, io);
+  for (int s = 0; s < rtIo.numStrips; ++s)
+    if (auto* strip = io.strips[static_cast<size_t>(s)])
+      runInputStrip(s, *strip);
 
   // ####################
   // MODULAR CHAIN PROCESSING (chain domain: 48 kHz × OS factor, see ChainDomain.h)
@@ -1905,6 +2884,26 @@ void TONE3000Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
       numChannels >= 2 && stereoOutputDetected.load(std::memory_order_relaxed);
 
   const auto runChainStage = [&] {
+    // The input strips above ran the strips this callback started with. A
+    // plan with other strips or buses can only have arrived inside a
+    // chain-edit fade: take them over for the output strips and the
+    // callbacks that follow, and let this one be silent.
+    if (!planIoMatchesRt()) {
+      adoptPlanIoOnAudioThread();
+      buffer.clear();
+      bindHostIo(buffer, io);
+      return;
+    }
+    // The boundary is opened for the plan's ports off the audio thread
+    // (prepareToPlay). Never run it with others.
+    if (chainBoundary != nullptr && (chainBoundary->numUpPorts() != rtIo.numStrips ||
+                                     chainBoundary->numDownPorts() != rtIo.numBuses)) {
+      jassertfalse;
+      buffer.clear();
+      bindHostIo(buffer, io);
+      return;
+    }
+
     // Stereo chains follow the mode alone: on a mono rig both lanes still
     // run (the Right lane on the scratch channel) and the image stage sums
     // them, so a two-chain rig is heard in full instead of half.
@@ -1912,26 +2911,40 @@ void TONE3000Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     rtChainChannels = juce::jmin(numChannels, 2);
     // rtDualMono was resolved up front, with the input fold.
 
-    // One multi-core resolution per callback (under chainMutex): the phase
-    // fork only needs the setting and live workers, while the lane fork
-    // additionally needs stereo chains where both sides of the parallel
-    // section carry work (otherwise the handoff costs more than the empty
-    // loop it would hide). For branched routing the parallel section is
-    // trunk-suffix ∥ branch, so the trunk only counts blocks after the tap.
+    // One multi-core resolution per callback (under chainMutex): the
+    // setting and live workers. The NAM phase forks need nothing more. A
+    // plan fork additionally wants work on at least two of its sides
+    // (otherwise the handoff costs more than the empty loop it would hide),
+    // which runPlanFork checks where it forks: for stereo chains that is
+    // both lanes, for branched routing the trunk's blocks after the tap and
+    // the branch lane.
     const bool multiCore =
         multiCoreEnabled.load(std::memory_order_relaxed) && rtWorkerPool.isRunning();
     rtPhasePool = multiCore ? &rtWorkerPool : nullptr;
-    rtParallelLanes = false;
-    if (rtStereoChains && multiCore) {
-      if (rtBranchTapIndex >= 0) {
-        const ChainSide branchSide =
-            branchSourceSide == ChainSide::Right ? ChainSide::Left : ChainSide::Right;
-        rtParallelLanes = laneHasWork(lane(branchSourceSide), rtBranchTapIndex + 1) &&
-                          laneHasWork(lane(branchSide));
-      } else {
-        rtParallelLanes =
-            laneHasWork(lane(ChainSide::Left)) && laneHasWork(lane(ChainSide::Right));
-      }
+
+    // One channel pair per port, for the slice at hand. A pair in place on
+    // the host buffer is a port always two channels wide, so a mono host
+    // buffer gets the scratch as its second channel: silent in mono chain
+    // mode, the Right lane's working channel with stereo chains (mirrored
+    // input in, lane output out, consumed by the fold below). A pair that
+    // sits the callback out runs on its (silent) working buffer from the
+    // start: no slice is longer than that.
+    const auto pairChannels = [&](bool hostMainPair, juce::AudioBuffer<float>* bound,
+                                  juce::AudioBuffer<float>& work,
+                                  int offset) -> std::array<float*, 2> {
+      if (hostMainPair)
+        return {io.mainPair->getWritePointer(0) + offset,
+                io.mainPair->getNumChannels() > 1 ? io.mainPair->getWritePointer(1) + offset
+                                                  : chainScratchChannel.getWritePointer(0)};
+      if (bound == nullptr)
+        return {work.getWritePointer(0), work.getWritePointer(1)};
+      return {bound->getWritePointer(0) + offset, bound->getWritePointer(1) + offset};
+    };
+    std::array<std::array<float*, 2>, kMaxIoPairs> upChannels{}, downChannels{};
+    std::array<float* const*, kMaxIoPairs> upPorts{}, downPorts{};
+    for (size_t p = 0; p < static_cast<size_t>(kMaxIoPairs); ++p) {
+      upPorts[p] = upChannels[p].data();
+      downPorts[p] = downChannels[p].data();
     }
 
     // Hosts occasionally exceed the block size they promised in prepareToPlay.
@@ -1942,25 +2955,42 @@ void TONE3000Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     for (int offset = 0; offset < numSamples; offset += maxSlice) {
       const int sliceLen = juce::jmin(maxSlice, numSamples - offset);
 
-      // The boundary is a fixed 2-channel container, so a mono host buffer
-      // gets the scratch as its second channel: silent in mono chain mode,
-      // the Right lane's working channel with stereo chains (mirrored input
-      // in, lane output out, consumed by the fold below).
-      float* channels[2] = {buffer.getWritePointer(0) + offset,
-                            numChannels > 1 ? buffer.getWritePointer(1) + offset
-                                            : chainScratchChannel.getWritePointer(0)};
-      if (numChannels == 1 && rtStereoChains)
-        std::memcpy(channels[1], channels[0], sizeof(float) * static_cast<size_t>(sliceLen));
+      for (int s = 0; s < rtIo.numStrips; ++s) {
+        const ProcessingPlan::Strip& strip = rtIo.strips[static_cast<size_t>(s)];
+        std::array<float*, 2>& channels = upChannels[planPortIndex(strip.port)];
+        channels = pairChannels(strip.hostMainPair, io.strips[static_cast<size_t>(s)],
+                                inputStrips[static_cast<size_t>(s)].work, offset);
+        if (strip.hostMainPair && io.mainPair->getNumChannels() == 1 && rtStereoChains)
+          std::memcpy(channels[1], channels[0], sizeof(float) * static_cast<size_t>(sliceLen));
+      }
+      for (int b = 0; b < rtIo.numBuses; ++b) {
+        const ProcessingPlan::Bus& bus = rtIo.buses[static_cast<size_t>(b)];
+        downChannels[planPortIndex(bus.port)] =
+            pairChannels(bus.hostMainPair, io.buses[static_cast<size_t>(b)],
+                         outputBuses[static_cast<size_t>(b)].work, offset);
+      }
 
       if (chainBoundary != nullptr)
-        chainBoundary->ProcessBlock(channels, channels, sliceLen, chainStageFunc);
+        chainBoundary->process(upPorts.data(), downPorts.data(), sliceLen,
+                               [this](float* const* const* chainIns,
+                                      float* const* const* chainOuts, int chainFrames) {
+                                 processOversampledChainStage(chainIns, chainOuts, chainFrames);
+                               });
       else
-        processOversampledChainStage(channels, channels, sliceLen);
+        processOversampledChainStage(upPorts.data(), downPorts.data(), sliceLen);
 
       // Image stage per slice: on a mono host buffer the scratch channel
       // only holds the Right lane's output for this slice, so it must be
-      // folded before the next slice reuses it.
-      processImageStage(channels[0], channels[1], sliceLen, stereoRig);
+      // folded before the next slice reuses it. A legacy construct, on the
+      // legacy plan's main output only.
+      for (int b = 0; b < rtIo.numBuses; ++b) {
+        const ProcessingPlan::Bus& bus = rtIo.buses[static_cast<size_t>(b)];
+        if (!rtIo.legacy || !bus.mainStrip)
+          continue;
+        const std::array<float*, 2>& channels =
+            downChannels[planPortIndex(bus.port)];
+        processImageStage(channels[0], channels[1], sliceLen, stereoRig);
+      }
     }
   };
 
@@ -1979,91 +3009,15 @@ void TONE3000Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
     }
   }
 
-  // ##########
-  // DC blocker
-  // ##########
-  {
-    // ProcessorDuplicator runs an independent filter instance per channel, so a
-    // single duplicator covers the whole (mono or stereo) buffer. Running a
-    // second one here would high-pass every channel twice.
-    juce::dsp::AudioBlock<float> block(buffer);
-    juce::dsp::ProcessContextReplacing<float> context(block);
-    dcBlocker.process(context);
-  }
-
-  // ##########
-  // Chain-edit fade (see ChainEditFade): structural edits that can't be
-  // expressed as one block's wet fade (reorder, cross-lane move, preset /
-  // undo restores) glide the whole chain output to silence, splice the edit
-  // in between callbacks, and glide back. Idle cost: one atomic load + one
-  // branch.
-  //
-  // The tap deliberately sits AFTER the image stage and DC blocker:
-  //  - Image stage: its hard stops on mode switches (forceIdle) land
-  //    upstream of this gain, so they still splice into silence.
-  //  - DC blocker: NAM models can idle at a DC offset, and a restored rig's
-  //    blocks fade in while the chain is held muted. With the tap upstream
-  //    of the blocker, the blocker would settle to zero state during the
-  //    hold and the new rig's DC would step through it at release, an
-  //    audible thump on every preset/undo switch. Downstream of the
-  //    blocker, the blocker tracks the live chain (including its DC)
-  //    throughout the hold, so release ramps in an already-centered signal.
-  // ##########
-  {
-    const bool editPending = chainEditFadePending.load();
-    chainEditFadeGain.setTargetValue(editPending ? 0.0f : 1.0f);
-    if (chainEditFadeGain.isSmoothing()) {
-      for (int i = 0; i < numSamples; ++i) {
-        const float g = chainEditFadeGain.getNextValue();
-        for (int ch = 0; ch < numChannels; ++ch)
-          buffer.getWritePointer(ch)[i] *= g;
-      }
-    } else if (editPending && chainEditFadeGain.getCurrentValue() <= 0.001f) {
-      // Fully faded: hold silence until the editor thread finishes its splice.
-      buffer.clear();
-      chainEditFadeDone.store(true);
-    }
-  }
-
-  // ##########
-  // EQ section (global 3-band tone stack), post-chain.
-  // ##########
-  processToneStack(buffer);
-
-  // ##########
-  // Auto-align probe mute: fades the output before the probe starts, holds
-  // silence through capture and analysis, ramps back after the result is
-  // applied (see AutoOffset.h). Sits before the output stage so the meters
-  // show the mute honestly. Idle cost: one atomic load.
-  // ##########
-  autoOffset.applyOutputGain(buffer);
-
-  // ###########
-  // Output gain (level ±24 dB, same on both channels; the balance trim
-  // lives in the post-chain image matrix above, pre-pan). Smoothed so knob
-  // moves glide instead of stepping once per block. Per-channel output
-  // meters ride the same pass.
-  // ###########
-  {
-    outputGainSmoother.setTargetValue(mainStageGain(cacheOutputLevel));
-
-    float peakL = 0.0f, peakR = 0.0f;
-    auto* l = buffer.getWritePointer(0);
-    auto* r = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
-    for (int i = 0; i < numSamples; ++i) {
-      const float g = outputGainSmoother.getNextValue();
-      l[i] *= g;
-      peakL = std::max(peakL, std::abs(l[i]));
-      if (r) {
-        r[i] *= g;
-        peakR = std::max(peakR, std::abs(r[i]));
-      }
-    }
-    if (numChannels < 2) 
-      peakR = peakL;
-    outputMeterLevelL.store(peakToDb(peakL));
-    outputMeterLevelR.store(peakToDb(peakR));
-  }
+  // ####################
+  // OUTPUT STRIPS (host rate): DC blocker, chain-edit fade, and on the main
+  // output the tone stack, the auto-align mute, output gain and meters
+  // ####################
+  const EditFade fade = advanceChainEditFade(numSamples);
+  for (int b = 0; b < rtIo.numBuses; ++b)
+    if (auto* bus = io.buses[static_cast<size_t>(b)])
+      runOutputStrip(b, *bus, fade);
+  scatterOutputBuses(buffer, io);
 }
 
 // ##################
@@ -2078,14 +3032,38 @@ bool TONE3000Processor::hasEditor() const {
 // ##############
 juce::AudioProcessorEditor* TONE3000Processor::createEditor() {
 #if !HEADLESS
+  // The standalone application opens the Pedaleira UI; the plugin formats
+  // keep upstream's editor for now (PedaleiraEditor.h).
+#if !JUCE_IOS
+  if (pedaleira::ui::PedaleiraEditor::wanted(*this))
+    return new pedaleira::ui::PedaleiraEditor(*this);
+#endif
   return new t3k::ui::NativeEditor(*this);
 #else
   return nullptr;
 #endif
 }
 
+EngineCommands& TONE3000Processor::commandLayer() {
+  JUCE_ASSERT_MESSAGE_THREAD
+  if (appCommands == nullptr)
+    appCommands = std::make_unique<EngineCommands>(*this);
+  return *appCommands;
+}
+
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {
-  return new TONE3000Processor();
+  auto* processor = new TONE3000Processor();
+  // The standalone application is the one place with a single rig that is
+  // "the rig being played", so it is where agents can connect: the command
+  // server starts here when the user has switched it on (off by default; see
+  // AgentHub::applyServerSetting). A plugin instance in a host does not
+  // listen. Not on iOS, where nothing could connect to it.
+#if !JUCE_IOS
+  if (processor->wrapperType == juce::AudioProcessor::wrapperType_Standalone &&
+      juce::MessageManager::existsAndIsCurrentThread())
+    processor->commandLayer().agents().applyServerSetting();
+#endif
+  return processor;
 }
 
 // #########################
@@ -2110,6 +3088,9 @@ constexpr double kAutoBalanceTimeoutSeconds = 15.0;
 }  // namespace
 
 void TONE3000Processor::startAutoBalance() {
+  // It listens at the legacy image stage, which a grid does not run.
+  if (isGridMode())
+    return;
   // Reset is safe from the message thread: the audio thread only touches the
   // accumulators while the state is Listening, and the release-store below
   // publishes the zeroed accumulators together with the state flip.
@@ -2119,6 +3100,15 @@ void TONE3000Processor::startAutoBalance() {
   autoBalanceElapsed.store(0, std::memory_order_relaxed);
   autoBalanceState.store(static_cast<int>(AutoBalanceState::Listening),
                          std::memory_order_release);
+}
+
+// See the declaration. Atomic flips only: any thread.
+void TONE3000Processor::cancelLegacyMeasurements() noexcept {
+  if (autoOffset.state() != AutoOffset::State::Idle)
+    autoOffset.cancel();
+  int listening = static_cast<int>(AutoBalanceState::Listening);
+  autoBalanceState.compare_exchange_strong(listening, static_cast<int>(AutoBalanceState::Idle),
+                                           std::memory_order_acq_rel);
 }
 
 void TONE3000Processor::cancelAutoBalance() {
@@ -2344,6 +3334,6 @@ juce::var TONE3000Processor::pollAutoOffset() {
 // UI's copy/reveal actions always target the same file.
 juce::File TONE3000Processor::getLogFile() {
   return juce::FileLogger::getSystemLogFileFolder()
-      .getChildFile("TONE3000")
-      .getChildFile("TONE3000.log");
+      .getChildFile(kAppDataFolderName)
+      .getChildFile(juce::String(kAppDataFolderName) + ".log");
 }

@@ -18,20 +18,21 @@ public:
   bool authenticated() const override { return authenticated_; }
   std::optional<User> user() const override;
 
+  // The list requests the views made, as the API paths they would be:
+  // "/api/v1/tones/trending", "/api/v1/tones/favorited?page=1&page_size=12",
+  // in order. The self-tests read what the browser asked for from here.
+  std::vector<juce::String> requests;
+
   void getTone(int toneId, Reply<Tone> reply) override;
   void listToneModels(int toneId, const juce::String& format,
                       Reply<std::vector<Model>> reply) override;
-  void setToneFavorite(int toneId, bool favorite, Done done) override;
-  // The catalog search filters and pages `apiTones` the way the API would
-  // (`api.search`); a profile filter answers with the suite's 3-page slice
-  // of them (`api.gated`).
-  void searchTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) override;
+  // The default query is the trending feed (`api.trending`, below); a
+  // profile filter answers with the suite's 3-page slice of the fixture
+  // tones (`api.gated`), narrowed by gear.
+  void listTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) override;
   // The fixture tones of the gear (all of them when none), at most ten, in
   // fixture order (`api.trending`).
   void listTrending(const juce::String& gear, Reply<std::vector<Tone>> reply) override;
-  // The names carried by `apiTones` (their tags, makes and creators),
-  // narrowed by the text (`api.taxonomy`).
-  void listTaxonomy(Taxonomy kind, const juce::String& text, Reply<std::vector<TaxonomyEntry>> reply) override;
   // The tone (`api.tone`) with its first model, then onToneSelected.
   void selectTone(int toneId, Done done) override;
   void ensureNativeAuth(Done done) override;
@@ -59,6 +60,8 @@ public:
   void fetchPluginVersion(Reply<juce::var> reply) override;
 
 private:
+  // The trending feed's answer, whoever asked.
+  void feed(const juce::String& gear, Reply<std::vector<Tone>> reply);
   // The fixture tone by id, else the first one (the suite's fallback).
   juce::var apiTone(int toneId) const;
   // Override for an endpoint group: void when none.
@@ -69,8 +72,6 @@ private:
   void setFlow(AuthFlow::Phase phase, juce::String error = {});
   // Signed in: the flow closes and a browse-intent login opens the browser.
   void finishSignIn();
-  // The fixture tones that satisfy the catalog part of `query`.
-  std::vector<Tone> matching(const ToneQuery& query) const;
 
   JUCE_DECLARE_WEAK_REFERENCEABLE(MockSession)
 

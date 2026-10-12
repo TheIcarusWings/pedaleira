@@ -1,0 +1,19 @@
+{
+  "format": "pedaleira-foreign-preset",
+  "version": 1,
+  "source": "quad-cortex",
+  "sourceVersion": "CorOS 4.0.1",
+  "name": "Funk Quack",
+  "tempo": 104,
+  "defaultScene": 0,
+  "rows": [
+    { "index": 0, "blocks": [
+      { "position": 0, "model": "Opto Comp", "category": "Compressor", "enabled": true, "params": {} },
+      { "position": 1, "model": "Envelope Filter", "category": "Filter", "enabled": true, "params": {} },
+      { "position": 2, "model": "Phaser", "category": "Modulation", "enabled": true,
+        "params": { "RATE": { "value": 0.8 }, "DEPTH": { "value": 60.0 } } }
+    ] }
+  ],
+  "scenes": [],
+  "warnings": []
+}

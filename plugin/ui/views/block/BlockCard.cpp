@@ -193,7 +193,6 @@ void BlockCard::buildBody() {
   imageFrame_.addChildComponent(retry_);
   body_.addAndMakeVisible(imageFrame_);
 
-  meta_.onToggleFavorite = [this] { toggleFavorite(); };
   meta_.onHeightChanged = [this] { setSize(kWidth, preferredHeight()); };
   meta_.info().onLogin = [this] {
     services_.connection.requireConnection([this] { services_.session.login(); });
@@ -230,12 +229,9 @@ void BlockCard::setBlock(const ChainItem& block, bool namDownstream) {
     // Swap: orphan any in-flight fetch, drop the stale payload, refetch.
     infoScope_.reset();
     modelsScope_.reset();
-    favoriteScope_.reset();
     infoTone_.reset();
     infoError_.clear();
     infoLoading_ = false;
-    favoriteOverride_.reset();
-    favoriteBusy_ = false;
     models_.clear();
     modelsLoading_ = false;
     switchingModel_ = false;
@@ -356,7 +352,6 @@ void BlockCard::syncMeta() {
   counts.favorites = favoritesCount();
   counts.favorited = favorited();
   counts.models = block_.tone.catalogModelCount();
-  counts.favoriteToggle = authenticated();
   meta_.setCounts(counts);
 
   BlockInfoPanel::State state;
@@ -413,13 +408,11 @@ bool BlockCard::normalizeOverridden() const {
 }
 
 bool BlockCard::favorited() const {
-  if (favoriteOverride_) return favoriteOverride_->on;
   if (infoTone_ && infoTone_->isFavorite) return *infoTone_->isFavorite;
   return block_.tone.isFavorite.value_or(false);
 }
 
 int BlockCard::favoritesCount() const {
-  if (favoriteOverride_) return favoriteOverride_->count;
   if (infoTone_) return infoTone_->favoritesCount;
   return block_.tone.favoritesCount;
 }
@@ -638,12 +631,9 @@ void BlockCard::fetchInfo(bool background) {
       toneId, infoScope_.wrap([this, background](Result<Tone> result) {
         if (!background) infoLoading_ = false;
         if (result) {
-          // A favorite toggle in flight owns the next metadata write.
-          if (!favoriteBusy_) {
-            infoTone_ = *result;
-            // Best-effort: native no-ops when nothing changed server-side.
-            services_.chain.refreshToneMetadata(juce::JSON::toString(infoTone_->raw, true));
-          }
+          infoTone_ = *result;
+          // Best-effort: native no-ops when nothing changed server-side.
+          services_.chain.refreshToneMetadata(juce::JSON::toString(infoTone_->raw, true));
         } else if (background) {
           // Silent by design (offline, API down, tone deleted): the cached
           // tone keeps working; opening the panel refetches with its own UI.
@@ -673,39 +663,6 @@ void BlockCard::fetchModels() {
           // No error UI: the picker keeps the stored model and opening it retries.
           juce::Logger::writeToLog("Failed to load models: " + result.error);
         syncModelSelect();
-      }));
-}
-
-void BlockCard::toggleFavorite() {
-  if (!authenticated() || favoriteBusy_) return;
-  const bool next = !favorited();
-  const int nextCount = std::max(0, favoritesCount() + (next ? 1 : -1));
-  favoriteOverride_ = FavoriteOverride{next, nextCount};
-  favoriteBusy_ = true;
-  syncMeta();
-
-  const int toneId = block_.tone.id;
-  auto finish = favoriteScope_.wrap([this, next, nextCount](Result<Tone> base) {
-    favoriteBusy_ = false;
-    if (base) {
-      infoTone_ = base->withFavorite(next, nextCount);
-      services_.chain.refreshToneMetadata(juce::JSON::toString(infoTone_->raw, true));
-    } else {
-      juce::Logger::writeToLog("Failed to update favorite: " + base.error);
-      favoriteOverride_.reset();
-    }
-    syncMeta();
-  });
-  services_.session.setToneFavorite(
-      toneId, next, favoriteScope_.wrap([this, toneId, finish](const juce::String& error) {
-        if (error.isNotEmpty()) {
-          finish(Result<Tone>::fail(error));
-          return;
-        }
-        if (infoTone_ && infoTone_->id == toneId)
-          finish(Result<Tone>::ok(*infoTone_));
-        else
-          services_.session.getTone(toneId, finish);
       }));
 }
 

@@ -15,6 +15,18 @@
 
 juce::ValueTree TONE3000Processor::captureChainSnapshot(bool includeModelData) const {
   juce::ValueTree snapshot("ChainSnapshot");
+  if (routingMode == RoutingMode::Grid) {
+    // The grid shape: the layout says so
+    // and everything of the routing is in the Grid node. A legacy rig below
+    // writes exactly what it always has.
+    snapshot.setProperty("layout", "grid", nullptr);
+    snapshot.appendChild(captureGridNode(includeModelData), nullptr);
+    if (const SceneStore current = scenesWithLiveValues(); !current.isPristine())
+      snapshot.appendChild(current.toValueTree(), nullptr);
+    if (!stomps.isEmpty())
+      snapshot.appendChild(stomps.toValueTree(), nullptr);
+    return snapshot;
+  }
   snapshot.setProperty("stereoEnabled", stereoEnabled.load(), nullptr);
   // Branch routing travels with the chains (undo, presets, DAW state all
   // share this shape). Empty branchAfterBlockId = independent chains.
@@ -30,10 +42,24 @@ juce::ValueTree TONE3000Processor::captureChainSnapshot(bool includeModelData) c
   serializeChainToTree(lane(ChainSide::Right), right, includeModelData);
   snapshot.appendChild(right, nullptr);
 
+  // Scenes and stomp assignments are part of the rig, so they ride the same
+  // tree as the chains (undo, presets and DAW state). Each is a node of its
+  // own, written only once there is something in it: a rig that never used
+  // them saves exactly as it did before they existed, and a build without
+  // them skips the nodes and opens the rig as its active scene (which is
+  // what the block nodes above hold).
+  if (const SceneStore current = scenesWithLiveValues(); !current.isPristine())
+    snapshot.appendChild(current.toValueTree(), nullptr);
+  if (!stomps.isEmpty())
+    snapshot.appendChild(stomps.toValueTree(), nullptr);
+
   return snapshot;
 }
 
 void TONE3000Processor::pushChainHistory(const juce::String& coalesceKey) {
+  // Before the coalescing below: a gesture that is still running is an edit
+  // too (see hasUnsavedChanges).
+  ++presetEditSerial;
   // Mid-gesture updates skip the (comparatively pricey) serialization
   // entirely; the entry on top of the stack already holds the pre-gesture
   // state, which is exactly what undo should restore.
@@ -43,6 +69,13 @@ void TONE3000Processor::pushChainHistory(const juce::String& coalesceKey) {
 }
 
 void TONE3000Processor::queueActiveModelLoad(ChainBlock& block) {
+  // A registry kind has no model: its processor is built from its saved
+  // state (applyKindState), never loaded. The exception is a kind block
+  // with a tone on its way in (swapTone), which loads like any tone block
+  // and becomes one when the model lands.
+  if (block.type == ChainBlockType::KIND && !block.hasToneOnKind())
+    return;
+
   // Every bail below leaves the block unloadable, so flag it so the UI shows
   // the retry affordance instead of a loader that can never resolve, and log
   // at release level (these paths are the needle for "stuck loading after
@@ -108,105 +141,125 @@ void TONE3000Processor::queueActiveModelLoad(ChainBlock& block) {
   bail("active model " + juce::String(block.activeModelId) + " not in stored tone JSON");
 }
 
+std::unique_ptr<ChainBlock> TONE3000Processor::reconcileBlockFromTree(
+    const juce::ValueTree& blockState, ParkedBlocks& existing) {
+  const std::string blockId = blockState.getProperty("id").toString().toStdString();
+  const ChainBlockType type =
+      chainBlockTypeFromString(blockState.getProperty("type").toString());
+  const int toneId = blockState.getProperty("toneId", 0);
+  const juce::String kindId =
+      blockState.getChildWithName("KindState").getProperty("kind").toString();
+
+  // Reusable when identity matches: same block, same type, same tone (for
+  // a registry kind, the same kind). A swapped tone (same id, different
+  // tone) rebuilds like a fresh block.
+  std::unique_ptr<ChainBlock> block;
+  auto it = existing.find(blockId);
+  const auto sameIdentity = [&](const ChainBlock& live) {
+    if (live.type != type)
+      return false;
+    if (type == ChainBlockType::INSERT)
+      return true;
+    if (type == ChainBlockType::KIND)
+      return live.kindId == kindId;
+    return live.toneId == toneId;
+  };
+  if (it != existing.end() && sameIdentity(*it->second)) {
+    block = std::move(it->second);
+    existing.erase(it);
+  } else {
+    block = std::make_unique<ChainBlock>(blockId, type);
+  }
+
+  applyBlockSettings(*block, blockState);
+
+  // Nothing to load for an insert, nor for a registry kind:
+  // applyBlockSettings just restored its parameters, or queued the build
+  // of its processor from the saved node, and reset whatever tone or
+  // load state the live block was carrying (applyKindState).
+  if (type == ChainBlockType::INSERT || type == ChainBlockType::KIND)
+    return block;
+
+  const int activeModelId = blockState.getProperty("activeModelId", 0);
+  const bool modelChanged = block->activeModelId != activeModelId;
+  const juce::String toneJson = blockState.getProperty("toneJson").toString();
+  // Re-parse the cached tone var/summary only when the tone actually
+  // changed (reused blocks keep theirs; fresh blocks always parse).
+  if (!block->toneVar.isObject() || block->toneJson != toneJson)
+    setToneOnBlock(*block, toneId, toneJson, juce::JSON::parse(toneJson));
+  else
+    block->toneId = toneId;
+  block->activeModelId = activeModelId;
+
+  // Engines survive only when the loaded model is still the right one.
+  // Everything else (fresh block, model switch, load still in flight)
+  // goes through the background loader: cache-first, network fallback.
+  if (modelChanged || !block->loaded) {
+    block->loaded = false;
+    block->loadFailed = false;  // fresh load queued below, back to loading UI
+    block->modelLoading = true;
+    // Project files and presets embed model bytes; seed the in-memory
+    // cache with the ones the block's tone still references (the active
+    // model, plus a local tone's full stored list) so those load and
+    // switch offline. Anything else is audition dead weight from states
+    // written by builds that persisted the whole cache (issue #127):
+    // unreachable through the stored tone, so seeding it would only
+    // balloon RAM and ride every later save. Skipping it here is what
+    // slims an already-bloated project on its next save. Undo snapshots
+    // are settings-only (no ModelCache child), so this is a no-op there.
+    // (toneJson/activeModelId were applied above, so referencesModel
+    // judges against exactly what this restore is installing.)
+    const juce::ValueTree cacheState = blockState.getChildWithName("ModelCache");
+    for (int j = 0; j < cacheState.getNumChildren(); ++j) {
+      const juce::ValueTree cachedModel = cacheState.getChild(j);
+      const int modelId = cachedModel.getProperty("modelId");
+      if (!block->referencesModel(modelId))
+        continue;
+      if (block->modelCache.find(modelId) != block->modelCache.end())
+        continue;
+      const juce::var dataVar = cachedModel.getProperty("data");
+      if (const auto* raw = dataVar.getBinaryData()) {
+        const auto* bytes = static_cast<const uint8_t*>(raw->getData());
+        block->modelCache[modelId].assign(bytes, bytes + raw->getSize());
+      } else {
+        juce::Logger::writeToLog("[Restore] Embedded model bytes for model " +
+                                 juce::String(modelId) + " missing (block " +
+                                 juce::String(block->id) + "); will refetch");
+      }
+    }
+    // One release-level line per reloading block: enough to diagnose
+    // "stuck loading after relaunch" reports from a user's log file.
+    juce::Logger::writeToLog(
+        "[Restore] Block " + juce::String(block->id) + " tone " + juce::String(toneId) +
+        " model " + juce::String(activeModelId) +
+        (block->modelCache.count(activeModelId) != 0 ? " (cached)" : " (needs fetch)") +
+        " queued for load");
+    queueActiveModelLoad(*block);
+  }
+
+  return block;
+}
+
 void TONE3000Processor::reconcileChainFromTree(const juce::ValueTree& chainState, Lane& target,
-                                               Lane& retired) {
+                                               Lane& retired, ParkedBlocks* shared) {
   // Park the live blocks by id so matching ones can be moved back with their
   // engines/model caches intact. Anything left over at the end is a removal
   // and goes into `retired`; the caller destroys those after releasing
-  // chainMutex (engine teardown is heavy).
-  std::map<std::string, std::unique_ptr<ChainBlock>> existing;
-  for (auto& b : target)
-    if (b)
-      existing[b->id] = std::move(b);
+  // chainMutex (engine teardown is heavy). A caller that has parked the
+  // blocks of every row itself passes its map (and retires what is left).
+  ParkedBlocks own;
+  ParkedBlocks& existing = shared != nullptr ? *shared : own;
+  if (shared == nullptr)
+    for (auto& b : target)
+      if (b)
+        existing[b->id] = std::move(b);
   target.clear();
 
   for (int i = 0; i < chainState.getNumChildren(); ++i) {
     juce::ValueTree blockState = chainState.getChild(i);
     if (!blockState.hasType("ChainBlock"))
       continue;
-
-    const std::string blockId = blockState.getProperty("id").toString().toStdString();
-    const ChainBlockType type =
-        chainBlockTypeFromString(blockState.getProperty("type").toString());
-    const int toneId = blockState.getProperty("toneId", 0);
-
-    // Reusable when identity matches: same block, same type, same tone. A
-    // swapped tone (same id, different tone) rebuilds like a fresh block.
-    std::unique_ptr<ChainBlock> block;
-    auto it = existing.find(blockId);
-    if (it != existing.end() && it->second->type == type &&
-        (type == ChainBlockType::INSERT || it->second->toneId == toneId)) {
-      block = std::move(it->second);
-      existing.erase(it);
-    } else {
-      block = std::make_unique<ChainBlock>(blockId, type);
-    }
-
-    applyBlockSettings(*block, blockState);
-
-    if (type == ChainBlockType::INSERT) {
-      target.push_back(std::move(block));
-      continue;
-    }
-
-    const int activeModelId = blockState.getProperty("activeModelId", 0);
-    const bool modelChanged = block->activeModelId != activeModelId;
-    const juce::String toneJson = blockState.getProperty("toneJson").toString();
-    // Re-parse the cached tone var/summary only when the tone actually
-    // changed (reused blocks keep theirs; fresh blocks always parse).
-    if (!block->toneVar.isObject() || block->toneJson != toneJson)
-      setToneOnBlock(*block, toneId, toneJson, juce::JSON::parse(toneJson));
-    else
-      block->toneId = toneId;
-    block->activeModelId = activeModelId;
-
-    // Engines survive only when the loaded model is still the right one.
-    // Everything else (fresh block, model switch, load still in flight)
-    // goes through the background loader: cache-first, network fallback.
-    if (modelChanged || !block->loaded) {
-      block->loaded = false;
-      block->loadFailed = false;  // fresh load queued below, back to loading UI
-      block->modelLoading = true;
-      // Project files and presets embed model bytes; seed the in-memory
-      // cache with the ones the block's tone still references (the active
-      // model, plus a local tone's full stored list) so those load and
-      // switch offline. Anything else is audition dead weight from states
-      // written by builds that persisted the whole cache (issue #127):
-      // unreachable through the stored tone, so seeding it would only
-      // balloon RAM and ride every later save. Skipping it here is what
-      // slims an already-bloated project on its next save. Undo snapshots
-      // are settings-only (no ModelCache child), so this is a no-op there.
-      // (toneJson/activeModelId were applied above, so referencesModel
-      // judges against exactly what this restore is installing.)
-      const juce::ValueTree cacheState = blockState.getChildWithName("ModelCache");
-      for (int j = 0; j < cacheState.getNumChildren(); ++j) {
-        const juce::ValueTree cachedModel = cacheState.getChild(j);
-        const int modelId = cachedModel.getProperty("modelId");
-        if (!block->referencesModel(modelId))
-          continue;
-        if (block->modelCache.find(modelId) != block->modelCache.end())
-          continue;
-        const juce::var dataVar = cachedModel.getProperty("data");
-        if (const auto* raw = dataVar.getBinaryData()) {
-          const auto* bytes = static_cast<const uint8_t*>(raw->getData());
-          block->modelCache[modelId].assign(bytes, bytes + raw->getSize());
-        } else {
-          juce::Logger::writeToLog("[Restore] Embedded model bytes for model " +
-                                   juce::String(modelId) + " missing (block " +
-                                   juce::String(block->id) + "); will refetch");
-        }
-      }
-      // One release-level line per reloading block: enough to diagnose
-      // "stuck loading after relaunch" reports from a user's log file.
-      juce::Logger::writeToLog(
-          "[Restore] Block " + juce::String(block->id) + " tone " + juce::String(toneId) +
-          " model " + juce::String(activeModelId) +
-          (block->modelCache.count(activeModelId) != 0 ? " (cached)" : " (needs fetch)") +
-          " queued for load");
-      queueActiveModelLoad(*block);
-    }
-
-    target.push_back(std::move(block));
+    target.push_back(reconcileBlockFromTree(blockState, existing));
   }
 
   // Reconciled chains always come back up to the minimum slot layout.
@@ -215,8 +268,9 @@ void TONE3000Processor::reconcileChainFromTree(const juce::ValueTree& chainState
   normalizeLaneInserts(target);
 
   // Whatever is still parked was removed by this restore.
-  for (auto& [id, b] : existing)
-    retired.push_back(std::move(b));
+  if (shared == nullptr)
+    for (auto& [id, b] : existing)
+      retired.push_back(std::move(b));
 }
 
 TONE3000Processor::Lane TONE3000Processor::restoreChainSnapshot(const juce::ValueTree& snapshot) {
@@ -224,14 +278,55 @@ TONE3000Processor::Lane TONE3000Processor::restoreChainSnapshot(const juce::Valu
   if (!snapshot.isValid())
     return retired;
 
-  reconcileChainFromTree(snapshot.getChildWithName("ChainBlocks"), lane(ChainSide::Left), retired);
+  // The snapshot's layout decides the mode, so an undo across a conversion
+  // (or a preset of the other kind) brings the mode with it.
+  if (snapshot.getProperty("layout").toString() == "grid") {
+    // A Grid node from a build this one cannot read is left alone. (The
+    // callers that can say so, a state or preset load, check first.)
+    if (const juce::String refusal = gridSnapshotRefusal(snapshot); refusal.isNotEmpty()) {
+      juce::Logger::writeToLog("[Restore] Grid state not restored: " + refusal);
+      return retired;
+    }
+    restoreGridSnapshot(snapshot, retired);
+    return retired;
+  }
+  // Out of a grid, a block may come back to a lane from any row (the undo of
+  // a move made together with the conversion): park them all in one map, so
+  // it returns with its engine. Between two legacy states each lane is
+  // reconciled against itself, as it always was.
+  ParkedBlocks fromGrid;
+  const bool leavingGrid = routingMode == RoutingMode::Grid;
+  if (leavingGrid) {
+    for (auto& l : lanes) {
+      for (auto& block : l)
+        if (block)
+          fromGrid[block->id] = std::move(block);
+      l.clear();
+    }
+    leaveGridMode(retired);
+  }
+
+  // No latency total is published for the half-rebuilt lanes in between:
+  // rebuildTopology below refreshes once, on the finished chain.
+  latencyRefreshSuspended = true;
+  reconcileChainFromTree(snapshot.getChildWithName("ChainBlocks"), lane(ChainSide::Left), retired,
+                         leavingGrid ? &fromGrid : nullptr);
   reconcileChainFromTree(snapshot.getChildWithName("RightChainBlocks"), lane(ChainSide::Right),
-                         retired);
+                         retired, leavingGrid ? &fromGrid : nullptr);
+  latencyRefreshSuspended = false;
+  for (auto& [id, block] : fromGrid)
+    retired.push_back(std::move(block));
+
+  // The scenes and stomps the snapshot was taken with. The block nodes just
+  // restored hold its active scene, so there is nothing to apply. A snapshot
+  // without the nodes (a rig saved before scenes, a reset) clears both:
+  // every scene then equals the restored state, with scene A active.
+  scenes.restoreFromValueTree(snapshot.getChildWithName("Scenes"));
+  stomps.restoreFromValueTree(snapshot.getChildWithName("Stomps"));
 
   const bool wasStereo = stereoEnabled.load();
   const bool snapStereo = static_cast<bool>(snapshot.getProperty("stereoEnabled", false));
 
-  auto& right = lane(ChainSide::Right);
   stereoEnabled.store(snapStereo);
   if (!snapStereo)
     pendingAddSide = ChainSide::Left;
@@ -248,7 +343,7 @@ TONE3000Processor::Lane TONE3000Processor::restoreChainSnapshot(const juce::Valu
                          : ChainSide::Left;
   branchAfterBlockId =
       snapshot.getProperty("branchAfterBlockId").toString().toStdString();
-  alignBranchLaneLengths();
+  rebuildTopology();
 
   // A restored *active* branch + a stereo feed would silently drop a
   // channel, so enforce the same invariant setChainBranch does (presets don't
@@ -260,7 +355,7 @@ TONE3000Processor::Lane TONE3000Processor::restoreChainSnapshot(const juce::Valu
   // Mirrors setStereoMode: the right chain's engines must be ready before the
   // audio thread starts running them.
   if (snapStereo && !wasStereo)
-    prepareChain(right);
+    prepareChain(laneIndex(ChainSide::Right));
 
   // Engines kept by the reconciliation were built for the voice count in
   // force when they loaded. A restore can move the requirement (a stereo
@@ -271,13 +366,17 @@ TONE3000Processor::Lane TONE3000Processor::restoreChainSnapshot(const juce::Valu
 
   // Restores can add/remove/retire IR blocks wholesale (undo/redo, presets,
   // project load), so resync the host-facing tail length.
-  refreshIrTailLength();
+  refreshBlockTailLength();
 
   bumpChainRevision();
   return retired;
 }
 
 bool TONE3000Processor::undoChain() {
+  // The snapshot taken for redo reads hosted plugins from their cached
+  // chunks; bring those up to date first (never under the chain lock).
+  serviceHostedPlugins();
+
   // No-op undos (hotkey spam at the stack end) must not dip the audio, so
   // check the stack before arming the fade.
   {
@@ -305,10 +404,15 @@ bool TONE3000Processor::undoChain() {
   // the splice, or the dry input plays while the engines rebuild. A
   // settings-only undo has nothing loading and releases immediately.
   editFade.releaseWhenChainLoadsSettle();
+  // What the restore queued for the legacy image controls, off the lock,
+  // and only after the hold above has looked at what is loading.
+  flushLegacyParamWrites();
   return true;
 }
 
 bool TONE3000Processor::redoChain() {
+  serviceHostedPlugins();  // see undoChain
+
   {
     juce::ScopedLock lock(chainMutex);
     if (!chainHistory.canRedo())
@@ -329,5 +433,6 @@ bool TONE3000Processor::redoChain() {
 
   // See undoChain: hold the mute through any queued reloads.
   editFade.releaseWhenChainLoadsSettle();
+  flushLegacyParamWrites();
   return true;
 }

@@ -54,10 +54,8 @@ public:
 
   void getTone(int toneId, Reply<Tone> reply) override;
   void listToneModels(int toneId, const juce::String& format, Reply<std::vector<Model>> reply) override;
-  void setToneFavorite(int toneId, bool favorite, Done done) override;
-  void searchTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) override;
+  void listTones(const ToneQuery& query, int page, int pageSize, Reply<TonePage> reply) override;
   void listTrending(const juce::String& gear, Reply<std::vector<Tone>> reply) override;
-  void listTaxonomy(Taxonomy kind, const juce::String& text, Reply<std::vector<TaxonomyEntry>> reply) override;
   void selectTone(int toneId, Done done) override;
   void ensureNativeAuth(Done done) override;
 

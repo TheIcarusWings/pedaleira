@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
 #include <atomic>
 #include <functional>
 #include <vector>
@@ -28,6 +29,22 @@
  *   - Preset steps ("presetPrevious" / "presetNext"): fire-per-press
  *     triggers that walk the preset list, for footswitches programmed with
  *     CC / note buttons instead of program changes.
+ *
+ * On top of the map there are fixed default controls, the conventions a MIDI
+ * foot controller can rely on without any setup (see FixedControl):
+ *
+ *   CC 43  value 0-7     selects scene A-H
+ *   CC 44  any press     tap tempo
+ *   CC 45  value >= 64   tuner on, below 64 off
+ *   CC 46                reserved: gig view (no engine side yet, ignored)
+ *   CC 47  value 0-3     footswitch mode: preset, scene, stomp, hybrid
+ *   CC 48-61             reserved: looper (deferred, ignored)
+ *
+ * They are defaults, not hard wiring. Each lives in a table that
+ * setFixedControlCc can re-point or switch off, and a controller number the
+ * user has mapped to a target of their own belongs to that mapping: the
+ * default on the same number then stays silent. Learn swallows them like
+ * any other event.
  *
  * Model: one source per target (mapping identity == targetId); one physical
  * control may drive any number of targets. A global channel filter (omni by
@@ -67,8 +84,28 @@ public:
   // Audio thread.
   void processMidi(const juce::MidiBuffer& midi);
 
+  /** The fixed default controls (see the class comment). */
+  enum class FixedControl : int { sceneSelect = 0, tapTempo, tuner, footswitchMode, count };
+  static constexpr int kNumFixedControls = static_cast<int>(FixedControl::count);
+  /** The controller numbers they answer to out of the box. */
+  static constexpr int kDefaultSceneSelectCc = 43;
+  static constexpr int kDefaultTapTempoCc = 44;
+  static constexpr int kDefaultTunerCc = 45;
+  static constexpr int kDefaultFootswitchModeCc = 47;
+  /** Reserved and ignored for now: gig view, and the looper's range. */
+  static constexpr int kReservedGigViewCc = 46;
+  static constexpr int kReservedLooperFirstCc = 48;
+  static constexpr int kReservedLooperLastCc = 61;
+
+  /** Re-point a fixed control to another controller number, or switch it off
+      with -1. Any thread. Not saved: the hook a later, user-editable version
+      of these defaults stores through. */
+  void setFixedControlCc(FixedControl control, int ccNumber);
+  int getFixedControlCc(FixedControl control) const;
+
   // Message thread (the UI's calls).
-  /** { channel, learnTargetId, mappings: [{ targetId, source, number }] } */
+  /** { channel, learnTargetId, mappings: [{ targetId, source, number }],
+        defaults: [{ action, cc, overridden }] } */
   juce::var getState() const;
   /** Global channel filter: 0 = omni, 1-16 = that channel only. */
   void setChannelFilter(int channel);
@@ -106,6 +143,15 @@ public:
   /** Mapped preset prev/next controls fired; delta is the net step count
       (+1 per next press, -1 per previous, coalesced like the toggles). */
   std::function<void(int delta)> onPresetStep;
+  /** The fixed controls (message thread, like everything above). A scene
+      select delivers the scene index 0-7, last one wins. */
+  std::function<void(int scene)> onSceneSelect;
+  /** One call per tap, in order, with the time the tap's buffer arrived in
+      milliseconds (juce::Time::getMillisecondCounterHiRes). */
+  std::function<void(double timeMs)> onTapTempo;
+  std::function<void(bool enabled)> onTunerEnabled;
+  /** The footswitch mode index 0-3 (preset, scene, stomp, hybrid). */
+  std::function<void(int mode)> onFootswitchMode;
 
 private:
   enum class Source : int { cc = 0, note = 1 };
@@ -157,6 +203,10 @@ private:
 
   Mapping makeMapping(const juce::String& targetId, Source source, int number) const;
   void applyEvent(Mapping& mapping, const juce::MidiMessage& msg);
+  /** Audio thread: a controller event no user mapping claimed. Runs the
+      fixed control on that number, if any, by recording it for the message
+      thread. `timeMs` is when the buffer arrived. */
+  void applyFixedControl(int ccNumber, int value, double timeMs);
 
   /** All deferred work lands here on the message thread: commit a pending
       learn capture, deliver program changes and block toggles, and fire
@@ -189,6 +239,23 @@ private:
   std::atomic<int> pendingStereoToggles{0};  // flip count; parity applies
   std::atomic<int> pendingPresetSteps{0};    // signed sum of ±1 steps
   std::atomic<bool> mapDirty{false};                 // gate for onChanged
+
+  // The fixed controls: the controller each answers to (-1 = off), and what
+  // the audio thread hands to the message thread for them. Scene, tuner and
+  // mode are last-one-wins; taps are queued with their times (one producer,
+  // the audio thread, and one consumer, so a plain FIFO) because the
+  // intervals between them are the whole message.
+  std::array<std::atomic<int>, kNumFixedControls> fixedControlCc{
+      kDefaultSceneSelectCc, kDefaultTapTempoCc, kDefaultTunerCc, kDefaultFootswitchModeCc};
+  std::atomic<int> pendingScene{-1};
+  std::atomic<int> pendingTuner{-1};  // 0 / 1
+  std::atomic<int> pendingFootswitchMode{-1};
+  static constexpr int kTapQueueSize = 32;
+  juce::AbstractFifo tapQueue{kTapQueueSize};
+  std::array<double, kTapQueueSize> tapTimes{};
+  // Audio-thread scratch for the tap control's press detection (see
+  // applyEvent): the last value its controller sent, -1 before the first.
+  int lastTapCcValue{-1};
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiMapper)
 };

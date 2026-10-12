@@ -25,6 +25,7 @@ public:
   ScaledHost(Backend& backend, const Scenario& scenario, const juce::var& fixtures);
 
   PluginRoot& pluginRoot() { return *root; }
+  MockSession& mockSession() { return session; }
 
   void setExtraContentHeight(int total, int) override;
   void resized() override;

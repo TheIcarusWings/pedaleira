@@ -228,20 +228,9 @@ const std::map<juce::String, Drive>& drives() {
          if (auto* v = dynamic_cast<DragScroller*>(scroller)) v->setViewPosition(0, 100);
          wait(100);
        }},
-      {"browser-search-typed",
-       [](PluginRoot& root, MockBackend&) {
-         submit(root, juce::String::fromUTF8("Search\xe2\x80\xa6"), "vox");
-         wait(400);
-         unhover(root);
-       }},
       {"browser-gear",
        [](PluginRoot& root, MockBackend&) {
          if (auto* chip = buttonNamed(root, "Pedal")) click(root, *chip);
-         wait(400);
-       }},
-      {"browser-verified",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Verified:");
          wait(400);
        }},
       // Signed out: the trending preview. The gear chips are the only
@@ -305,16 +294,6 @@ const std::map<juce::String, Drive>& drives() {
          wait(400);
          unhover(root);
        }},
-      {"browser-profile-search",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Profile:");
-         wait(200);
-         if (auto* row = buttonNamed(root, "Recently used")) click(root, *row);
-         wait(300);
-         submit(root, juce::String::fromUTF8("Search\xe2\x80\xa6"), "vox");
-         wait(400);
-         unhover(root);
-       }},
       {"browser-profile-empty",
        [](PluginRoot& root, MockBackend&) {
          clickByHelp(root, "Profile:");
@@ -323,87 +302,10 @@ const std::map<juce::String, Drive>& drives() {
          wait(400);
          unhover(root);
        }},
-      {"browser-filters-expanded",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(300);
-         unhover(root);
-       }},
-      {"browser-sort-menu",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Sort:");
-         wait(300);
-       }},
-      {"browser-sort-cleared",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Sort:");
-         wait(200);
-         if (auto* newest = buttonNamed(root, "Newest")) click(root, *newest);
-         wait(300);
-         // The chip now reads Newest ×, with the clear-filter hint. Its menu
-         // again, then a press on its ×.
-         auto* chip = dynamic_cast<FilterChip*>(buttonNamed(root, "Newest"));
-         if (chip) click(root, *chip);
-         wait(200);
-         if (chip && chip->onClear) chip->onClear();
-         wait(300);
-       }},
       {"browser-zoom-menu",
        [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Sort:");
+         clickByHelp(root, "Profile:");
          wait(300);
-       }},
-      {"browser-sort-newest",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Sort:");
-         wait(200);
-         if (auto* row = buttonNamed(root, "Newest")) click(root, *row);
-         wait(400);
-         unhover(root);
-       }},
-      {"browser-calibrated-ir",
-       [](PluginRoot& root, MockBackend&) {
-         if (auto* chip = buttonNamed(root, "Cabinet")) click(root, *chip);
-         wait(300);
-         clickByHelp(root, "Filters:");
-         wait(400);
-         unhover(root);
-       }},
-      {"browser-format-ir",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Format:");
-         wait(200);
-         if (auto* row = buttonNamed(root, "Impulse Response (IR)")) click(root, *row);
-         wait(400);
-         unhover(root);
-       }},
-      {"browser-tags-menu",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Tags:");
-         wait(400);
-       }},
-      {"browser-tags-picked",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Tags:");
-         wait(300);
-         if (auto* row = buttonNamed(root, "rock")) click(root, *row);
-         wait(300);
-         if (auto* chip = buttonNamed(root, "rock")) click(root, *chip);  // the chip reopens the menu, rock ticked
-         wait(400);
        }},
       {"browser-scrolled",
        [](PluginRoot& root, MockBackend&) {
@@ -411,20 +313,6 @@ const std::map<juce::String, Drive>& drives() {
            scrollIntoView(*card);
            hover(root, *card);
          }
-         wait(300);
-       }},
-      {"browser-creators-menu",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Creators:");
-         wait(400);
-       }},
-      {"browser-format-menu",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Format:");
          wait(300);
        }},
       // Leave the browser with a gear chip set and come back: the chip and
@@ -437,18 +325,6 @@ const std::map<juce::String, Drive>& drives() {
          wait(300);
          clickByHelp(root, "Add Tone");
          wait(300);
-         unhover(root);
-       }},
-      {"browser-filters-active-collapsed",
-       [](PluginRoot& root, MockBackend&) {
-         clickByHelp(root, "Filters:");
-         wait(200);
-         clickByHelp(root, "Format:");
-         wait(200);
-         if (auto* row = buttonNamed(root, "Impulse Response (IR)")) click(root, *row);
-         wait(300);
-         clickByHelp(root, "Fewer filters:");
-         wait(400);
          unhover(root);
        }},
       {"chrome-toast-saved",

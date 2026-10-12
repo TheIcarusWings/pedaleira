@@ -1,0 +1,272 @@
+// The grid editor (the boards "Grid editor" and "Add a split"): the scenes
+// strip, the rows with their inputs, slots, cables, split and mix points
+// and outputs, and below them the panel of what is selected: a block with
+// its knobs and per-scene values, or a splitter or mixer with its own.
+// Everything it shows comes from GridModel; everything it changes goes
+// through the engine's commands.
+#pragma once
+
+#include "../EngineClient.h"
+#include "../widgets/Controls.h"
+#include "../widgets/Knob.h"
+#include "../widgets/Tile.h"
+#include "BlockEditorPage.h"
+#include "BlockPicker.h"
+#include "GridModel.h"
+#include "ParamKnobs.h"
+#include "ScenePanel.h"
+#include "StompPanel.h"
+
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include <array>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <vector>
+
+namespace pedaleira::ui {
+
+class ScenesStrip : public juce::Component {
+public:
+  void setScenes(const std::vector<GridScene>& scenes);
+  std::function<void(const juce::String&)> onSelect;
+
+  void paint(juce::Graphics& g) override;
+  void mouseUp(const juce::MouseEvent& event) override;
+
+private:
+  juce::Rectangle<float> buttonBounds(int index) const;
+  std::vector<GridScene> scenes;
+};
+
+// A split or mix point: the split's upper row and which of its two points.
+struct GridPoint {
+  int row = 0;
+  bool mix = false;
+  bool operator==(const GridPoint& other) const { return row == other.row && mix == other.mix; }
+};
+
+class GridView : public juce::Component {
+public:
+  GridView();
+  ~GridView() override;
+
+  void setModel(const GridModel& model, const juce::String& selectedBlock, std::optional<GridPoint> selectedPoint);
+  // Blocks outlined as selected besides the selected one (a stomp switch's).
+  void setHighlighted(const juce::StringArray& blockIds) { highlighted = blockIds; }
+
+  std::function<void(const juce::String& blockId)> onSelectBlock;
+  std::function<void(int row, int slot)> onEmptySlot;
+  std::function<void(GridPoint)> onSelectPoint;
+  // A point dragged to another boundary.
+  std::function<void(GridPoint, int boundary)> onMovePoint;
+  // A block dropped on a slot (swap), or on the free row below (a split).
+  std::function<void(const juce::String& blockId, int row, int slot)> onMoveBlock;
+  // The cable menu: split the row at a boundary, or add a block there.
+  std::function<void(int row, int boundary)> onSplitHere;
+  std::function<void(int row, int slot)> onInsertHere;
+  std::function<void(const juce::String& blockId)> onDuplicate;
+  std::function<void(const juce::String& blockId)> onRemove;
+  std::function<void()> onAddRow;
+  // A tile double-clicked: open its editor.
+  std::function<void(const juce::String& blockId)> onOpenBlock;
+
+  void paint(juce::Graphics& g) override;
+  void paintOverChildren(juce::Graphics& g) override;
+  void resized() override;
+  void mouseMove(const juce::MouseEvent& event) override;
+  void mouseExit(const juce::MouseEvent& event) override;
+  void mouseDown(const juce::MouseEvent& event) override;
+  void mouseDrag(const juce::MouseEvent& event) override;
+  void mouseUp(const juce::MouseEvent& event) override;
+  bool keyPressed(const juce::KeyPress& key) override;
+
+  // Layout, from the board.
+  static constexpr int kRowTop = 32;
+  static constexpr int kRowPitch = 104;
+  static constexpr int kInputX = 24;
+  static constexpr int kInputWidth = 100;
+  static constexpr int kFirstSlotX = 152;
+  static constexpr int kSlotPitch = 124;
+  static constexpr int kSlotWidth = 96;
+  static constexpr int kSlotHeight = 76;
+  static constexpr int kOutputWidth = 200;
+
+private:
+  struct Cable {
+    int row = -1;
+    int boundary = 0;
+  };
+  int rowTop(int visibleIndex) const { return kRowTop + visibleIndex * kRowPitch; }
+  int visibleIndexOf(int row) const;
+  // The x of the boundary before slot `boundary` (0 to 8): the middle of the
+  // gap, where split and mix points sit.
+  static float boundaryX(int boundary) { return kFirstSlotX + boundary * kSlotPitch - (kSlotPitch - kSlotWidth) * 0.5f; }
+  juce::Rectangle<int> addRowBounds() const;
+  std::optional<GridPoint> pointAt(juce::Point<float> position) const;
+  juce::Point<float> pointPosition(GridPoint point) const;
+  // The boundaries a point may move to.
+  std::vector<int> legalBoundaries(GridPoint point) const;
+  Cable cableAt(juce::Point<float> position) const;
+  // The slot under a position, as row and slot.
+  std::optional<std::pair<int, int>> slotAt(juce::Point<int> position) const;
+  void showCableMenu(Cable cable);
+  void tileMouseDown(int row, int slot, const juce::MouseEvent& event);
+  void tileMouseDrag(int row, int slot, const juce::MouseEvent& event);
+  void tileMouseUp(int row, int slot, const juce::MouseEvent& event);
+  void cancelDrags();
+
+  GridModel model;
+  std::vector<int> shown;
+  std::optional<GridPoint> selectedPoint;
+  juce::StringArray highlighted;
+  std::array<std::array<std::unique_ptr<Tile>, 8>, 4> tiles;
+
+  Cable hoverCable;
+  std::optional<GridPoint> draggingPoint;
+  juce::Point<float> dragPosition;
+  // A block on the move: where it came from and where the mouse is.
+  std::optional<std::pair<int, int>> draggingTile;
+  juce::Point<int> tileDragPosition;
+
+  struct TileMouse;
+  std::vector<std::unique_ptr<TileMouse>> tileMice;
+};
+
+class BlockPanel : public juce::Component {
+public:
+  explicit BlockPanel(EngineClient& engine);
+
+  // Reads the block's parameters again (after a selection or a change).
+  void showBlock(const GridModel& model, const juce::String& blockId);
+
+  std::function<void(const juce::String& blockId)> onOpenEditor;
+  std::function<void(const juce::String& blockId)> onReplace;
+  std::function<void()> onChanged;
+
+  void paint(juce::Graphics& g) override;
+  void resized() override;
+
+private:
+  void showSceneValues(int paramIndex);
+  void openKnobMenu(int paramIndex);
+
+  EngineClient& engine;
+  juce::String blockId;
+  juce::String title, subtitle, activeScene;
+  Category category = Category::utility;
+  bool hasBlock = false;
+  std::vector<KnobParam> params;
+  std::vector<std::unique_ptr<Knob>> knobs;
+  int sceneParam = -1;
+  std::vector<std::pair<juce::String, double>> sceneValues;
+
+  Toggle enabled{"Block on"};
+  PushButton assignFootswitch{"Assign footswitch"};
+  PushButton replace{"Replace"};
+  PushButton openEditor{"Open editor"};
+  juce::Rectangle<int> sceneBox;
+};
+
+// The splitter or the mixer of a split (the boards "Splitter selected" and
+// "Mixer selected").
+class SplitPanel : public juce::Component {
+public:
+  explicit SplitPanel(EngineClient& engine);
+
+  void showPoint(const GridModel& model, GridPoint point);
+  std::function<void()> onChanged;
+
+  void paint(juce::Graphics& g) override;
+  void resized() override;
+
+private:
+  void addKnob(const juce::String& id, const juce::String& name, int group);
+  void setParam(const juce::String& id, double value);
+  juce::String blocksOf(const GridModel& model, int row, int from, int to) const;
+
+  EngineClient& engine;
+  GridPoint point;
+  juce::String title, subtitle, type;
+  std::vector<KnobParam> specs;
+  struct Placed {
+    std::unique_ptr<Knob> knob;
+    KnobParam param;
+    int group = 0;
+  };
+  std::vector<Placed> knobs;
+  juce::String pathA, pathB;
+  SegmentedControl typeChoice{{"Balance", "A/B", "Crossover"}};
+  Toggle muteToggle{"Mute"};
+  Toggle secondToggle{"Second switch"};
+  juce::String secondLabel;
+  PushButton remove{"Remove split"};
+  std::array<juce::Rectangle<int>, 3> groups;
+};
+
+class GridPage : public juce::Component {
+public:
+  explicit GridPage(EngineClient& engine);
+
+  // The rig changed: read it again.
+  void rigChanged();
+  void selectBlock(const juce::String& blockId);
+  void selectPoint(GridPoint point);
+  // The block library over the page, adding to that slot.
+  void openPicker(int row, int slot);
+  BlockPicker& picker() { return library; }
+  const GridModel& currentModel() const { return model; }
+  // The editor of a block over the page (NAM capture, IR or built-in
+  // effect), with "Back to grid" to return.
+  void openEditor(const juce::String& blockId);
+  void closeEditor();
+  bool isEditorOpen() const { return editorShown; }
+  BlockEditorPage& blockEditor() { return editor; }
+
+  // What the panel under the grid shows: the selected block or split, the
+  // active scene, or the stomp assignments. Clicking a block shows the first,
+  // a scene in the strip the second, and the footswitch mode follows: Scene
+  // mode shows the scene, Stomp mode the assignments.
+  enum class Panel { selection, scene, stomp };
+  void showPanel(Panel panel);
+  Panel currentPanel() const { return panel; }
+  StompPanel& stompView() { return stompPanel; }
+  ScenePanel& sceneView() { return scenePanel; }
+
+  // "Footswitch modes" on the scene and stomp panels.
+  std::function<void()> onOpenModes;
+
+  // A hosted plugin's block has its own window, which is another page's
+  // job: the editor of such a block is asked for here first, with the
+  // window's title. False (no plugin editor) opens the generated one.
+  std::function<bool(const juce::String& blockId, const juce::String& title)> onOpenPluginWindow;
+
+  void paint(juce::Graphics& g) override;
+  void resized() override;
+
+private:
+  // Converts a legacy rig to the grid before the first edit.
+  void ensureGrid();
+  void refreshViews();
+  void setEditorShown(bool shown);
+  void requestEditor(const juce::String& blockId);
+
+  EngineClient& engine;
+  GridModel model;
+  juce::String selected;
+  std::optional<GridPoint> point;
+  ScenesStrip scenes;
+  GridView grid;
+  BlockPanel blockPanel;
+  SplitPanel splitPanel;
+  ScenePanel scenePanel;
+  StompPanel stompPanel;
+  Panel panel = Panel::selection;
+  juce::String seenMode;
+  BlockEditorPage editor;
+  BlockPicker library;
+  bool editorShown = false;
+};
+
+}  // namespace pedaleira::ui

@@ -104,7 +104,7 @@ plugin/ui/
                       resampled once at device density), Wheel
   model/              juce::var → structs: ChainState, Tone, AudioDeviceState,
                       MidiMapState (VarReader); ToneQuery (the browser's
-                      filters → the API query string)
+                      gear and profile → the API list path)
   backend/            ui::Backend (everything the UI asks of the processor)
                       and ProcessorBackend over TONE3000Processor
   services/           Services (one bundle per editor) and its members
@@ -130,7 +130,7 @@ plugin/ui/
                       SignInScreen, …
     gallery/          ChainView, GalleryLane, ToneTile, AddTile, StereoPanRail
     block/            BlockDetail, BlockCard, BlockInfoPanel, BlockEqView
-    browser/          ToneBrowser (the Select tone takeover: search + FilterBar over
+    browser/          ToneBrowser (the Select tone takeover: FilterBar over
                       the card grid, Paginator pinned under it), FilterBar /
                       FilterChip / FilterMenu, ToneCard, Paginator, BrowserPrompt
     settings/         SettingsScreen, PluginSettingsPage, SystemSettingsPage,
@@ -250,58 +250,47 @@ the editor stops the listener and the polling; a stale callback is ignored.
 
 The screen takes over everything under the header (meters, chain and
 faceplate; `PluginRoot` mounts it only while open and hides what it
-covers). Searching needs a session. Signed out, the screen is a preview
-instead: the gear chips alone (`FilterBar::setGearOnly`) over TONE3000's
-trending feed (`ToneSession::listTrending`, `GET /tones/trending[?gear=]`,
-which takes no token; the feed's one filter is the gear, and the pick is
-the same `ToneQuery::gear` so it carries into the search after sign-in),
-with a `BrowserPrompt` CTA under the cards ("Discover a zillion more tones."
-/ "Sign in or create free account"). A card click opens the sign-in page
+covers). There is no catalog search: Pedaleira uses TONE3000's free API
+tier, which has only bounded lists, so search, sort, the format / tags /
+makes / creators / calibrated / verified filters and favouriting are not
+offered (`Tone3000Client` refuses those requests, see below). The default
+view is TONE3000's trending feed (`ToneSession::listTrending`,
+`GET /tones/trending[?gear=]`, the top 10, which takes no token); signed
+out, the gear chips alone (`FilterBar::setGearOnly`) sit over it with a
+`BrowserPrompt` CTA under the cards ("Discover a zillion more tones." /
+"Sign in or create free account"). A card click opens the sign-in page
 (the bare `←` back to the cards, the prompt centred); either button runs the
 browse-intent login, which lands back on this same screen signed in
-(`browser-signed-out*`). Signed in, `ToneBrowser` pins a search box and a `FilterBar`
-above the card grid and the `Paginator` below it; the grid scrolls between
-the two, fading out under each, and asks `ToneSession::searchTones` for one
-page at a time. The ← row zooms with the window; the body under it does
-not: it is laid out in screen pixels under the zoom, the search box and
-filter row keep their 1x height and widen with the column, the cards keep
-their 1x height and widen to fill two columns, and go three-up once three
-fit at the default width (`browser-zoom-wide`, `browser-zoom-three-up`,
-`browser-zoom-menu`; a scenario's `zoom` sizes the testbed window).
+(`browser-signed-out*`). Signed in, `ToneBrowser` pins a `FilterBar` above
+the card grid and the `Paginator` below it; the grid scrolls between the
+two, fading out under each, and asks `ToneSession::listTones` for one page at
+a time: the trending feed by default, or the Profile chip's list (Recently
+used, Favorites, Created: `GET /tones/{downloaded,favorited,created}`, which
+page). Under the cards a muted line points to tone3000.com for the full
+catalogue. The ← row zooms with the window; the body under it does not: it
+is laid out in screen pixels under the zoom, the filter row keeps its 1x
+height and widens with the column, the cards keep their 1x height and widen
+to fill two columns, and go three-up once three fit at the default width
+(`browser-zoom-wide`, `browser-zoom-three-up`, `browser-zoom-menu`; a
+scenario's `zoom` sizes the testbed window).
 
 - `BrowserState` (`services/`, one per editor) is what the screen keeps
-  between visits: the `ToneQuery`, whether the filter row is unfolded, the
-  page and the page's results (flagged when they are the signed-out
-  trending feed, so a return across a sign-in or out fetches instead). The
-  browser is mounted only while open, so coming back renders the last page
-  at once with no fetch; it refreshes on the next search, filter change or
-  page turn. Closing the editor forgets it.
-- `ToneQuery` (model) is the one place the filters live: text, sort, gear,
-  format, tags / makes / creators, calibrated, verified, profile. It builds
-  the API path itself (`requestPath`): `/tones/search` with the query string,
-  or `/tones/{downloaded,favorited,created}` with the title search and gear
-  alone when a profile filter is set. The plugin's NAM architecture always rides along (the API
-  ignores it for IR, and omitting it falls back to a legacy A1-only default).
-  The default sort (best match with text, else trending) is stored as no
-  pick, so Trending never reads as a filter. Unit-tested in `SelfTests.cpp`.
+  between visits: the `ToneQuery`, the page and the page's results (flagged
+  when they are the trending feed, so a return across a sign-in or out, or a
+  profile change, fetches instead). The browser is mounted only while open,
+  so coming back renders the last page at once with no fetch; it refreshes
+  on the next filter change or page turn. Closing the editor forgets it.
+- `ToneQuery` (model) is the one place the filters live: gear and profile.
+  It builds the API path itself (`requestPath`): `/tones/trending` (gear
+  only, no paging) by default, or `/tones/{downloaded,favorited,created}`
+  with the page and gear when a profile is set. It can name no other
+  endpoint. Unit-tested in `SelfTests.cpp`.
 - `FilterBar` edits the state's query through one horizontally scrolling row
-  of chips (`FilterChip`): the filters button, then (once unfolded, pushing
-  the rest right) Sort, Format, Tags, Makes, Creators, Calibrated, a
-  divider, then verified, the profile chip (the user's avatar alone until a
-  profile is picked) and the gear chips. A chip holding a value shows it
-  with an × that clears it (Sort: back to the default); the filters button
-  carries a dot while any of the unfolded ones are set. A profile filter
-  parks the catalog-only controls (dimmed, hint says why) without losing
-  their values; the search box stays live, matching titles within the
-  stream; IR gear (cabinet, space) or the IR
-  format parks Calibrated the same way, and the flag stays out of the
-  request (`ToneQuery::calibratedInForce`).
-- `FilterMenu` is the dropdown (`Popover`). Single-pick menus (Sort, Format,
-  Profile) show the current value in white; multi-pick ones add a check
-  column. Rows may lead with an icon (Favorites' bookmark) or a creator
-  avatar. Taxonomy menus add a search field and look their rows up from
-  `ToneSession::listTaxonomy` (debounced, a newer lookup cancels the one in
-  flight). Any pick closes the menu.
-- The search box submits on Enter (or its ×, or Escape, which clear it);
-  every filter change fetches page 1 at once. An older page arriving after
+  of chips (`FilterChip`): the profile chip (the user's avatar alone until a
+  profile is picked, then its name with an × back to the trending feed), a
+  divider, and the gear chips. Signed out the row is the gear chips alone.
+- `FilterMenu` is the dropdown (`Popover`) the profile chip opens: the
+  current value in white, rows that may lead with an icon (Favorites'
+  bookmark). Any pick closes the menu.
+- Every filter change fetches page 1 at once. An older page arriving after
   a newer one is dropped.

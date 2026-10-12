@@ -31,6 +31,39 @@ std::optional<Tokens> Tokens::fromTokenResponse(const juce::var& v, juce::int64 
   return t;
 }
 
+// Free tier
+namespace {
+bool isDigits(const juce::String& s) { return s.isNotEmpty() && s.containsOnly("0123456789"); }
+}  // namespace
+
+bool Tone3000Client::freeTierAllows(const juce::String& path, const juce::String& method) {
+  if (!kFreeTier) return true;
+  constexpr auto prefix = "/api/v1/";
+  if (!path.startsWith(prefix)) return false;
+  const auto route = path.fromFirstOccurrenceOf(prefix, false, false).upToFirstOccurrenceOf("?", false, false);
+  const auto parts = juce::StringArray::fromTokens(route, "/", "");
+  if (parts.isEmpty()) return false;
+  if (parts[0] == "oauth") return true;  // the prompt flows and token endpoints
+  if (method != "GET") return false;
+  if (parts.size() == 1) return parts[0] == "user" || parts[0] == "models";
+  if (parts.size() != 2) return false;
+  if (parts[0] == "plugin") return parts[1] == "version";
+  if (parts[0] != "tones") return false;
+  // A tone by id, and the bounded lists. Not "search".
+  if (isDigits(parts[1])) return true;
+  for (const char* list : {"created", "favorited", "downloaded", "trending", "latest"})
+    if (parts[1] == list) return true;
+  return false;
+}
+
+juce::String Tone3000Client::freeTierError(const juce::String& path) {
+  if (path.contains("/tones/search")) return "Search is not available on the TONE3000 free API tier.";
+  if (path.contains("/favorite")) return "Favoriting is not available on the TONE3000 free API tier.";
+  if (path.contains("/api/v1/tags") || path.contains("/api/v1/makes") || path.contains("/api/v1/users"))
+    return "The tag, make and creator lists are not available on the TONE3000 free API tier.";
+  return "That request is not available on the TONE3000 free API tier.";
+}
+
 // Client
 Tone3000Client::Tone3000Client(HttpTransport& http, UiPrefs& prefs, juce::String apiOrigin,
                                juce::String publishableKey)
@@ -202,6 +235,10 @@ void Tone3000Client::anonymousRequest(const juce::String& path, const juce::Stri
 
 void Tone3000Client::fetch(const juce::String& path, const juce::String& method, const juce::String& jsonBody,
                            Reply<HttpResponse> reply) {
+  if (!freeTierAllows(path, method)) {
+    reply(Result<HttpResponse>::fail(freeTierError(path)));
+    return;
+  }
   getAccessToken([self = juce::WeakReference<Tone3000Client>(this), path, method, jsonBody,
                   cb = std::move(reply)](Result<juce::String> token) mutable {
     if (self == nullptr) return;
@@ -239,6 +276,10 @@ void Tone3000Client::fetch(const juce::String& path, const juce::String& method,
 
 void Tone3000Client::fetchOptionalAuth(const juce::String& path, juce::StringPairArray headers,
                                        Reply<HttpResponse> reply) {
+  if (!freeTierAllows(path, "GET")) {
+    reply(Result<HttpResponse>::fail(freeTierError(path)));
+    return;
+  }
   auto anonymous = [self = juce::WeakReference<Tone3000Client>(this), path, headers, reply] {
     if (self == nullptr) return;
     self->anonymousRequest(path, headers, [self, reply](HttpResponse r) {
@@ -287,16 +328,6 @@ void Tone3000Client::getTone(int toneId, Reply<juce::var> reply) {
   getJson("/api/v1/tones/" + juce::String(toneId), "getTone", std::move(reply));
 }
 
-void Tone3000Client::setFavorite(int toneId, bool favorite, Reply<bool> reply) {
-  const auto label = juce::String(favorite ? "favoriteTone" : "unfavoriteTone");
-  fetch("/api/v1/tones/" + juce::String(toneId) + "/favorite", favorite ? "PUT" : "DELETE", {},
-        [label, cb = std::move(reply)](Result<HttpResponse> r) {
-          if (!r) return cb(Result<bool>::fail(r.error));
-          if (!r->ok()) return cb(Result<bool>::fail(label + " failed: " + juce::String(r->status)));
-          cb(Result<bool>::ok(true));
-        });
-}
-
 void Tone3000Client::listTones(const juce::String& path, Reply<juce::var> reply) {
   getJson(path, "listTones", std::move(reply));
 }
@@ -309,13 +340,6 @@ void Tone3000Client::listTrending(const juce::String& gear, Reply<juce::var> rep
     if (!r->ok()) return cb(Result<juce::var>::fail("listTrending failed: " + juce::String(r->status)));
     cb(Result<juce::var>::ok(r->json()));
   });
-}
-
-void Tone3000Client::listTaxonomy(Taxonomy kind, const juce::String& query, int pageSize, Reply<juce::var> reply) {
-  const char* endpoint = kind == Taxonomy::tags ? "tags" : kind == Taxonomy::makes ? "makes" : "users";
-  juce::String path = "/api/v1/" + juce::String(endpoint) + "?page=1&page_size=" + juce::String(pageSize);
-  if (query.isNotEmpty()) path << "&query=" << juce::URL::addEscapeChars(query, true);
-  getJson(path, "list " + juce::String(endpoint), std::move(reply));
 }
 
 void Tone3000Client::listModels(int toneId, int pageSize, int architecture, Reply<juce::var> reply) {

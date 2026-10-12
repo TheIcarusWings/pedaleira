@@ -18,12 +18,10 @@ constexpr const char* kSignInHeading = "Sign in to see your tones and discover a
 constexpr const char* kSignInLabel = "Sign in or create free account";
 constexpr const char* kFetchError = "Failed to load tones from TONE3000.";
 constexpr const char* kPickError = "Failed to load that tone. Please try again.";
+// Under the signed-in cards: the catalogue lives on the site (no in-app search).
+constexpr const char* kCatalogueFootnote = "Looking for something else? Browse the full catalogue on tone3000.com.";
 constexpr float kPickErrorPx = 12;
 constexpr float kEmptyPx = 13;
-constexpr float kSearchPx = 14;
-constexpr int kSearchIcon = 18;
-constexpr int kSearchPadX = 16;
-constexpr int kSearchIconGap = 10;
 // Cards slide under the filter row and the paginator through this much
 // black: a solid band right at the edge, then a fade that starts steep
 // (alpha (1-t)^1.5) so the cards read as gone before they reach it.
@@ -60,16 +58,18 @@ private:
 };
 
 // The scrolled column: hosts the cards, prompts and paginator, and paints
-// the two bare text rows (pick error, empty copy) itself.
+// the bare text rows (pick error, empty copy, catalogue footnote) itself.
 class ToneBrowser::Content : public juce::Component {
 public:
-  juce::String pickError, emptyCopy;
-  juce::Rectangle<int> pickErrorBox, emptyBox;
+  juce::String pickError, emptyCopy, footnote;
+  juce::Rectangle<int> pickErrorBox, emptyBox, footnoteBox;
 
   void paint(juce::Graphics& g) override {
     if (pickError.isNotEmpty()) paint::text(g, pickError, pickErrorBox, Fonts::sans(kPickErrorPx), theme::kBrandRed);
     if (emptyCopy.isNotEmpty())
       paint::text(g, emptyCopy, emptyBox, Fonts::sans(kEmptyPx), theme::kMuted, juce::Justification::centred);
+    if (footnote.isNotEmpty())
+      paint::text(g, footnote, footnoteBox, Fonts::sans(kEmptyPx), theme::kMuted, juce::Justification::centred);
   }
 };
 
@@ -91,21 +91,6 @@ ToneBrowser::ToneBrowser(Services& services)
   addChildComponent(signInBack_);
   addAndMakeVisible(*body_);
 
-  search_.setPlaceholder(juce::String::fromUTF8("Search\xe2\x80\xa6"));
-  search_.setFontSize(kSearchPx);
-  search_.setCornerRadius(kSearchHeight / 2.0f);
-  search_.setPadding(0, kSearchPadX + kSearchIcon + kSearchIconGap, kSearchPadX + kSearchIcon + kSearchIconGap);
-  search_.setLeadingIcon(Icon::Search, kSearchIcon, kSearchPadX, theme::kGray);
-  search_.setClearButton(kSearchIcon, kSearchPadX);
-  search_.setText(state_.query.text);
-  search_.onEnter = [this] { submit(); };
-  search_.onClear = [this] { submit(); };
-  search_.onEscape = [this] {
-    search_.setText({});
-    submit();
-  };
-  body_->addChildComponent(search_);
-
   filters_.onChange = [this] { queryChanged(); };
   body_->addChildComponent(filters_);
 
@@ -119,9 +104,9 @@ ToneBrowser::ToneBrowser(Services& services)
   services_.session.addListener(this);
   services_.zoom.addListener(this);
   // Back to the page this screen was left on, so long as it is the same
-  // kind of page (a signed-in search page, or the signed-out trending feed);
-  // a fresh visit, or one across a sign-in / out, fetches.
-  if (state_.result && state_.resultIsTrending == signedOut() && !authPending()) {
+  // kind of page (the trending feed, or a profile list); a fresh visit, or
+  // one across a sign-in / out, fetches.
+  if (state_.result && state_.resultIsTrending == showsTrending() && !authPending()) {
     loading_ = false;
     rebuildCards();
     rebuildBody();
@@ -148,12 +133,6 @@ void ToneBrowser::authFlowChanged() {
   if (!authPending() && loading_ && !state_.result) fetch();
 }
 
-void ToneBrowser::submit() {
-  state_.query.text = search_.text();
-  filters_.refresh();  // the default sort follows the text
-  queryChanged();
-}
-
 void ToneBrowser::queryChanged() {
   state_.page = 1;
   fetch();
@@ -171,7 +150,7 @@ void ToneBrowser::fetch() {
   // loading state; authFlowChanged reruns this once it clears.
   if (authPending()) return;
 
-  // Signed out: the trending preview (a search would only fail with
+  // Signed out: the trending preview (a profile list would only fail with
   // not_authenticated and trip the client's re-auth callback).
   if (signedOut()) {
     fetchTrending();
@@ -182,9 +161,9 @@ void ToneBrowser::fetch() {
   loading_ = true;
   error_ = false;
   rebuildBody();
-  services_.session.searchTones(state_.query, state_.page, kPageSize, fetchScope_.wrap([this](ui::Result<TonePage> r) {
+  services_.session.listTones(state_.query, state_.page, kPageSize, fetchScope_.wrap([this](ui::Result<TonePage> r) {
     if (r) {
-      state_.resultIsTrending = false;
+      state_.resultIsTrending = state_.query.isTrending();
       pageLoaded(std::move(*r.value));
     } else {
       pageFailed();
@@ -192,8 +171,9 @@ void ToneBrowser::fetch() {
   }));
 }
 
-// The trending feed is one unpaginated page (the API's top 10 for the
-// gear), so it lands as a TonePage and the grid needs to know nothing.
+// The signed-out preview's trending feed: one unpaginated page (the API's
+// top 10 for the gear), so it lands as a TonePage and the grid needs to
+// know nothing.
 void ToneBrowser::fetchTrending() {
   fetchScope_.reset();
   loading_ = true;
@@ -254,9 +234,8 @@ void ToneBrowser::setSignInPageShown(bool shown) {
 
 const char* ToneBrowser::emptyCopy() const {
   if (state_.resultIsTrending) return "No trending tones of this type right now. Try another.";
-  if (state_.query.text.isNotEmpty()) return "No tones match. Try a different search or fewer filters.";
   switch (state_.query.profile) {
-    case Profile::none: return "No tones match. Try fewer filters.";
+    case Profile::none: return "No trending tones of this type right now. Try another.";
     case Profile::downloaded: return "Tones you download on TONE3000 will show up here.";
     case Profile::favorited: return "Tones you favorite on TONE3000 will show up here.";
     case Profile::created: return "Tones you upload to TONE3000 will show up here.";
@@ -297,13 +276,10 @@ void ToneBrowser::rebuildBody() {
   back_.setVisible(!signInPage);
   signInBack_.setVisible(signInPage);
 
-  // The search box exists only for a session; signed out the filter row is
-  // the gear chips alone (the trending feed's one filter). A profile
-  // filter's stream searches titles alone.
-  search_.setVisible(!previewing);
+  // The profile chip exists only for a session; signed out the filter row is
+  // the gear chips alone (the trending feed's one filter).
   filters_.setGearOnly(previewing);
   filters_.setVisible(!signInPage);
-  search_.setHelpText(help::text(filters_.profileLocked() ? help::Key::browserSearchProfile : help::Key::browserSearch));
 
   // Body prompt: the sign-in page, or the fetch error with Try again.
   bodyPrompt_.reset();
@@ -333,6 +309,9 @@ void ToneBrowser::rebuildBody() {
   // First load (nothing to dim yet): dots alone. Nothing found: the copy.
   dots_.setVisible(!signInPage && !showError && !hasCards && loading_);
   content_->emptyCopy = !signInPage && !showError && !hasCards && !loading_ ? emptyCopy() : juce::String();
+  // Signed in with a list showing: where the rest of the catalogue is.
+  const bool showFootnote = !previewing && !signInPage && !showError && hasCards && !loading_;
+  content_->footnote = showFootnote ? kCatalogueFootnote : juce::String();
 
   // Cards stay mounted while a new page loads, dimmed and inert under the
   // busy overlay. Other cards dim while one pick resolves.
@@ -391,11 +370,6 @@ void ToneBrowser::layoutBody() {
   const int colW = std::min(juce::roundToInt(kColumnWidth * zoom()), w);
   const int colX = (w - colW) / 2;
   int y = 0;
-  if (search_.isVisible()) {
-    y += kHeaderGap;
-    search_.setBounds(colX, y, colW, kSearchHeight);
-    y += kSearchHeight;
-  }
   if (filters_.isVisible()) {
     y += kHeaderGap;
     filters_.setColumn({colX, y, colW, FilterBar::kHeight});
@@ -482,6 +456,14 @@ void ToneBrowser::layoutContent() {
   if (footerPrompt_) {
     footerPrompt_->setBounds(colX, y, colW, footerPrompt_->heightFor(colW));
     y += footerPrompt_->getHeight();
+  }
+
+  // The signed-in catalogue pointer, a muted line under the last row.
+  if (content_->footnote.isNotEmpty()) {
+    const int line = Fonts::normalLineHeight(kEmptyPx);
+    y += kContentPadTop;
+    content_->footnoteBox = {colX + kEmptyPadX, y, colW - 2 * kEmptyPadX, line};
+    y += line;
   }
 
   y += kContentPadBottom;

@@ -8,7 +8,9 @@ threads. Two sections fork:
   engines, separate scratch buffers, no shared state inside the chain stage.
   The audio thread hands one lane to a worker, processes the other itself,
   and joins. With two heavy NAM lanes the chain stage approaches the cost of
-  one.
+  one. The fork is an operation of the processing plan (`ProcessingPlan.h`,
+  run by `TONE3000Processor::runPlanFork`): it names the sequences that may
+  run side by side, and forks them when at least two carry work.
 - **NAM oversampling phases.** An oversampled `NamEngine` holds N
   independent instances of the same model over disjoint per-phase buffers
   (see `oversampling.md`). The lane processing the block forks the N phase
@@ -19,7 +21,7 @@ threads. Two sections fork:
 - **Dual-mono voices.** In Dual Mono input mode a mono chain's `NamEngine`
   holds two voices (one per input channel), each with its own full set of
   phase instances. The engine forks the flat voice × phase set as one group
-  (at most 2 × 8 = 16 jobs, the pool's `kMaxJobs`), so a dual-mono 8x
+  (at most 2 × 8 = 16 jobs, within the pool's `kMaxJobs` of 32), so a dual-mono 8x
   model still costs about one native-rate model per core. The voices are
   as independent as the phases (separate models, separate buffers), and
   `MultiCoreTest.DualMonoParallelMatchesSerialBitExact` pins the output as
@@ -45,8 +47,10 @@ The pool is an extension of the audio callback, not a general scheduler:
 - `forkJoin(fn, ctxs, count)` runs every job exactly once and returns only
   when all are complete. The caller always executes job 0 itself, so
   completion never depends on worker liveness.
-- Nesting is supported one level deep (a lane job forking its NAM block's
-  phases), and stays deadlock-free by construction: a joiner never parks, it
+- Forks nest: a lane job forks its NAM block's phases today, and a plan
+  fork may sit inside another (two deep, pinned by
+  `RtWorkerPoolTest.NestedForkJoinTwoDeepRunsEveryLeaf`). Nesting has no
+  limit in the code and stays deadlock-free by construction: a joiner never parks, it
   claims and runs its own group's unclaimed jobs inline and only spins on
   jobs another thread is actively executing, so every waiter makes progress
   itself.

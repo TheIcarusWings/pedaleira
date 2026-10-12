@@ -184,15 +184,11 @@ struct ScriptedSession : ToneSession {
   void listToneModels(int, const juce::String&, Reply<std::vector<Model>> reply) override {
     reply(Result<std::vector<Model>>::fail("n/a"));
   }
-  void setToneFavorite(int, bool, Done done) override { done("n/a"); }
-  void searchTones(const ToneQuery&, int, int, Reply<TonePage> reply) override {
+  void listTones(const ToneQuery&, int, int, Reply<TonePage> reply) override {
     reply(Result<TonePage>::fail("n/a"));
   }
   void listTrending(const juce::String&, Reply<std::vector<Tone>> reply) override {
     reply(Result<std::vector<Tone>>::fail("n/a"));
-  }
-  void listTaxonomy(Taxonomy, const juce::String&, Reply<std::vector<TaxonomyEntry>> reply) override {
-    reply(Result<std::vector<TaxonomyEntry>>::fail("n/a"));
   }
   void selectTone(int, Done done) override { done("n/a"); }
   void ensureNativeAuth(Done done) override { done("n/a"); }
@@ -778,6 +774,114 @@ struct DragScrollerTests : juce::UnitTest {
   }
 };
 
+// The free-tier policy (Tone3000Client::kFreeTier): the commercial calls fail
+// at once and nothing reaches the transport; the allowed ones still go out.
+struct FreeTierTests : juce::UnitTest {
+  FreeTierTests() : juce::UnitTest("TONE3000 free tier", "ui") {}
+  void runTest() override {
+    UiPrefs prefs;
+    ScriptedHttp http;
+    http.answer = [](const HttpRequest&) { return jsonResponse(200, R"({"data":[]})"); };
+    Tone3000Client client(http, prefs, "https://api.test", "pk_test");
+    client.now = [] { return juce::int64{1'000'000}; };
+    client.setTokens({"A1", "R1", 1'000'000 + 3'600'000});
+    expect(Tone3000Client::kFreeTier);
+
+    // Run one call and report whether it failed and whether it sent anything.
+    auto attempt = [&](const juce::String& path, const juce::String& method) {
+      http.sent.clear();
+      juce::String error;
+      bool replied = false;
+      client.fetch(path, method, {}, [&](Result<HttpResponse> r) {
+        replied = true;
+        error = r ? juce::String() : r.error;
+      });
+      expect(replied);
+      return std::pair{error, static_cast<int>(http.sent.size())};
+    };
+
+    beginTest("search is refused without a request, with and without a session");
+    for (const char* path : {"/api/v1/tones/search?page=1&page_size=12&architecture=2",
+                             "/api/v1/tones/search?query=vox&gears=amp", "/api/v1/tones/search"}) {
+      const auto [error, sent] = attempt(path, "GET");
+      expect(error.contains("Search is not available"), error);
+      expectEquals(sent, 0);
+    }
+    client.fetchOptionalAuth("/api/v1/tones/search?query=vox", {}, [&](Result<HttpResponse> r) {
+      expect(!r && r.error.contains("Search is not available"));
+    });
+    client.listTones("/api/v1/tones/search?page=1", [&](Result<juce::var> r) {
+      expect(!r && r.error.contains("Search is not available"));
+    });
+    expectEquals(static_cast<int>(http.sent.size()), 0);
+
+    beginTest("favouriting is refused: PUT and DELETE on a tone's favorite");
+    for (const char* method : {"PUT", "DELETE"}) {
+      const auto [error, sent] = attempt("/api/v1/tones/42/favorite", method);
+      expect(error.contains("Favoriting is not available"), error);
+      expectEquals(sent, 0);
+    }
+
+    beginTest("the taxonomy lists (tags, makes, creators) are refused");
+    for (const char* path : {"/api/v1/tags?page=1&page_size=25", "/api/v1/makes?page=1&page_size=25&query=fender",
+                             "/api/v1/users?page=1&page_size=25"}) {
+      const auto [error, sent] = attempt(path, "GET");
+      expect(error.contains("tag, make and creator lists are not available"), error);
+      expectEquals(sent, 0);
+    }
+
+    beginTest("anything outside the allow-list is refused, not just the known commercial calls");
+    for (const char* path : {"/api/v1/tones/42/models", "/api/v1/something/new", "/api/v1/tones", "/other"}) {
+      const auto [error, sent] = attempt(path, "GET");
+      expect(error.isNotEmpty(), path);
+      expectEquals(sent, 0);
+    }
+    expect(!attempt("/api/v1/tones/42", "DELETE").first.isEmpty());
+
+    beginTest("the free tier's own calls still go out with the Bearer");
+    for (const char* path : {"/api/v1/user", "/api/v1/tones/42", "/api/v1/models?tone_id=42&page=1&page_size=1&architecture=2",
+                             "/api/v1/tones/trending", "/api/v1/tones/trending?gear=amp",
+                             "/api/v1/tones/latest", "/api/v1/tones/created?page=1&page_size=12",
+                             "/api/v1/tones/favorited?page=2&page_size=12&gear=pedal",
+                             "/api/v1/tones/downloaded?page=1&page_size=12"}) {
+      const auto [error, sent] = attempt(path, "GET");
+      expect(error.isEmpty(), juce::String(path) + ": " + error);
+      expectEquals(sent, 1);
+      expectEquals(http.sent.empty() ? juce::String() : http.sent[0].authorization, juce::String("Bearer A1"));
+    }
+
+    beginTest("the typed list calls build only allowed paths");
+    http.sent.clear();
+    client.listTones(ToneQuery{"amp", Profile::favorited}.requestPath(1, 12), [](Result<juce::var>) {});
+    client.listTrending("pedal", [](Result<juce::var>) {});
+    client.listTrending({}, [](Result<juce::var>) {});
+    client.listModels(42, 300, 2, [](Result<juce::var>) {});
+    client.getTone(42, [](Result<juce::var>) {});
+    client.getUser([](Result<juce::var>) {});
+    expectEquals(static_cast<int>(http.sent.size()), 6);
+    for (const auto& sent : http.sent) {
+      const auto path = sent.url.fromFirstOccurrenceOf("https://api.test", false, false);
+      expect(Tone3000Client::freeTierAllows(path, sent.method), path);
+    }
+
+    beginTest("the OAuth flows are untouched");
+    http.sent.clear();
+    http.answer = [](const HttpRequest&) {
+      return jsonResponse(200, R"({"access_token":"A9","refresh_token":"R9","expires_in":3600})");
+    };
+    std::optional<Tokens> exchanged;
+    client.exchangeCode("code", "verifier", "http://127.0.0.1:1/callback", [&](Result<Tokens> r) {
+      if (r) exchanged = *r;
+    });
+    expect(exchanged.has_value());
+    expectEquals(static_cast<int>(http.sent.size()), 1);
+    expect(http.sent[0].url.endsWith("/api/v1/oauth/token"));
+    for (const char* path : {"/api/v1/oauth/authorize", "/api/v1/oauth/token", "/api/v1/oauth/device_authorization",
+                             "/api/v1/plugin/version"})
+      expect(Tone3000Client::freeTierAllows(path, "GET"), path);
+  }
+};
+
 struct ToneModelTests : juce::UnitTest {
   ToneModelTests() : juce::UnitTest("Tone", "ui") {}
   void runTest() override {
@@ -873,84 +977,30 @@ struct ReadoutTests : juce::UnitTest {
 struct ToneQueryTests : juce::UnitTest {
   ToneQueryTests() : juce::UnitTest("ToneQuery", "ui") {}
   void runTest() override {
-    beginTest("an empty query is the trending catalog page, scoped to the plugin's architecture");
+    beginTest("an empty query is the trending feed, which takes no paging");
     ToneQuery q;
-    expectEquals(q.requestPath(1, 12, 2), juce::String("/api/v1/tones/search?page=1&page_size=12&architecture=2"));
-    expect(q.effectiveSort() == ToneSort::trending);
-    expect(!q.hasAdvancedFilters());
+    expect(q.isTrending());
+    expectEquals(q.requestPath(1, 12), juce::String("/api/v1/tones/trending"));
+    expectEquals(q.requestPath(3, 12), juce::String("/api/v1/tones/trending"));
 
-    beginTest("text defaults the sort to best match; an explicit sort wins and counts as a filter");
-    q.text = " fender twin ";
-    expect(q.effectiveSort() == ToneSort::bestMatch);
-    expect(q.requestPath(2, 12, 2).contains("query=fender%20twin&"));
-    expect(!q.requestPath(2, 12, 2).contains("sort="));
-    q.sort = ToneSort::popular;
-    expect(q.effectiveSort() == ToneSort::popular);
-    expect(q.requestPath(2, 12, 2).contains("&sort=downloads-all-time&"));
-    expect(q.hasAdvancedFilters());
-
-    beginTest("picking the default sort is no pick; an explicit one stops being explicit when the text makes it the default");
-    q = {};
-    q.setSort(ToneSort::trending);
-    expect(!q.sort.has_value());
-    expect(!q.sortIsExplicit() && !q.hasAdvancedFilters());
-    q.text = "vox";
-    q.setSort(ToneSort::trending);  // now explicit: best match is the default
-    expect(q.sort.has_value() && q.sortIsExplicit());
-    q.text.clear();
-    expect(q.effectiveSort() == ToneSort::trending);
-    expect(!q.sortIsExplicit() && !q.hasAdvancedFilters());
-
-    beginTest("list filters use the API's separators with each name escaped on its own");
-    q = {};
-    q.gear = "amp-cab";
-    q.tags = {"metal", "high gain"};
-    q.makes = {"Fender Twin Reverb", "1965 Vox AC30"};
-    q.creators = {"tone3000", "amalgam_audio"};
-    q.calibrated = true;
-    q.verified = true;
-    const auto path = q.requestPath(1, 12, 2);
-    expect(path.contains("&gears=amp-cab&"));
-    expect(path.contains("&tags=metal_high%20gain&"));
-    expect(path.contains("&makes=Fender%20Twin%20Reverb_1965%20Vox%20AC30&"));
-    expect(path.contains("&creators=tone3000,amalgam_audio&"));
-    expect(path.contains("&calibrated=true&verified=true&architecture=2"));
-
-    beginTest("calibrated is parked, not sent, under IR gear or the IR format; it comes back with amps");
-    q = {};
-    q.calibrated = true;
-    expect(q.calibratedInForce() && q.hasAdvancedFilters());
-    for (const char* ir : {"cab", "space"}) {
-      q.gear = ir;
-      expect(!q.calibratedApplies() && !q.calibratedInForce() && !q.hasAdvancedFilters());
-      expect(!q.requestPath(1, 12, 2).contains("calibrated"));
-    }
-    q.gear = "amp";
-    expect(q.calibratedInForce() && q.requestPath(1, 12, 2).contains("&calibrated=true"));
-    q.format = "ir";
-    expect(!q.calibratedApplies() && !q.requestPath(1, 12, 2).contains("calibrated"));
-
-    beginTest("the architecture rides along with every format (the API ignores it for IR); < 0 omits it");
-    q = {};
-    q.format = "ir";
-    expectEquals(q.requestPath(1, 12, 2), juce::String("/api/v1/tones/search?page=1&page_size=12&format=ir&architecture=2"));
-    q.format = "nam";
-    expect(q.requestPath(1, 12, 2).endsWith("&format=nam&architecture=2"));
-    expect(q.requestPath(1, 12, -1).endsWith("&format=nam"));
-
-    beginTest("a profile filter pages the user's own stream, by title search and gear alone");
-    q = {};
-    q.text = " plexi ";
-    q.tags = {"metal"};
-    q.verified = true;
+    beginTest("a gear narrows the trending feed; nothing but gear is ever sent");
     q.gear = "pedal";
+    expectEquals(q.requestPath(1, 12), juce::String("/api/v1/tones/trending?gear=pedal"));
+    expect(!q.requestPath(1, 12).contains("search") && !q.requestPath(1, 12).contains("query="));
+
+    beginTest("a profile filter pages the user's own list, by gear alone");
     q.profile = Profile::favorited;
-    expectEquals(q.requestPath(3, 12, 2),
-                 juce::String("/api/v1/tones/favorited?page=3&page_size=12&query=plexi&gear=pedal"));
+    expect(!q.isTrending());
+    expectEquals(q.requestPath(3, 12), juce::String("/api/v1/tones/favorited?page=3&page_size=12&gear=pedal"));
     q.profile = Profile::downloaded;
-    q.text.clear();
     q.gear.clear();
-    expectEquals(q.requestPath(1, 12, 2), juce::String("/api/v1/tones/downloaded?page=1&page_size=12"));
+    expectEquals(q.requestPath(1, 12), juce::String("/api/v1/tones/downloaded?page=1&page_size=12"));
+    q.profile = Profile::created;
+    expectEquals(q.requestPath(2, 12), juce::String("/api/v1/tones/created?page=2&page_size=12"));
+
+    beginTest("no query can name the search endpoint");
+    for (const auto profile : {Profile::none, Profile::downloaded, Profile::favorited, Profile::created})
+      expect(!ToneQuery{"amp", profile}.requestPath(1, 12).contains("/search"));
 
     beginTest("a paginated payload parses to a page");
     const auto page = TonePage::parse(juce::JSON::parse(
@@ -987,9 +1037,9 @@ struct AccessibilityTests : juce::UnitTest {
     expectEquals(save.accessibleName(), juce::String("Save preset"));
 
     beginTest("a chip's name follows its label; Backspace is its x");
-    FilterChip chip("Sort");
-    chip.setLabel("Newest");
-    expectEquals(chip.accessibleName(), juce::String("Newest"));
+    FilterChip chip("Profile");
+    chip.setLabel("Recent");
+    expectEquals(chip.accessibleName(), juce::String("Recent"));
     int cleared = 0;
     chip.onClear = [&] { ++cleared; };
     chip.setTrailing(FilterChip::Trailing::clear);
@@ -1481,10 +1531,8 @@ struct ScrollSurfacesTests : juce::UnitTest {
         {"a block's detail column with its info open", "main-detail-info", nullptr, nullptr,
          screenScroller(DragScroller::Axis::vertical), true, true},
         {"the Settings page", "settings-system", nullptr, nullptr, settingsPage, true, true},
-        {"the tone browser's results", "browser-search", nullptr, nullptr, screenScroller(DragScroller::Axis::vertical),
+        {"the tone browser's results", "browser-trending", nullptr, nullptr, screenScroller(DragScroller::Axis::vertical),
          true, true},
-        {"the browser's filter chips", "browser-filters-expanded", nullptr, nullptr,
-         screenScroller(DragScroller::Axis::horizontal), false, true},
         {"the preset browser's list (a panel's rows)", "chrome-preset-browse", lengthenPresets, nullptr, panelScroller,
          false, false},
         {"a select field's options (a panel's rows)", "settings-system", lengthenDevices, openInputDeviceSelect,
@@ -1639,6 +1687,70 @@ struct ScrollSurfacesTests : juce::UnitTest {
   }
 };
 
+// What the tone browser asks for and shows without catalog search.
+struct BrowserFreeTierTests : juce::UnitTest {
+  BrowserFreeTierTests() : juce::UnitTest("Browser on the free tier", "ui") {}
+
+  static bool hasControl(PluginRoot& root, const char* help) { return drive::byHelpPrefix(root, help) != nullptr; }
+
+  void runTest() override {
+    beginTest("signed in, the browser opens on the trending feed and shows no search or catalog filters");
+    {
+      LiveScenario live(*this, "browser-trending");
+      if (live.scenario == nullptr) return;
+      auto& requests = live.host->mockSession().requests;
+      expect(!requests.empty());
+      if (!requests.empty()) expectEquals(requests.front(), juce::String("/api/v1/tones/trending"));
+      for (const auto& path : requests) expect(!path.contains("/search"), path);
+      auto& root = live.root();
+      expect(drive::inputWithPlaceholder(root, juce::String::fromUTF8("Search\xe2\x80\xa6")) == nullptr);
+      for (const char* help : {"Search:", "Filters:", "Fewer filters:", "Sort:", "Format:", "Tags:", "Makes:",
+                               "Creators:", "Calibrated:", "Verified:"})
+        expect(!hasControl(root, help), help);
+      expect(hasControl(root, "Profile:") && hasControl(root, "Gear:"));
+      expect(drive::find(root, [](juce::Component& c) {
+               return dynamic_cast<ToneCard*>(&c) != nullptr && c.isShowing();
+             }) != nullptr);
+
+      beginTest("a gear chip narrows the trending feed; the Profile chip swaps in a bounded list");
+      if (!live.ok) return;  // clicks need the window focused
+      if (auto* chip = drive::buttonNamed(root, "Pedal")) drive::click(root, *chip);
+      drive::wait(400);
+      expectEquals(requests.back(), juce::String("/api/v1/tones/trending?gear=pedal"));
+      drive::clickByHelp(root, "Profile:");
+      drive::wait(200);
+      if (auto* row = drive::buttonNamed(root, "Favorites")) drive::click(root, *row);
+      drive::wait(400);
+      expectEquals(requests.back(), juce::String("/api/v1/tones/favorited?page=1&page_size=12&gear=pedal"));
+      for (const auto& path : requests) expect(!path.contains("/search"), path);
+
+      beginTest("the profile chip clears back to the trending feed");
+      auto* chip = dynamic_cast<FilterChip*>(drive::buttonNamed(root, "Favorites"));
+      expect(chip != nullptr && chip->onClear);
+      if (chip != nullptr && chip->onClear) chip->onClear();
+      drive::wait(400);
+      expectEquals(requests.back(), juce::String("/api/v1/tones/trending?gear=pedal"));
+    }
+
+    beginTest("signed out, the preview asks for the trending feed alone");
+    {
+      LiveScenario live(*this, "browser-signed-out");
+      if (live.scenario == nullptr) return;
+      auto& requests = live.host->mockSession().requests;
+      expectEquals(static_cast<int>(requests.size()), 1);
+      if (!requests.empty()) expectEquals(requests.front(), juce::String("/api/v1/tones/trending"));
+      expect(!hasControl(live.root(), "Profile:") && !hasControl(live.root(), "Search:"));
+    }
+
+    beginTest("a block's detail card has no favorite toggle");
+    {
+      LiveScenario live(*this, "main-detail-info");
+      if (live.scenario == nullptr) return;
+      for (const char* help : {"Favorite:", "Favorited:"}) expect(!hasControl(live.root(), help), help);
+    }
+  }
+};
+
 // A press on the tone browser's results that pans the list, through the
 // peer and JUCE's own drag-to-scroll: a tap picks, a scroll gesture pans and
 // does not pick the card it started on. Any pointer pans (DragScroller), so
@@ -1662,9 +1774,9 @@ struct TouchScrollTests : juce::UnitTest {
 
   void runTest() override {
     const auto fixtures = Fixtures::load(fixturesDir().getChildFile("scenarios.json"));
-    const auto* scenario = fixtures.find("browser-search");
+    const auto* scenario = fixtures.find("browser-trending");
     if (scenario == nullptr) {
-      expect(false, "browser-search scenario missing");
+      expect(false, "browser-trending scenario missing");
       return;
     }
     MockBackend backend(scenario->data);
@@ -2652,6 +2764,8 @@ PaginatorTests paginatorTests;
 DragScrollerTests dragScrollerTests;
 UiPrefsTests uiPrefsTests;
 Tone3000ClientTests tone3000ClientTests;
+FreeTierTests freeTierTests;
+BrowserFreeTierTests browserFreeTierTests;
 ToneModelTests toneModelTests;
 ToneQueryTests toneQueryTests;
 ReadoutTests readoutTests;

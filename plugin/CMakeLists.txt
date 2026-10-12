@@ -18,8 +18,8 @@ elseif(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET ST
 endif()
 
 # Required by JUCE (Change these to project specs)
-set(PLUGIN_NAME "TONE3000")            # Name of the plugin (used in the UI)
-set(PLUGIN_CODE T3K0)                # Unique 4-letter code for the plugin
+set(PLUGIN_NAME "Pedaleira")            # Name of the plugin (used in the UI)
+set(PLUGIN_CODE Pdl1)                # Unique 4-letter code for the plugin
 
 # Version comes from the repo-root VERSION file (single source of truth).
 # Read here too so this directory still configures standalone.
@@ -191,7 +191,7 @@ endif()
 # are the same keys iOS wants, so they are left in the shared block below.
 set(_t3k_ios_args "")
 if (T3K_IOS)
-    set(T3K_IOS_BUNDLE_ID "com.TONE3000.TONE3000" CACHE STRING
+    set(T3K_IOS_BUNDLE_ID "com.pedaleira.Pedaleira" CACHE STRING
         "Bundle identifier for the iOS app (override to sign under a personal team)")
     set(T3K_IOS_BUILD_NUMBER "1" CACHE STRING
         "CFBundleVersion for the iOS app: bump on every upload of one marketing version")
@@ -205,6 +205,10 @@ if (T3K_IOS)
         IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         REQUIRES_FULL_SCREEN TRUE
     )
+else()
+    # Desktop: stable bundle id (JUCE would otherwise derive one from the
+    # company and product names). iOS passes its own BUNDLE_ID above.
+    set(_t3k_ios_args BUNDLE_ID "com.pedaleira.Pedaleira")
 endif()
 
 # LSMinimumSystemVersion is a macOS Launch Services key; on iOS the deployment
@@ -220,7 +224,7 @@ else()
 endif()
 
 juce_add_plugin(${PROJECT_NAME}
-    COMPANY_NAME TONE3000
+    COMPANY_NAME Pedaleira
     PLUGIN_NAME ${PLUGIN_NAME}
     IS_SYNTH FALSE
     # Pro Tools insert folders. Unset is None ("Other"). Harmonic is where
@@ -231,20 +235,21 @@ juce_add_plugin(${PROJECT_NAME}
     # hosts route their MIDI to us, standalone merges enabled MIDI inputs.
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
-    PLUGIN_MANUFACTURER_CODE TFTF
+    PLUGIN_MANUFACTURER_CODE Pdlr
     PLUGIN_CODE ${PLUGIN_CODE}
     FORMATS ${_plugin_formats}
     # The LV2 URI is the plugin's permanent identity in LV2 hosts (it keys
     # sessions and presets). Never change it once released.
-    LV2URI "https://www.tone3000.com/plugin"
-    PRODUCT_NAME ${PROJECT_NAME}
+    # Placeholder identity (pedaleira.invalid never resolves); settle before any release.
+    LV2URI "https://pedaleira.invalid/plugin"
+    PRODUCT_NAME "Pedaleira"
     VST3_AUTO_MANIFEST ${VST3_MANIFEST}
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "TONE3000 needs microphone access for audio input processing."
+    MICROPHONE_PERMISSION_TEXT "Pedaleira needs microphone access for audio input processing."
     # Without this Info.plist key, macOS TCC kills the app the moment the
     # Bluetooth MIDI pairing dialog touches CoreBluetooth.
     BLUETOOTH_PERMISSION_ENABLED TRUE
-    BLUETOOTH_PERMISSION_TEXT "TONE3000 uses Bluetooth to find and pair Bluetooth MIDI controllers."
+    BLUETOOTH_PERMISSION_TEXT "Pedaleira uses Bluetooth to find and pair Bluetooth MIDI controllers."
     # Publish the launch floor in Info.plist too. The Mach-O slices already
     # carry their minimums (10.15 Intel, 11.0 arm64), but Launch Services and
     # Finder's Get Info read LSMinimumSystemVersion, and without it the app
@@ -315,17 +320,44 @@ if (T3K_IOS)
     endif()
 endif()
 
+# The built-in effects: every .cpp under src/effects plus the generated list
+# of their registration hooks (see cmake/EffectSources.cmake). Adding an
+# effect is adding a file; nothing here changes.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/EffectSources.cmake)
+t3k_effect_sources(_t3k_effect_sources)
+target_sources(${PROJECT_NAME} PRIVATE ${_t3k_effect_sources})
+
 target_sources(${PROJECT_NAME}
     PRIVATE
         include/BlockEq.h
         src/BlockEq.cpp
         include/BlockSpectrum.h
         src/BlockSpectrum.cpp
+        include/BlockProcessor.h
+        src/BlockProcessor.cpp
+        include/BlockParams.h
+        include/BlockDelayLine.h
+        include/BlockKinds.h
+        src/BlockKinds.cpp
+        include/ParameterisedBlockProcessor.h
+        src/ParameterisedBlockProcessor.cpp
+        include/GainBlockProcessor.h
+        src/GainBlockProcessor.cpp
+        include/HostedPluginBlockProcessor.h
+        src/HostedPluginBlockProcessor.cpp
+        include/PluginScanner.h
+        src/PluginScanner.cpp
+        include/NamBlockProcessor.h
+        src/NamBlockProcessor.cpp
+        include/IrBlockProcessor.h
+        src/IrBlockProcessor.cpp
         include/ChainBlock.h
         include/ChainHistory.h
         include/ImageDeck.h
         include/Spread.h
         src/Spread.cpp
+        include/SplitJunction.h
+        src/SplitJunction.cpp
         include/StereoOffset.h
         src/StereoOffset.cpp
         include/AutoOffset.h
@@ -334,18 +366,74 @@ target_sources(${PROJECT_NAME}
         src/LegacyParamIds.cpp
         include/PresetFile.h
         src/PresetFile.cpp
+        include/FiniteValue.h
+        include/PresetJson.h
+        src/PresetJson.cpp
+        include/SetlistLibrary.h
+        src/SetlistLibrary.cpp
+        include/PresetImporter.h
+        src/PresetImporter.cpp
         include/PresetManager.h
         src/PresetManager.cpp
         include/Processor.h
         src/Processor.cpp
+        include/GridTopology.h
+        include/ProcessingPlan.h
+        src/ProcessingPlan.cpp
+        src/ProcessorPlanExec.cpp
+        src/ProcessorGrid.cpp
+        src/GridCommands.cpp
+        src/LibraryCommands.cpp
+        src/ProcessorLibrary.cpp
         include/MidiMapper.h
         src/MidiMapper.cpp
+        include/CommandRegistry.h
+        src/CommandRegistry.cpp
+        include/EngineCommands.h
+        src/EngineCommands.cpp
+        include/AgentHub.h
+        src/AgentHub.cpp
+        include/AssetTags.h
+        src/AssetTags.cpp
+        src/ToneRequestState.h
+        src/ToneRequestCommands.cpp
+        include/AudioMeasure.h
+        src/AudioMeasure.cpp
+        include/EffectMatch.h
+        src/EffectMatch.cpp
+        include/CommandServer.h
+        src/CommandServer.cpp
+        src/WebSocketTransport.cpp
+        include/GuitarProfiles.h
+        src/GuitarProfiles.cpp
+        include/InputRecorder.h
+        include/CaptureAudio.h
+        include/CaptureChecks.h
+        src/CaptureChecks.cpp
+        include/CaptureSession.h
+        src/CaptureSession.cpp
+        include/CaptureStudio.h
+        src/CaptureStudio.cpp
+        src/CaptureCommands.cpp
+        include/TrainerRunner.h
+        src/TrainerRunner.cpp
+        include/LibraryPaths.h
+        src/LibraryPaths.cpp
+        src/GuitarCommands.cpp
+        src/ListenCommands.cpp
+        include/SandboxRig.h
+        src/SandboxRig.cpp
         src/ProcessorChain.cpp
         src/ProcessorHistory.cpp
         src/ProcessorPresets.cpp
+        include/Scenes.h
+        src/Scenes.cpp
+        src/ProcessorScenes.cpp
+        src/ProcessorPlugins.cpp
         src/ProcessorState.cpp
         src/ProcessorModelLoader.cpp
         include/ChainDomain.h
+        include/ChainBoundaryMulti.h
         include/NamEngine.h
         src/NamEngine.cpp
         include/TunerDetector.h
@@ -366,6 +454,13 @@ if (NOT HEADLESS)
     # sources plus the processor-backed pieces only the plugin has.
     include("${CMAKE_CURRENT_SOURCE_DIR}/ui/NativeUi.cmake")
     t3k_add_native_ui(${PROJECT_NAME})
+    # The Pedaleira UI: the standalone application's
+    # window. Not on iOS, which keeps upstream's editor.
+    if (NOT T3K_IOS)
+        include("${CMAKE_CURRENT_SOURCE_DIR}/ui/pedaleira/PedaleiraUi.cmake")
+        pedaleira_add_ui(${PROJECT_NAME})
+        pedaleira_add_ui_standalone(${PROJECT_NAME})
+    endif()
     target_sources(${PROJECT_NAME}
         PRIVATE
             ui/backend/ProcessorBackend.h
@@ -453,6 +548,8 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE NAM_ENABLE_A2_FAST)
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
         juce::juce_core
+        # SHA-256 for the library's asset store (PresetJson.h).
+        juce::juce_cryptography
         juce::juce_dsp
         juce::juce_events
         juce::juce_audio_utils
@@ -465,7 +562,7 @@ target_link_libraries(${PROJECT_NAME}
         # PLATFORM_ID is "iOS" (not "Darwin") when cross-compiling for iOS, so
         # both have to be listed or the iOS link drops every model architecture
         # and NAM loads fail with "No config parser registered for ...".
-        $<$<PLATFORM_ID:Darwin,iOS>:-Wl,-force_load,$<TARGET_FILE:NAM>>
+        $<$<PLATFORM_ID:Darwin,iOS>:-Wl,-force_load,'$<TARGET_FILE:NAM>'>
         # Linux: flags and library must be separate link items. A single
         # "-Wl,--whole-archive,NAM,-Wl,..." item gets comma-split by the GCC
         # driver, passing a literal "-Wl" to ld ("unrecognized option '-Wl'").
@@ -487,6 +584,10 @@ target_link_libraries(${PROJECT_NAME}
 # Ensure NAM is built before plugin (force_load path requires lib to exist)
 add_dependencies(${PROJECT_NAME} NAM)
 
+# The built-in import mapping tables (PresetImporter.cpp).
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/ImportData.cmake)
+t3k_link_import_data(${PROJECT_NAME})
+
 # No browser engine anywhere in the plugin: the UI is drawn by JUCE, so
 # juce_gui_extra's WebBrowserComponent (and its WebKitGTK / WebView2 runtime
 # dependencies) stays out of the build. Likewise the vendored libwebp
@@ -497,6 +598,19 @@ target_compile_definitions(${PROJECT_NAME}
         JUCE_USE_WEBP=0
         JUCE_VST3_CAN_REPLACE_VST2=0
 )
+
+# Plugin hosting: a chain block can be one of the user's own effect plugins
+# (HostedPluginBlockProcessor, PluginScanner). VST3 on every desktop platform;
+# Audio Units on macOS only. iOS hosts nothing: the defines stay off there, the
+# format list comes up empty and scanning reports itself unavailable.
+# The same defines are set for the headless builds (cmake/HeadlessProcessor.cmake)
+# and for the scan helper below, so all three agree on what a format is.
+if (NOT T3K_IOS)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC JUCE_PLUGINHOST_VST3=1)
+    if (APPLE)
+        target_compile_definitions(${PROJECT_NAME} PUBLIC JUCE_PLUGINHOST_AU=1)
+    endif()
+endif()
 
 # Native networking (juce::URL / WebInputStream), used for model downloads
 # (ProcessorModelLoader). macOS/Windows use the OS HTTP stacks and ignore
@@ -531,7 +645,7 @@ endif()
 # so this adds no runtime dependency: without a JACK server the
 # driver just lists no devices. Build hosts need the JACK headers
 # (libjack-jackd2-dev; CI installs it). The JACK client name defaults to
-# JucePlugin_Name ("TONE3000"). Gated on NOT HEADLESS so embedded
+# JucePlugin_Name ("Pedaleira"). Gated on NOT HEADLESS so embedded
 # toolchains don't grow a header dependency.
 if (UNIX AND NOT APPLE AND NOT HEADLESS)
     target_compile_definitions(${PROJECT_NAME} PUBLIC JUCE_JACK=1)
@@ -593,9 +707,67 @@ if (NOT HEADLESS AND BUILD_CLAP)
         EXCLUDE_FROM_ALL YES
     )
     clap_juce_extensions_plugin(TARGET ${PROJECT_NAME}
-        CLAP_ID "com.tone3000.plugin"
+        CLAP_ID "com.pedaleira.plugin"
         CLAP_FEATURES audio-effect distortion)
 endif()
 
 # Visual Studio Only
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/..) 
+
+# The plugin scan helper (tools/plugin_scan.cpp): a console executable that
+# scans one plugin per run, so a plugin that crashes while being scanned takes
+# the helper down and not the app. PluginScanner looks for it next to the
+# running binary, and on macOS in the bundle's Contents/Helpers. Defined here
+# rather than in tools/ because the embed steps below must live in the
+# directory that created the bundle targets.
+if (NOT T3K_IOS)
+    juce_add_console_app(PedaleiraPluginScan PRODUCT_NAME "PedaleiraPluginScan")
+    target_sources(PedaleiraPluginScan PRIVATE ../tools/plugin_scan.cpp)
+    target_compile_definitions(PedaleiraPluginScan PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_PLUGINHOST_VST3=1
+        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
+        $<$<PLATFORM_ID:Windows>:NOMINMAX>
+        # The helper dispatches its own message loop in slices
+        # (runDispatchLoopUntil) while a scan runs.
+        JUCE_MODAL_LOOPS_PERMITTED=1
+    )
+    # The headless half of the hosting module is all a scan needs: no editor
+    # code, no GUI modules.
+    target_link_libraries(PedaleiraPluginScan PRIVATE
+        juce::juce_audio_processors_headless
+        juce::juce_events
+        juce::juce_recommended_config_flags
+    )
+
+    # Put the helper where the scanner finds it: Contents/Helpers of a macOS
+    # bundle, next to the binary everywhere else. On macOS the copy lands in a
+    # bundle JUCE has already signed ad hoc, which breaks that seal, so the
+    # step signs the copy and then re-runs JUCE's own check on the bundle.
+    function(t3k_embed_scan_helper target)
+        if (NOT TARGET ${target})
+            return()
+        endif()
+        add_dependencies(${target} PedaleiraPluginScan)
+        get_target_property(_is_bundle ${target} BUNDLE)
+        if (APPLE AND _is_bundle)
+            add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND "${CMAKE_COMMAND}"
+                    "-Dhelper=$<TARGET_FILE:PedaleiraPluginScan>"
+                    "-Dbundle=$<TARGET_BUNDLE_DIR:${target}>"
+                    "-Dsign_check=${JUCE_CMAKE_UTILS_DIR}/checkBundleSigning.cmake"
+                    -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../cmake/EmbedScanHelper.cmake"
+                VERBATIM)
+        else()
+            add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "$<TARGET_FILE:PedaleiraPluginScan>" "$<TARGET_FILE_DIR:${target}>"
+                VERBATIM)
+        endif()
+    endfunction()
+
+    foreach(_format Standalone VST3 AU AAX LV2 CLAP)
+        t3k_embed_scan_helper(${PROJECT_NAME}_${_format})
+    endforeach()
+endif()

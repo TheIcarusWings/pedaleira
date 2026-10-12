@@ -14,7 +14,10 @@ constexpr double kSilenceDb = -120.0;
 
 double toDb(double linear) { return linear > 1.0e-6 ? 20.0 * std::log10(linear) : kSilenceDb; }
 
-juce::String db(double value, int places = 1) { return juce::String(value, places) + " dB"; }
+// juce::String(double, 0) prints every digit, so whole decibels are rounded.
+juce::String db(double value, int places = 1) {
+  return (places > 0 ? juce::String(value, places) : juce::String(juce::roundToInt(value))) + " dB";
+}
 
 Result make(const char* id, const char* name, Status status, const juce::String& value,
             const juce::String& message) {

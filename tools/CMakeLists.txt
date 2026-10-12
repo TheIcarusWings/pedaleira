@@ -57,11 +57,15 @@ t3k_add_headless_processor(PedaleiraHeadless)
 
 # Effect-matching kit: generates the test signal, analyses recordings of it and
 # compares two analyses (docs/matching.md). Pure audio analysis, so it links
-# only the two sources it needs and not the processor.
+# only the two sources it needs and not the processor. The record and session
+# commands add the audio device layer (match_record.cpp, MatchRecorder.cpp).
 juce_add_console_app(PedaleiraMatch PRODUCT_NAME "PedaleiraMatch")
 
 target_sources(PedaleiraMatch PRIVATE
     match_tool.cpp
+    match_record.cpp
+    MatchRecorder.cpp
+    MatchTake.cpp
     ../plugin/src/AudioMeasure.cpp
     ../plugin/src/EffectMatch.cpp
 )
@@ -73,6 +77,7 @@ target_compile_definitions(PedaleiraMatch PRIVATE
     $<$<PLATFORM_ID:Windows>:NOMINMAX>
 )
 target_link_libraries(PedaleiraMatch PRIVATE
+    juce::juce_audio_devices
     juce::juce_audio_formats
     juce::juce_dsp
     juce::juce_recommended_config_flags

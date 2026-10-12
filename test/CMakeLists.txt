@@ -35,6 +35,7 @@ target_sources(DspTests PRIVATE
     src/engine_commands_tests.cpp
     src/duplicate_tests.cpp
     src/effect_match_tests.cpp
+    src/match_recorder_tests.cpp
     src/eq_chain_rate_tests.cpp
     src/eq_post_routing_tests.cpp
     src/factory_preset_tests.cpp
@@ -152,6 +153,15 @@ add_dependencies(DspTests PedaleiraRender)
 target_compile_definitions(DspTests PRIVATE
     T3K_RENDER_TOOL_FILE="$<TARGET_FILE:PedaleiraRender>"
 )
+
+# The recording half of PedaleiraMatch (tools/MatchRecorder, tools/MatchTake) is
+# tested without a sound card: match_recorder_tests.cpp drives its callback.
+target_sources(DspTests PRIVATE
+    ../tools/MatchRecorder.cpp
+    ../tools/MatchTake.cpp
+)
+target_include_directories(DspTests PRIVATE ../tools)
+target_link_libraries(DspTests PRIVATE juce::juce_audio_devices)
 
 # dsp_tests.cpp provides main() (JUCE init + InitGoogleTest).
 target_link_libraries(DspTests PRIVATE GTest::gtest)

@@ -29,9 +29,9 @@
                 "params": { "thresholdDb": -30, "ratio": 10, "makeupDb": 0, "attackMs": 10, "releaseMs": 150 } } },
 
     { "name": "reverb-hall-decay2", "model": "Hall",
-      "params": { "DECAY": 2, "PRE DELAY": 1, "MIX": 35, "HIGH PASS": 20, "LOW PASS": 16000 },
+      "params": { "DECAY": 2, "PRE DELAY": 1, "MIX": 35, "HIGH PASS": 20, "LOW PASS": 12000 },
       "ours": { "kind": "reverb.hall",
-                "params": { "decayS": 2, "preDelayMs": 1, "mix": 0.35, "lowCutHz": 20, "highCutHz": 16000 } },
-      "notes": "Mix 35 %: fully wet, the unit's hall clips the interface on the staircase's top steps." }
+                "params": { "decayS": 2, "preDelayMs": 1, "mix": 0.35, "lowCutHz": 20, "highCutHz": 12000 } },
+      "notes": "Mix 35 %: fully wet, the unit's hall clips the interface on the staircase's top steps. LOW PASS stops at 12000 Hz on the unit." }
   ]
 }

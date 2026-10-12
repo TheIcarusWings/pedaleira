@@ -293,10 +293,12 @@ def safe_file_name(slot: str, name: str) -> str:
 # ####################
 
 
-def pyquadcortex_toolkit() -> Toolkit:
-    """The real helpers. pyquadcortex is imported here, not at module load."""
+def pyquadcortex_toolkit(catalog: Any = None) -> Toolkit:
+    """The real helpers (pyquadcortex 0.40 and newer, whose helpers are top-level
+    names). pyquadcortex is imported here, not at module load. `catalog` is the
+    connected unit's model catalog, which turns the stored tempo into BPM."""
     try:
-        from pyquadcortex import protocol
+        import pyquadcortex as qclib
     except ImportError as error:  # pragma: no cover - needs the library
         raise SystemExit(
             "pyquadcortex is not installed. Run: pip install pyquadcortex (Python 3.11 or newer, "
@@ -305,28 +307,31 @@ def pyquadcortex_toolkit() -> Toolkit:
 
     def input_name(port: int) -> str:
         try:
-            return protocol.Input(port).name
+            return qclib.Input(port).name
         except ValueError:
             return f"UNKNOWN_{port}"
 
     def output_name(port: int) -> str:
         try:
-            return protocol.Output(port).name
+            return qclib.Output(port).name
         except ValueError:
             return f"UNKNOWN_{port}"
 
     def tempo_bpm(preset: Any) -> Optional[float]:
+        # The preset's tempo control (model 25000) stores TEMPO at index 0 as a
+        # normalized 0..1; the catalog's range for it gives BPM.
         try:
-            wire = protocol.tempo_params(preset)[int(protocol.params.TempoParam.TEMPO)]
-            return float(protocol.tempo_bpm(wire))
-        except (KeyError, ValueError, AttributeError):
+            stored = qclib.tempo_params(preset)[qclib.QuadCortex.TEMPO_PARAMS["TEMPO"]]
+            model = catalog[qclib.QuadCortex.TEMPO_CONTROL]
+            return float(model.parameters[qclib.QuadCortex.TEMPO_PARAMS["TEMPO"]].to_real(stored))
+        except (KeyError, IndexError, ValueError, AttributeError, TypeError):
             return None
 
     return Toolkit(
-        blocks=protocol.blocks,
-        splits=protocol.splits,
-        bypass_state=protocol.bypass_state,
-        param_state=protocol.param_state,
+        blocks=qclib.blocks,
+        splits=qclib.splits,
+        bypass_state=lambda preset, cell: qclib.bypass_state(preset, cell.row, cell.column),
+        param_state=lambda preset, cell, index: qclib.param_state(preset, cell.row, cell.column, index),
         input_name=input_name,
         output_name=output_name,
         tempo_bpm=tempo_bpm,
@@ -361,14 +366,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             file=sys.stderr,
         )
         return 2
-    kit = pyquadcortex_toolkit()
-    from pyquadcortex import protocol  # already importable: pyquadcortex_toolkit() checked
+    pyquadcortex_toolkit()  # fails early with install advice when the library is missing
+    import pyquadcortex as qclib
 
-    setlist = protocol.Setlist.FACTORY if args.setlist == "factory" else protocol.Setlist.USER
+    setlist = qclib.Setlist.FACTORY if args.setlist == "factory" else qclib.Setlist.USER
     os.makedirs(args.out, exist_ok=True)
     written = 0
-    # initial_file_listing=False skips the big folder sync; listing methods read on demand.
-    with protocol.connect(initial_file_listing=False) as qc:
+    with qclib.connect() as qc:
+        kit = pyquadcortex_toolkit(qc.catalog)
         version = ""
         try:
             version = str(qc.version().app_fw_version)
@@ -381,13 +386,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             jobs.append(("current", qc.read_current_preset()))
         elif args.all:
             for entry in qc.list_presets(setlist):
-                label = protocol.position_to_slot(entry.index)
+                label = qclib.position_to_slot(entry.index)
                 jobs.append((label, qc.read_preset(setlist, entry.index)))
         elif args.slot:
             jobs.append((args.slot.upper(), qc.read_preset(setlist, args.slot.upper())))
         else:
             entry = qc.find_preset(args.preset, setlist)
-            jobs.append((protocol.position_to_slot(entry.index), qc.read_preset(setlist, entry.index)))
+            jobs.append((qclib.position_to_slot(entry.index), qc.read_preset(setlist, entry.index)))
 
         for label, preset in jobs:
             document = build_foreign_preset(preset, qc.catalog, kit, source_version)

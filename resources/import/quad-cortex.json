@@ -57,6 +57,100 @@
       },
       "notes": "Nine bands onto our ten: 65 Hz goes to our 63 Hz band, our 31.5 Hz band stays flat. Gains past 12 dB and the output past 12 dB are clamped. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
+    "Parametric-3": {
+      "kind": "eq.parametric3",
+      "verified": false,
+      "params": {
+        "1 FREQ": { "param": "b1Freq", "transform": "linear" },
+        "1 GAIN": { "param": "b1Gain", "transform": "linear" },
+        "1 Q": { "param": "b1Q", "transform": "linear" },
+        "1 TYPE": { "param": "b1Type", "transform": "linear" },
+        "1 BYPASS": { "param": "b1Bypass", "transform": "linear" },
+        "2 FREQ": { "param": "b2Freq", "transform": "linear" },
+        "2 GAIN": { "param": "b2Gain", "transform": "linear" },
+        "2 Q": { "param": "b2Q", "transform": "linear" },
+        "2 BYPASS": { "param": "b2Bypass", "transform": "linear" },
+        "3 FREQ": { "param": "b3Freq", "transform": "linear" },
+        "3 GAIN": { "param": "b3Gain", "transform": "linear" },
+        "3 Q": { "param": "b3Q", "transform": "linear" },
+        "3 TYPE": { "param": "b3Type", "transform": "linear" },
+        "3 BYPASS": { "param": "b3Bypass", "transform": "linear" },
+        "OUTPUT": { "param": "levelDb", "transform": "linear" }
+      },
+      "notes": "TYPE 0 or 1 is peak or shelf (band 1 shelves low, band 3 high); gains past 18 dB are clamped. Names and ranges from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Parametric-8": {
+      "kind": "eq.parametric8",
+      "verified": false,
+      "params": {
+        "1 FREQ": { "param": "b1Freq", "transform": "linear" },
+        "1 GAIN": { "param": "b1Gain", "transform": "linear" },
+        "1 Q": { "param": "b1Q", "transform": "linear" },
+        "1 TYPE": { "param": "b1Type", "transform": "linear" },
+        "1 BYPASS": { "param": "b1Bypass", "transform": "linear" },
+        "2 FREQ": { "param": "b2Freq", "transform": "linear" },
+        "2 GAIN": { "param": "b2Gain", "transform": "linear" },
+        "2 Q": { "param": "b2Q", "transform": "linear" },
+        "2 BYPASS": { "param": "b2Bypass", "transform": "linear" },
+        "3 FREQ": { "param": "b3Freq", "transform": "linear" },
+        "3 GAIN": { "param": "b3Gain", "transform": "linear" },
+        "3 Q": { "param": "b3Q", "transform": "linear" },
+        "3 BYPASS": { "param": "b3Bypass", "transform": "linear" },
+        "4 FREQ": { "param": "b4Freq", "transform": "linear" },
+        "4 GAIN": { "param": "b4Gain", "transform": "linear" },
+        "4 Q": { "param": "b4Q", "transform": "linear" },
+        "4 BYPASS": { "param": "b4Bypass", "transform": "linear" },
+        "5 FREQ": { "param": "b5Freq", "transform": "linear" },
+        "5 GAIN": { "param": "b5Gain", "transform": "linear" },
+        "5 Q": { "param": "b5Q", "transform": "linear" },
+        "5 BYPASS": { "param": "b5Bypass", "transform": "linear" },
+        "6 FREQ": { "param": "b6Freq", "transform": "linear" },
+        "6 GAIN": { "param": "b6Gain", "transform": "linear" },
+        "6 Q": { "param": "b6Q", "transform": "linear" },
+        "6 BYPASS": { "param": "b6Bypass", "transform": "linear" },
+        "7 FREQ": { "param": "b7Freq", "transform": "linear" },
+        "7 GAIN": { "param": "b7Gain", "transform": "linear" },
+        "7 Q": { "param": "b7Q", "transform": "linear" },
+        "7 BYPASS": { "param": "b7Bypass", "transform": "linear" },
+        "8 FREQ": { "param": "b8Freq", "transform": "linear" },
+        "8 GAIN": { "param": "b8Gain", "transform": "linear" },
+        "8 Q": { "param": "b8Q", "transform": "linear" },
+        "8 TYPE": { "param": "b8Type", "transform": "linear" },
+        "8 BYPASS": { "param": "b8Bypass", "transform": "linear" },
+        "OUTPUT": { "param": "levelDb", "transform": "linear" }
+      },
+      "notes": "TYPE 0 or 1 is peak or shelf on bands 1 and 8; gains past 18 dB are clamped. Names and ranges from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Low-High Cut": {
+      "kind": "eq.cut",
+      "verified": false,
+      "params": {
+        "HPF FREQ": { "param": "hpFreq", "transform": "linear" },
+        "HPF SLOPE": { "param": "hpSlope", "transform": { "map": { "0": 0, "6": 1, "12": 2, "18": 3, "24": 4, "36": 5, "48": 6 } } },
+        "LPF FREQ": { "param": "lpFreq", "transform": "linear" },
+        "LPF SLOPE": { "param": "lpSlope", "transform": { "map": { "0": 0, "6": 1, "12": 2, "18": 3, "24": 4, "36": 5, "48": 6 } } },
+        "OUTPUT": { "param": "levelDb", "transform": "linear" }
+      },
+      "notes": "The slope lists' option labels are not known yet: the map assumes 0 (off), 6, 12, 18, 24, 36 and 48 dB/oct; any other label is reported as dropped. Names and ranges from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Plugin Parametric-4": {
+      "kind": "eq.console4",
+      "verified": false,
+      "params": {
+        "HPF": { "param": "hpFreq", "transform": "linear" },
+        "LO GAIN": { "param": "lowGain", "transform": "linear" },
+        "LO FREQ": { "param": "lowFreq", "transform": "linear" },
+        "LO MID GAIN": { "param": "lowMidGain", "transform": "linear" },
+        "LO MID FREQ": { "param": "lowMidFreq", "transform": "linear" },
+        "HI MID GAIN": { "param": "highMidGain", "transform": "linear" },
+        "HI MID FREQ": { "param": "highMidFreq", "transform": "linear" },
+        "HI GAIN": { "param": "highGain", "transform": "linear" },
+        "HI FREQ": { "param": "highFreq", "transform": "linear" },
+        "LPF": { "param": "lpFreq", "transform": "linear" }
+      },
+      "defaults": { "hpOn": 1, "lpOn": 1 },
+      "notes": "The unit's filters have no switch, so ours are switched on. Names and ranges from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
 
     "Digital Delay": {
       "kind": "delay.digital",

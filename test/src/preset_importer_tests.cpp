@@ -1360,3 +1360,43 @@ TEST(PresetImporterTest, DelayModelsGetTheirKindsAndValuesOnOurScales) {
 }
 
 }  // namespace
+
+TEST(PresetImporterTest, EqualiserModelsGetTheirKinds) {
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  const juce::var foreign = parseJson(R"json({"format":"pedaleira-foreign-preset","version":1,
+    "source":"quad-cortex","name":"Equalisers","rows":[{"index":0,"blocks":[
+      {"position":0,"model":"Parametric-3","category":"Equalizer","enabled":true,
+       "params":{"2 FREQ":{"value":800,"unit":"Hz"},"2 GAIN":{"value":24,"unit":"dB"},"2 Q":{"value":2},
+                 "OUTPUT":{"value":-3,"unit":"dB"}}},
+      {"position":1,"model":"Parametric-8","category":"Equalizer","enabled":true,
+       "params":{"8 FREQ":{"value":9000,"unit":"Hz"},"8 TYPE":{"value":1}}},
+      {"position":2,"model":"Low-High Cut","category":"Equalizer","enabled":true,
+       "params":{"HPF FREQ":{"value":90,"unit":"Hz"},"LPF FREQ":{"value":7000,"unit":"Hz"}}},
+      {"position":3,"model":"Plugin Parametric-4","category":"Equalizer","enabled":true,
+       "params":{"LO MID GAIN":{"value":-4,"unit":"dB"},"LO MID FREQ":{"value":350,"unit":"Hz"}}}]}]})json");
+  const importer::ImportResult result = importer::convertForeignPreset(foreign, table);
+  ASSERT_TRUE(result.ok) << result.error;
+  const juce::var preset = result.preset;
+  const auto number = [&](int position, const char* id) {
+    return static_cast<double>(kindParam(slotNode(preset, 0, position), id));
+  };
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 0)), "eq.parametric3");
+  EXPECT_NEAR(number(0, "b2Freq"), 800.0, 1e-3);
+  EXPECT_NEAR(number(0, "b2Gain"), 18.0, 1e-3) << "clamped to our range";
+  EXPECT_NEAR(number(0, "b2Q"), 2.0, 1e-3);
+  EXPECT_NEAR(number(0, "levelDb"), -3.0, 1e-3);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "eq.parametric8");
+  EXPECT_NEAR(number(1, "b8Freq"), 9000.0, 1e-3);
+  EXPECT_NEAR(number(1, "b8Type"), 1.0, 1e-6);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "eq.cut");
+  EXPECT_NEAR(number(2, "hpFreq"), 90.0, 1e-3);
+  EXPECT_NEAR(number(2, "lpFreq"), 7000.0, 1e-3);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "eq.console4");
+  EXPECT_NEAR(number(3, "lowMidGain"), -4.0, 1e-3);
+  EXPECT_NEAR(number(3, "lowMidFreq"), 350.0, 1e-3);
+  EXPECT_NEAR(number(3, "hpOn"), 1.0, 1e-6) << "the unit's filters are always in";
+}

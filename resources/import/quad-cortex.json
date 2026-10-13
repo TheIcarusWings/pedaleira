@@ -15,6 +15,65 @@
       },
       "notes": "The unit runs THRESHOLD -60 to +12 dB, ours -60 to 0, so a value above 0 is clamped and reported. Measured on a unit (CorOS d14e): the unit compresses from 1.28 dB below the threshold it shows (-1.23 to -1.36 over five takes at -20 and -30), hence the offset; RATIO matches exactly. ATTACK and RELEASE take the dump's real times (quad-cortex-curves.json), but the unit's envelope is shaped differently from ours, so the timing is close, not equal."
     },
+    "Legendary 87": {
+      "kind": "dynamics.fet",
+      "verified": false,
+      "params": {
+        "INPUT": { "param": "inputDb", "transform": { "scale": 1, "offset": 40 } },
+        "RATIO": { "param": "ratio", "transform": { "map": { "4": 0, "4:1": 0, "8": 1, "8:1": 1, "12": 2, "12:1": 2, "20": 3, "20:1": 3, "All": 4 } } },
+        "ATTACK": { "param": "attackUs", "transform": { "scale": 1000, "offset": 0 } },
+        "RELEASE": { "param": "releaseMs", "transform": { "scale": 1000, "offset": 0 } },
+        "MAKEUP": { "param": "outputDb", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Closest is our FET Compressor. The unit's INPUT runs -48 to 0 dB and is anchored at the top (0 dB is our 40 dB of input), a guess. ATTACK is taken as ms and RELEASE as s. Our attack floor is 20 us and MAKEUP is our Output knob, -36 to 12 dB. Unverified."
+    },
+    "Solid State Comp": {
+      "kind": "dynamics.bus",
+      "verified": false,
+      "params": {
+        "THRESHOLD": { "param": "thresholdDb", "transform": "linear" },
+        "RATIO": { "param": "ratio", "transform": { "map": { "2": 0, "2:1": 0, "4": 1, "4:1": 1, "10": 2, "10:1": 2 } } },
+        "ATTACK": { "param": "attack", "transform": { "map": { "0.1": 0, "0.3": 1, "1": 2, "3": 3, "10": 4, "30": 5 } } },
+        "RELEASE": { "param": "release", "transform": { "map": { "0.1": 0, "0.3": 1, "0.6": 2, "1.2": 3, "Auto": 4 } } },
+        "MAKEUP": { "param": "makeupDb", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Closest is our Bus Compressor. Our attack and release are stepped (0.1, 0.3, 1, 3, 10, 30 ms; 0.1, 0.3, 0.6, 1.2 s, Auto) while the unit's are continuous, so only values on a step map and the rest are reported as dropped. Makeup is clamped to 0 to 24 dB. Unverified."
+    },
+    "Opto Comp": {
+      "kind": "dynamics.opto",
+      "verified": false,
+      "params": {
+        "THRESHOLD": { "param": "peakReduction", "transform": { "scale": -2, "offset": -4 } },
+        "MAKEUP": { "param": "gainDb", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "defaults": { "mode": 0 },
+      "notes": "Closest is our Optical Compressor, one Peak Reduction knob and a programme-dependent cell. THRESHOLD becomes Peak Reduction (-2 dB is 0, -52 dB is 100). RATIO, ATTACK and RELEASE have no counterpart and are dropped; switch to Limit by hand for ratios of about 8 and above. Unverified."
+    },
+    "Chief CS3": {
+      "kind": "dynamics.sustainer",
+      "verified": false,
+      "params": {
+        "SUSTAIN": { "param": "sustain", "transform": { "scale": 10, "offset": 0 } },
+        "ATTACK": { "param": "attack", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tone", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3, "offset": -18 } }
+      },
+      "notes": "Closest is our Sustainer. Knobs 0 to 10 become 0 to 100 %; LEVEL 0 to 10 becomes -18 to +12 dB (6 is unity). Our makeup is automatic and our attack and tone curves are our own. Unverified."
+    },
+    "Jewel": {
+      "kind": "dynamics.sustainer",
+      "verified": false,
+      "params": {
+        "COMP": { "param": "sustain", "transform": { "scale": 10, "offset": 0 } },
+        "EQ": { "param": "tone", "transform": { "scale": 10, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3, "offset": -18 } },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Nearest by controls is our Sustainer (comp, tone, level, mix). HIGH CUT has no counterpart and is dropped. A guess at the circuit. Unverified."
+    },
     "Simple Gate": {
       "kind": "dynamics.gate",
       "verified": false,

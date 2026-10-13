@@ -36,7 +36,7 @@ public:
       t.push_back(BlockParamSpec::floatParam("drivePercent", "Drive", "%", 0.0f, 100.0f, 40.0f));
       t.push_back(BlockParamSpec::floatParam("presenceDb", "Presence", "dB", -12.0f, 12.0f, 0.0f));
       t.push_back(BlockParamSpec::floatParam("blendPercent", "Blend", "%", 0.0f, 100.0f, 70.0f));
-      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -18.0f, 18.0f, 0.0f));
+      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -48.0f, 18.0f, 0.0f));
       return t;
     }();
     return table;

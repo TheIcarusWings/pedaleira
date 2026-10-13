@@ -809,9 +809,9 @@
       "params": {
         "OVERDRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -28.4 } }
       },
-      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
+      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, OVERDRIVE 5, LEVEL 5): the unit sits 10.4 dB below our 0 dB at 1 kHz, hence the offset. On the unit OVERDRIVE 2, 5 and 8 change the harmonics far more than the level."
     },
     "Exotic": {
       "kind": "drive.boost",

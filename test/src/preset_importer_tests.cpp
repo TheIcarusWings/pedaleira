@@ -944,7 +944,7 @@ TEST(PresetImporterTest, DriveModelsGetTheirKindsAndTheKnobsOnOurScales) {
   EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "drive.overdrive");
   EXPECT_NEAR(number(3, "drivePercent"), 40.0, 1e-3);
   EXPECT_NEAR(number(3, "tonePercent"), 60.0, 1e-3);
-  EXPECT_NEAR(number(3, "levelDb"), 9.0, 1e-3);
+  EXPECT_NEAR(number(3, "levelDb"), -1.4, 1e-3) << "LEVEL 7.5 with the measured 10.4 dB offset";
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 4)), "drive.trebleboost");
   EXPECT_NEAR(number(4, "gainDb"), 15.0, 1e-3);

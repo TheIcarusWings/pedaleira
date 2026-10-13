@@ -308,6 +308,8 @@ void dressWithScenesAndStomps(LibraryRig& rig, const juce::String& delay, const 
                               const juce::String& plugin) {
   const auto [delayParam, delayValue] = rig.kindParam(delay, 0.3);
   rig.setParam(delay, delayParam, delayValue);
+  for (int i = 0; i < 3; ++i)
+    rig.must("scene.add");
   rig.must("scene.rename", R"({"scene":"B","name":"Chorus"})");
   rig.must("scene.rename", R"({"scene":"D","name":"Solo é"})");
   rig.must("scene.assignParam",
@@ -611,9 +613,14 @@ TEST(LibraryRoundTripTest, SavingTwiceWritesTheSameBytes) {
 
   // One knob moved is a diff of a line or two.
   const juce::String amp = rig.proc.getChainState(-1)["chain"][0]["blockId"].toString();
+  // (With several scenes a first move also gives the knob a value per scene,
+  // so that is done and saved first.)
+  rig.must("scene.assignParam", "{\"blockId\":" + quoted(amp) + R"(,"param":"inputGain"})");
+  rig.must("preset.save", R"({"name":"Stable"})");
+  const juce::String assigned = file.loadFileAsString();
   rig.setParam(amp, "inputGain", 0.77);
   rig.must("preset.save", R"({"name":"Stable"})");
-  const juce::StringArray before = juce::StringArray::fromLines(first);
+  const juce::StringArray before = juce::StringArray::fromLines(assigned);
   const juce::StringArray after = juce::StringArray::fromLines(file.loadFileAsString());
   ASSERT_EQ(before.size(), after.size());
   int changed = 0;
@@ -1194,6 +1201,11 @@ TEST(LibraryStateTest, UnsavedChanges) {
   rig.must("stomp.assign", "{\"switch\":\"B\",\"blockIds\":[" + quoted(delay) + "]}");
   EXPECT_TRUE(rig.unsaved());
   rig.must("chain.undo");
+  // The preset uses three scenes from here on.
+  rig.must("scene.add");
+  rig.must("scene.add");
+  rig.must("preset.saveToSlot", R"({"slot":1})");
+  EXPECT_FALSE(rig.unsaved());
   rig.must("scene.rename", R"({"scene":"C","name":"Bridge"})");
   EXPECT_TRUE(rig.unsaved());
   rig.must("chain.undo");
@@ -2284,14 +2296,16 @@ TEST(LibraryCommandsTest, ATempoATagAndSceneCountShowInTheSetlist) {
   const juce::String delay = rig.addKind("delay.simple");
   const juce::String reverb = rig.addKind("reverb.room");
   rig.settle();
+  rig.must("scene.add");
+  rig.must("scene.add");
   rig.must("scene.rename", R"({"scene":"B","name":"Chorus"})");
   rig.must("scene.select", R"({"scene":"C"})");
   rig.must("block.setParam", "{\"blockId\":" + quoted(reverb) + ",\"param\":\"enabled\",\"value\":0}");
   rig.must("preset.save", R"({"name":"Ballad"})");
   const juce::File file = rig.setlistFolder("My Presets").getChildFile("001 Ballad.json");
 
-  // A block state of its own in every scene: all eight count as used.
-  EXPECT_EQ(static_cast<int>(slotAt(rig.must("setlist.get"), 1)["sceneCount"]), 8);
+  // The preset stores how many scenes it uses.
+  EXPECT_EQ(static_cast<int>(slotAt(rig.must("setlist.get"), 1)["sceneCount"]), 3);
   EXPECT_TRUE(slotAt(rig.must("setlist.get"), 1)["tempo"].isVoid())
       << "this build's saves do not store a tempo";
 

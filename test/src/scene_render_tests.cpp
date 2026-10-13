@@ -64,6 +64,7 @@ TEST(SceneRenderTest, APhraseAcrossASceneSwitch) {
 
   // Scene A: dry. The delay stays on with its mix at zero (the mix is the
   // scene parameter), the reverb is off.
+  rig.useScenes(2);
   rig.assign(delay, "mix");
   rig.setParam(delay, "mix", 0.0);
   rig.setEnabled(reverb, false);

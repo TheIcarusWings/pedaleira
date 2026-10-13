@@ -188,6 +188,19 @@ juce::String TONE3000Processor::sceneParamRefusal(const ChainBlock& block,
   return {};
 }
 
+void TONE3000Processor::autoAssignSceneParam(const ChainBlock& block, const juce::String& param) {
+  // One scene in use: values stay shared.
+  if (scenes.count <= 1)
+    return;
+  const SceneParamKey key{block.id, param};
+  if (scenes.isAssigned(key) || scenes.isExpression(key) ||
+      sceneParamRefusal(block, param).isNotEmpty())
+    return;
+  float value = 0.0f;
+  if (readSceneParam(block, param, value))
+    scenes.assigned[key].fill(value);
+}
+
 void TONE3000Processor::registerSceneBlock(const ChainBlock& block) {
   if (scenes.blockStates.count(block.id) == 0)
     scenes.blockStates[block.id].fill(block.enabled);
@@ -258,6 +271,8 @@ bool TONE3000Processor::selectScene(int index) {
     return false;
 
   juce::ScopedLock lock(chainMutex);
+  if (!scenes.inUse(index))
+    return false;
   if (index == scenes.active)
     return true;
 
@@ -272,6 +287,75 @@ bool TONE3000Processor::selectScene(int index) {
     refreshBlockTailLength();
   bumpChainRevision();
   return true;
+}
+
+int TONE3000Processor::getSceneCount() const {
+  juce::ScopedLock lock(chainMutex);
+  return scenes.count;
+}
+
+juce::Result TONE3000Processor::addScene(int* newIndex) {
+  juce::ScopedLock lock(chainMutex);
+  if (scenes.count >= kNumScenes)
+    return juce::Result::fail("a preset has at most " + juce::String(kNumScenes) +
+                              " scenes, and all are in use");
+  pushChainHistory();
+  captureActiveScene();
+  const auto slot = static_cast<size_t>(scenes.count);
+  const auto activeSlot = static_cast<size_t>(scenes.active);
+  scenes.names[slot].clear();
+  for (auto& entry : scenes.blockStates)
+    entry.second[slot] = entry.second[activeSlot];
+  for (auto& entry : scenes.assigned)
+    entry.second[slot] = entry.second[activeSlot];
+  if (newIndex != nullptr)
+    *newIndex = scenes.count;
+  ++scenes.count;
+  bumpChainRevision();
+  return juce::Result::ok();
+}
+
+juce::Result TONE3000Processor::removeScene(int index) {
+  juce::ScopedLock lock(chainMutex);
+  if (!scenes.inUse(index))
+    return juce::Result::fail("scene " + sceneLetter(index) + " is not in use");
+  if (scenes.count <= 1)
+    return juce::Result::fail("the only scene cannot be removed");
+  pushChainHistory();
+  captureActiveScene();
+
+  const int last = scenes.count - 1;
+  const int oldActive = scenes.active;
+  // Later scenes move down one place; the last place goes back to a fresh
+  // scene (default name, every block on, values as the active scene has).
+  for (int i = index; i < last; ++i)
+    scenes.names[static_cast<size_t>(i)] = scenes.names[static_cast<size_t>(i + 1)];
+  scenes.names[static_cast<size_t>(last)].clear();
+  for (auto& entry : scenes.blockStates) {
+    for (int i = index; i < last; ++i)
+      entry.second[static_cast<size_t>(i)] = entry.second[static_cast<size_t>(i + 1)];
+    entry.second[static_cast<size_t>(last)] = true;
+  }
+  for (auto& entry : scenes.assigned)
+    for (int i = index; i < last; ++i)
+      entry.second[static_cast<size_t>(i)] = entry.second[static_cast<size_t>(i + 1)];
+  --scenes.count;
+
+  // The active scene moves with its content. If it was the one removed,
+  // the scene that took its place is heard (the new last one if it was last).
+  if (oldActive > index)
+    scenes.active = oldActive - 1;
+  else if (oldActive == index)
+    scenes.active = std::min(index, scenes.count - 1);
+  for (auto& entry : scenes.assigned)
+    entry.second[static_cast<size_t>(last)] = entry.second[static_cast<size_t>(scenes.active)];
+  if (oldActive == index) {
+    chainHistory.endGesture();
+    if (applySceneToBlocks(scenes.active))
+      refreshBlockTailLength();
+  }
+  bumpChainRevision();
+  return juce::Result::ok();
 }
 
 juce::var TONE3000Processor::getScenesState() const {
@@ -294,6 +378,7 @@ juce::var TONE3000Processor::getScenesState() const {
     scene->setProperty("id", sceneLetter(i));
     scene->setProperty("name", current.nameOf(i));
     scene->setProperty("active", i == current.active);
+    scene->setProperty("inUse", current.inUse(i));
 
     // Every tone block, also those no scene has a state of its own for:
     // such a block is in its current state everywhere.
@@ -324,6 +409,7 @@ juce::var TONE3000Processor::getScenesState() const {
   juce::DynamicObject::Ptr root = new juce::DynamicObject();
   root->setProperty("active", current.active);
   root->setProperty("activeId", sceneLetter(current.active));
+  root->setProperty("count", current.count);
   root->setProperty("scenes", sceneList);
   root->setProperty("assigned", assigned);
   root->setProperty("expression", expression);
@@ -334,6 +420,8 @@ bool TONE3000Processor::renameScene(int index, const juce::String& name) {
   if (index < 0 || index >= kNumScenes)
     return false;
   juce::ScopedLock lock(chainMutex);
+  if (!scenes.inUse(index))
+    return false;
   juce::String stored = name.trim();
   if (stored == SceneStore::defaultName(index))
     stored.clear();
@@ -352,6 +440,8 @@ bool TONE3000Processor::copyScene(int from, int to) {
     return true;
 
   juce::ScopedLock lock(chainMutex);
+  if (!scenes.inUse(from) || !scenes.inUse(to))
+    return false;
   pushChainHistory();
   captureActiveScene();
   // Blocks without a state of their own are the same in both scenes already.
@@ -371,6 +461,8 @@ bool TONE3000Processor::resetScene(int index) {
     return false;
 
   juce::ScopedLock lock(chainMutex);
+  if (!scenes.inUse(index))
+    return false;
   pushChainHistory();
   captureActiveScene();
   const auto slot = static_cast<size_t>(index);
@@ -443,6 +535,8 @@ juce::Result TONE3000Processor::setSceneParamValue(int scene, const std::string&
     return juce::Result::fail("the value is not a number");
 
   juce::ScopedLock lock(chainMutex);
+  if (!scenes.inUse(scene))
+    return juce::Result::fail("scene " + sceneLetter(scene) + " is not in use");
   const SceneParamKey key{blockId, param};
   if (!scenes.isAssigned(key))
     return juce::Result::fail("'" + param + "' is not scene-assigned on block '" +
@@ -875,10 +969,12 @@ juce::var TONE3000Processor::getFootswitchState() const {
   std::array<StompRow, kNumFootswitches> stompRows;
   std::array<juce::String, kNumScenes> sceneNames;
   int activeScene = 0;
+  int sceneCount = 1;
   juce::String presetId;
   {
     juce::ScopedLock lock(chainMutex);
     activeScene = scenes.active;
+    sceneCount = scenes.count;
     presetId = activePresetId;
     for (int i = 0; i < kNumScenes; ++i)
       sceneNames[static_cast<size_t>(i)] = scenes.nameOf(i);
@@ -963,6 +1059,8 @@ juce::var TONE3000Processor::getFootswitchState() const {
           roleName = colour = "scene";
           label = sceneNames[static_cast<size_t>(role.target)];
           lit = role.target == activeScene;
+          // A scene the preset does not use: nothing behind the switch.
+          empty = role.target >= sceneCount;
           item->setProperty("scene", sceneLetter(role.target));
           break;
         case FootswitchRole::Kind::Stomp: {
@@ -1008,6 +1106,7 @@ juce::var TONE3000Processor::getFootswitchState() const {
                                 : 0);
   root->setProperty("scenePage", footswitchScenePage.load());
   root->setProperty("activeScene", sceneLetter(activeScene));
+  root->setProperty("sceneCount", sceneCount);
   root->setProperty("bpm", getTempo());
   root->setProperty("switches", switches);
   return juce::var(root.get());

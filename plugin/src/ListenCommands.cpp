@@ -449,6 +449,18 @@ RenderRun runPlan(const RenderPlan& plan) {
     return run;
   }
 
+  // A scene the preset does not use cannot be heard: refuse before any render.
+  if (!plan.scenes.empty()) {
+    int sceneCount = 1;
+    onMessageThread([&] { sceneCount = rig.processor().getSceneCount(); });
+    for (const int scene : plan.scenes)
+      if (scene >= sceneCount) {
+        run.error = "scene " + sceneLetter(scene) + " is not in use (the preset has " +
+                    juce::String(sceneCount) + ")";
+        return run;
+      }
+  }
+
   const std::vector<int> scenes = plan.scenes.empty() ? std::vector<int>{-1} : plan.scenes;
   for (const int scene : scenes) {
     if (scene >= 0 && !onMessageThread([&] { rig.processor().selectScene(scene); })) {

@@ -84,6 +84,9 @@ struct SceneParamKey {
 class SceneStore {
 public:
   int active{0};
+  // How many scenes the rig uses, 1 to 8. A scene at or past it is not in
+  // use: it cannot be selected and no switch reaches it.
+  int count{1};
   // Empty = the default name ("Scene A").
   std::array<juce::String, kNumScenes> names;
   std::map<std::string, std::array<bool, kNumScenes>> blockStates;
@@ -102,6 +105,11 @@ public:
   // it did before they existed.
   bool isPristine() const;
   void clear();
+  bool inUse(int index) const { return index >= 0 && index < count; }
+  // For a rig saved before scenes had a count: the highest scene that is
+  // not a fresh one (renamed, a block off, an assigned value that differs
+  // from scene A's) or is the active one, plus one. At least 1.
+  int inferCount() const;
 
   // Everything kept for a block that has left the rig.
   void removeBlock(const std::string& blockId);
@@ -109,13 +117,14 @@ public:
   // common ones), for a block that keeps its id but changes kind.
   void removeKindParams(const std::string& blockId);
 
-  // Scenes version=1 active=<0..7>
+  // Scenes version=1 active=<0..7> [count=<1..8>]
   //   Scene index=<0..7> [name="..."]            (always eight)
   //     Block id="<block id>" enabled=<bool>
   //     Value blockId="<block id>" param="<param id>" value=<double>
   //   Expression blockId="<block id>" param="<param id>"
   //
-  // A parameter is scene-assigned when the scenes hold a Value for it. A
+  // Without a count the reader infers one (inferCount). A parameter is
+  // scene-assigned when the scenes hold a Value for it. A
   // reader ignores children and properties it does not know.
   juce::ValueTree toValueTree() const;
   // An invalid tree (a rig saved before scenes) clears the store.

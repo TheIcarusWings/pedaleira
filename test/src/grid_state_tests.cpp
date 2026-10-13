@@ -901,6 +901,7 @@ TEST(GridStateTest, ScenesAndStompsSurviveConversionAndWorkInGridMode) {
   GridRig rig(2, 4);
   load(rig, lanes({gainBlock("blk-a", 1.0), gainBlock("blk-b", 2.0)}, {}, false));
   // Scene B: blk-a off, and blk-b's gain has a value per scene.
+  rig.run("scene.add");
   rig.run("scene.assignParam", R"({"blockId":"blk-b","param":"gainDb"})");
   rig.run("scene.select", R"({"scene":"B"})");
   ASSERT_TRUE(rig.proc.setBlockParam("blk-a", "enabled", 0.0));

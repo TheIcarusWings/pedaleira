@@ -247,6 +247,7 @@ TEST(RenderClip, PerSceneAndWithAudioOnRequest) {
   const juce::String gain = rig.addKind("utility.gain");
   const juce::String quotedGain = agentQuoted(gain);
   // Scene B plays the block 12 dB down; scene A is the one in use.
+  rig.mustLocal("scene.add");
   rig.mustLocal("scene.assignParam", "{\"blockId\":" + quotedGain + R"(,"param":"gainDb"})");
   rig.mustLocal("scene.setParamValue",
                 "{\"scene\":\"B\",\"blockId\":" + quotedGain + R"(,"param":"gainDb","value":-12})");
@@ -561,7 +562,10 @@ TEST(RenderLimits, ACallRendersAtMostTenMinutesOfAudio) {
   EXPECT_FALSE(sandbox->rendering.load());
   EXPECT_EQ(sandbox->activeUses.load(), 0);
 
-  // The same twenty with no tail are twenty seconds, and run.
+  // The same twenty with no tail are twenty seconds, and run (a render of a
+  // scene the preset does not use is refused, so it has four).
+  for (int i = 0; i < 3; ++i)
+    rig.mustLocal("scene.add");
   const juce::var rendered =
       rig.mustLocal("render.clip", clips + R"(,"scenes":["A","B","C","D"],"tailSeconds":0})");
   EXPECT_EQ(rendered["renders"].size(), 20);

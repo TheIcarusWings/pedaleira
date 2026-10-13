@@ -59,6 +59,8 @@ private:
 
   EngineClient& engine;
   juce::String activeId, activeName;
+  // The scenes the preset uses: the table has a column for each.
+  int sceneCount = 1;
   std::vector<ParamRow> rows;
   std::vector<BlockRow> blocks;
   juce::String copiedScene;

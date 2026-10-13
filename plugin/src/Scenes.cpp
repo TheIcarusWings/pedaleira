@@ -64,7 +64,7 @@ juce::String SceneStore::nameOf(int index) const {
 }
 
 bool SceneStore::isPristine() const {
-  if (active != 0 || !blockStates.empty() || !assigned.empty() || !expression.empty())
+  if (active != 0 || count != 1 || !blockStates.empty() || !assigned.empty() || !expression.empty())
     return false;
   for (const auto& name : names)
     if (name.isNotEmpty())
@@ -73,6 +73,21 @@ bool SceneStore::isPristine() const {
 }
 
 void SceneStore::clear() { *this = SceneStore(); }
+
+int SceneStore::inferCount() const {
+  int highest = active;
+  for (int i = 1; i < kNumScenes; ++i) {
+    const auto slot = static_cast<size_t>(i);
+    bool used = names[slot].isNotEmpty();
+    for (const auto& entry : blockStates)
+      used = used || !entry.second[slot];
+    for (const auto& entry : assigned)
+      used = used || entry.second[slot] != entry.second[0];
+    if (used)
+      highest = std::max(highest, i);
+  }
+  return juce::jlimit(1, kNumScenes, highest + 1);
+}
 
 void SceneStore::removeBlock(const std::string& blockId) {
   blockStates.erase(blockId);
@@ -93,6 +108,7 @@ juce::ValueTree SceneStore::toValueTree() const {
   juce::ValueTree tree("Scenes");
   tree.setProperty("version", 1, nullptr);
   tree.setProperty("active", active, nullptr);
+  tree.setProperty("count", count, nullptr);
 
   for (int i = 0; i < kNumScenes; ++i) {
     const auto slot = static_cast<size_t>(i);
@@ -185,6 +201,11 @@ void SceneStore::restoreFromValueTree(const juce::ValueTree& tree) {
     fillGaps(states, statesSeen[blockId]);
   for (auto& [key, values] : assigned)
     fillGaps(values, valuesSeen[key]);
+
+  count = tree.hasProperty("count")
+              ? juce::jlimit(1, kNumScenes, static_cast<int>(tree.getProperty("count")))
+              : inferCount();
+  active = std::min(active, count - 1);
 
   // The exclusion holds for whatever a file says.
   for (const auto& key : expression)

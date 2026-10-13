@@ -588,6 +588,7 @@ TEST(SandboxRigs, EditingASandboxLeavesTheLiveRigBitIdentical) {
              "{\"blockId\":" + agentQuoted(sandboxGain) + R"(,"param":"gainDb","value":12})");
   rig.mustAs(client, "param.set", R"({"id":"outputLevel","value":0.2})");
   rig.mustAs(client, "chain.setStereo", R"({"enabled":true})");
+  rig.mustAs(client, "scene.add");
   rig.mustAs(client, "scene.rename", R"({"scene":"B","name":"Solo"})");
   rig.mustAs(client, "tempo.set", R"({"bpm":90})");
   rig.mustAs(client, "preset.save", R"({"name":"From the sandbox"})");

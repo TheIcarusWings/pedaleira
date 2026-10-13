@@ -618,6 +618,7 @@ TEST(GridSplitStateTest, ScenesAndStompsReachBlocksInEveryPath) {
   buildSplitRig(rig);
   const std::string lower = rig.proc.gridSlotBlockId(2, 3);
   ASSERT_FALSE(lower.empty());
+  rig.run("scene.add");
   rig.run("scene.select", R"({"scene":"B"})");
   ASSERT_TRUE(rig.proc.setBlockParam(lower, "enabled", 0.0));
   rig.run("scene.select", R"({"scene":"A"})");

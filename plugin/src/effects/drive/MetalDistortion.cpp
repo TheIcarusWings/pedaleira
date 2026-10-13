@@ -13,6 +13,17 @@
 // it shapes the finished sound. The gate is on the input, a threshold with a
 // little hysteresis and a smooth gain; at its lowest setting it is off. The
 // clipping runs at 4x.
+//
+// Voicing: Standard is the layout above. Resonant fixes a voice into the signal
+// after the user EQ (so Low, Middle, High and Mid Freq still work as
+// corrections on top of it): a low-frequency resonance (a narrow peak at about
+// 105 Hz on two low shelves, about 5.6 dB below 500 Hz and 2.5 dB below
+// 110 Hz), a presence peak at about 5 kHz, and a gentle one-pole top roll-off
+// from about 11 kHz in place of the two poles at 7 kHz. The coupling high-pass
+// between the two clipping stages drops from 150 Hz to 60 Hz so a low note
+// stays a clean square wave into the resonance. With the three EQ knobs flat
+// the response is therefore not flat but carries that shape, and the harmonics
+// of a mid note are lifted by the presence peak.
 #include "effects/drive/DriveCommon.h"
 
 namespace {
@@ -31,8 +42,10 @@ public:
     kMidHz,
     kHighDb,
     kLevelDb,
-    kGateDb
+    kGateDb,
+    kVoicing
   };
+  enum Voicing { kStandard = 0, kResonant };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -49,6 +62,9 @@ public:
       t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -48.0f, 18.0f, 0.0f));
       // The lowest value switches the gate off.
       t.push_back(BlockParamSpec::floatParam("gateDb", "Gate", "dB", -90.0f, -30.0f, -90.0f));
+      t.push_back(BlockParamSpec::choiceParam("voicing", "Voicing",
+                                              juce::StringArray{"Standard", "Resonant"}, kStandard)
+                      .notAutomatable());
       return t;
     }();
     return table;
@@ -80,13 +96,21 @@ protected:
     gateOpen = coefficientFor(0.002);
     gateClose = coefficientFor(0.03);
     for (Lane& lane : lanes) {
-      lane.couplingHigh.setCutoff(150.0, osRate);
+      lane.couplingHigh.setCutoff(kCouplingHz, osRate);
       lane.couplingLow.setCutoff(5000.0, osRate);
-      lane.rolloffA.setCutoff(7000.0, osRate);
-      lane.rolloffB.setCutoff(7000.0, osRate);
+      lane.rolloffA.setCutoff(kRolloffHz, osRate);
+      lane.rolloffB.setCutoff(kRolloffHz, osRate);
       lane.lowShelf.setCorner(100.0, sampleRate);
       lane.highShelf.setCorner(4000.0, sampleRate);
+      lane.voiceShelfA.setCorner(kVoiceShelfAHz, sampleRate);
+      lane.voiceShelfB.setCorner(kVoiceShelfBHz, sampleRate);
+      lane.voicePeakLow.setCoeffs(fx::BiquadCoeffs::peak(kVoicePeakLowHz, kVoicePeakLowQ, kVoicePeakLowDb, sampleRate));
+      lane.voicePeakHigh.setCoeffs(fx::BiquadCoeffs::peak(kVoicePeakHighHz, kVoicePeakHighQ, kVoicePeakHighDb, sampleRate));
+      lane.voiceSubHighpass.setCutoff(kVoiceSubHz, sampleRate);
     }
+    voiceShelfAGain = fx::dbToGain(kVoiceShelfADb);
+    voiceShelfBGain = fx::dbToGain(kVoiceShelfBDb);
+    appliedVoicing = -1;
     resetEffect();
   }
 
@@ -104,6 +128,11 @@ protected:
       lane.lowShelf.reset();
       lane.highShelf.reset();
       lane.mid.reset();
+      lane.voiceShelfA.reset();
+      lane.voiceShelfB.reset();
+      lane.voicePeakLow.reset();
+      lane.voicePeakHigh.reset();
+      lane.voiceSubHighpass.reset();
     }
     osTick.reset();
     tick.reset();
@@ -158,6 +187,19 @@ protected:
     }
 
     const double osRate = sampleRate * kOversampleFactor;
+    const bool resonant = param(kVoicing) > 0.5f;
+    if (static_cast<int>(resonant) != appliedVoicing) {
+      for (Lane& lane : lanes) {
+        lane.couplingHigh.setCutoff(resonant ? kResonantCouplingHz : kCouplingHz, osRate);
+        lane.rolloffA.setCutoff(resonant ? kResonantRolloffHz : kRolloffHz, osRate);
+        lane.voiceShelfA.reset();
+        lane.voiceShelfB.reset();
+        lane.voicePeakLow.reset();
+        lane.voicePeakHigh.reset();
+        lane.voiceSubHighpass.reset();
+      }
+      appliedVoicing = static_cast<int>(resonant);
+    }
     oversampler.run(buffer, [&](float* const* io, int frames, int numReal) {
       for (int i = 0; i < frames; ++i) {
         const float cornerHz = tight.next();
@@ -171,7 +213,8 @@ protected:
           const float first = kFirstLevel * softSat(firstGain * u * (1.0f / kFirstLevel));
           const float coupled = lane.couplingLow.lowpass(lane.couplingHigh.highpass(first));
           const float second = kSecondLevel * hardSat(kSecondGain * coupled * (1.0f / kSecondLevel));
-          io[ch][i] = lane.rolloffB.lowpass(lane.rolloffA.lowpass(second));
+          io[ch][i] = resonant ? lane.rolloffA.lowpass(second)
+                               : lane.rolloffB.lowpass(lane.rolloffA.lowpass(second));
         }
       }
     });
@@ -193,6 +236,11 @@ protected:
         // added band exactly unity at the centre, so `mid` is the gain there.
         x += (mid - 1.0f) * (1.0f / kMidQ) * lane.mid.bandpass(x);
         x = lane.highShelf.high(x, high);
+        if (resonant) {
+          x = lane.voiceShelfB.low(lane.voiceShelfA.low(x, voiceShelfAGain), voiceShelfBGain);
+          x = lane.voicePeakHigh.process(lane.voicePeakLow.process(x));
+          x = lane.voiceSubHighpass.highpass(x) * kResonantTrim;
+        }
         data[i] = x * g;
       }
     }
@@ -209,6 +257,25 @@ private:
   static constexpr float kSecondGain = 8.0f;
   static constexpr float kSecondLevel = 0.3f;
   static constexpr float kMidQ = 0.9f;
+  static constexpr float kCouplingHz = 150.0f;
+  static constexpr float kRolloffHz = 7000.0f;
+  // The Resonant voicing: the coupling and roll-off it changes, then the fixed
+  // shape (two low shelves, a low peak, a presence peak and a sub-bass
+  // high-pass) and the trim that keeps its 1 kHz level where Standard has it.
+  static constexpr float kResonantCouplingHz = 60.0f;
+  static constexpr float kResonantRolloffHz = 11467.0f;
+  static constexpr float kVoiceShelfAHz = 506.6f;
+  static constexpr float kVoiceShelfADb = 5.61f;
+  static constexpr float kVoiceShelfBHz = 108.5f;
+  static constexpr float kVoiceShelfBDb = 2.45f;
+  static constexpr float kVoicePeakLowHz = 105.6f;
+  static constexpr float kVoicePeakLowQ = 2.53f;
+  static constexpr float kVoicePeakLowDb = 5.52f;
+  static constexpr float kVoicePeakHighHz = 4935.0f;
+  static constexpr float kVoicePeakHighQ = 1.05f;
+  static constexpr float kVoicePeakHighDb = 6.65f;
+  static constexpr float kVoiceSubHz = 8.4f;
+  static constexpr float kResonantTrim = 0.752f;
   // Output scale that brings the default setting to about unity at guitar level.
   static constexpr float kMakeup = 0.36f;
 
@@ -219,6 +286,9 @@ private:
     fx::StateVariableFilter tight, mid;
     fx::OnePole couplingHigh, couplingLow, rolloffA, rolloffB;
     OnePoleShelf lowShelf, highShelf;
+    OnePoleShelf voiceShelfA, voiceShelfB;
+    fx::Biquad voicePeakLow, voicePeakHigh;
+    fx::OnePole voiceSubHighpass;
   };
 
   Lane lanes[kMaxLanes];
@@ -227,6 +297,8 @@ private:
   ControlTick tick{kControlGrid};
   fx::SmoothedParam tight, distortion, lowGain, midGain, midHz, highGain, level;
   float envelopeAttack{0.01f}, envelopeRelease{0.001f}, gateOpen{0.01f}, gateClose{0.001f};
+  float voiceShelfAGain{1.0f}, voiceShelfBGain{1.0f};
+  int appliedVoicing{-1};
   double sampleRate{48000.0};
 };
 

@@ -931,13 +931,15 @@ TEST(PresetImporterTest, DriveModelsGetTheirKindsAndTheKnobsOnOurScales) {
   EXPECT_NEAR(number(0, "midHz"), 1600.0, 1e-2);
   EXPECT_NEAR(number(0, "highDb"), 12.0, 1e-3);
   EXPECT_NEAR(number(0, "levelDb"), -21.5, 1e-3) << "5 on the knob is the level measured on the unit";
+  EXPECT_NEAR(number(0, "voicing"), 1.0, 1e-6) << "the resonant voicing";
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "drive.distortion");
   EXPECT_NEAR(number(1, "distortionPercent"), 100.0, 1e-3);
   EXPECT_NEAR(number(1, "filterPercent"), 70.0, 1e-3) << "its filter is a low-pass that darkens upward";
+  EXPECT_NEAR(number(1, "voicing"), 1.0, 1e-6) << "the open voicing";
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "drive.fuzz");
-  EXPECT_NEAR(number(2, "voicing"), 2.0, 1e-6) << "the sustain voicing";
+  EXPECT_NEAR(number(2, "voicing"), 3.0, 1e-6) << "the scooped voicing";
   EXPECT_NEAR(number(2, "fuzzPercent"), 80.0, 1e-3);
   EXPECT_NEAR(number(2, "tonePercent"), 50.0, 1e-3);
 

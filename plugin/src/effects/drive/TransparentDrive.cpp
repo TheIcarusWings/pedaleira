@@ -12,6 +12,26 @@
 // the sum. The clipping runs at 4x.
 //
 //   in -> [4x: clean + clipped path] -> treble shelf -> level
+//
+// Voicing picks the layout. Classic is the one described above. Smooth is a
+// softer, cleaner-mixed drive with a long top-end roll-off:
+//
+//   v = highpass(x, 20 Hz)
+//   y = lowpass(limit(g * (v + w * L * softSat(k * highpass(v, 32 Hz) / L))))
+//
+// The clean path is the whole input (a 20 Hz high-pass only), and the clipped
+// path is full range too (a 32 Hz high-pass in front of its clipper) with a
+// low ceiling L (about -25 dBFS before the level control), so it adds a gritty
+// edge to a mostly clean sum. Drive raises the clipper gain k and the share w
+// of the clipped path; the clean path keeps the same gain g. A gentle soft limiter on the sum keeps loud notes
+// in check, and the roll-off comes last: a one-pole low-pass at about 1.45 kHz
+// when Treble is 0 dB, moving a sixth of an octave per dB (5.8 kHz at +12 dB,
+// 360 Hz at -12 dB). Because the roll-off is after the clipping, the response
+// to a sweep at a fixed level is the same at any level and at any Drive; the
+// price is that the harmonics of a mid note are rolled off with it, so a tone of
+// 1 kHz measures about half the distortion of a tone of 100 Hz.
+//
+//   in -> [4x: high-pass -> clean + low-level clip -> limiter -> treble low-pass] -> level
 #include "effects/drive/DriveCommon.h"
 
 namespace {
@@ -22,7 +42,8 @@ class TransparentDriveProcessor final : public ParameterisedBlockProcessor {
 public:
   static constexpr const char* kKindId = "drive.transparent";
 
-  enum Param { kDrivePercent = 0, kTrebleDb, kLevelDb };
+  enum Param { kDrivePercent = 0, kTrebleDb, kLevelDb, kVoicing };
+  enum Voicing { kClassic = 0, kSmooth };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -30,6 +51,10 @@ public:
       t.push_back(BlockParamSpec::floatParam("drivePercent", "Drive", "%", 0.0f, 100.0f, 35.0f));
       t.push_back(BlockParamSpec::floatParam("trebleDb", "Treble", "dB", -12.0f, 12.0f, 0.0f));
       t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -48.0f, 18.0f, 0.0f));
+      t.push_back(BlockParamSpec::choiceParam("voicing", "Voicing", juce::StringArray{"Classic", "Smooth"},
+                                              kClassic)
+                      .notAutomatable()
+                      .withAffectsTail());
       return t;
     }();
     return table;
@@ -41,7 +66,8 @@ public:
   // samples (drive/DriveCommon.h).
   int latencySamples() const noexcept override { return kLatencySamples; }
 
-  double tailSeconds() const noexcept override { return 0.03; }
+  // Smooth has high-passes down at 20 Hz and 32 Hz, which ring out for longer.
+  double tailSeconds() const noexcept override { return param(kVoicing) > 0.5f ? 0.08 : 0.03; }
 
 protected:
   void prepareEffect(const EffectSpec& spec) override {
@@ -49,13 +75,16 @@ protected:
     oversampler.prepare(spec.maxBlockSize);
     const double osRate = sampleRate * kOversampleFactor;
     drive.prepare(osRate, 0.02);
+    corner.prepare(osRate, 0.02);
     treble.prepare(sampleRate, 0.02);
     level.prepare(sampleRate, 0.02);
     for (Lane& lane : lanes) {
-      lane.highpass.setCutoff(120.0, osRate);
-      lane.rolloff.setCutoff(8000.0, osRate);
+      lane.highpass.setCutoff(kHighpassHz, osRate);
+      lane.rolloff.setCutoff(kRolloffHz, osRate);
       lane.shelf.setCorner(3000.0, sampleRate);
+      lane.sidechain.setCutoff(kSmoothSidechainHz, osRate);
     }
+    appliedVoicing = -1;
     resetEffect();
   }
 
@@ -64,9 +93,12 @@ protected:
     for (Lane& lane : lanes) {
       lane.highpass.reset();
       lane.rolloff.reset();
+      lane.sidechain.reset();
       lane.shelf.reset();
     }
     drive.snapOnNextTarget();
+    corner.snapOnNextTarget();
+    osTick.reset();
     treble.snapOnNextTarget();
     level.snapOnNextTarget();
   }
@@ -76,7 +108,52 @@ protected:
     const int numLanes = juce::jmin(buffer.getNumChannels(), kMaxLanes);
     drive.setTarget(param(kDrivePercent) * 0.01f);
     treble.setTarget(fx::dbToGain(param(kTrebleDb)));
-    level.setTarget(fx::dbToGain(param(kLevelDb)) * kMakeup);
+    const bool smooth = param(kVoicing) > 0.5f;
+    level.setTarget(fx::dbToGain(param(kLevelDb)) * (smooth ? 1.0f : kMakeup));
+    corner.setTarget(kSmoothCornerHz * std::pow(2.0f, param(kTrebleDb) * (1.0f / 6.0f)));
+
+    const double osRate = sampleRate * kOversampleFactor;
+    if (static_cast<int>(smooth) != appliedVoicing) {
+      for (Lane& lane : lanes) {
+        lane.highpass.setCutoff(smooth ? kSmoothHighpassHz : kHighpassHz, osRate);
+        lane.rolloff.setCutoff(smooth ? kSmoothCornerHz : kRolloffHz, osRate);
+        lane.highpass.reset();
+        lane.rolloff.reset();
+        lane.sidechain.reset();
+      }
+      appliedVoicing = static_cast<int>(smooth);
+    }
+
+    if (smooth) {
+      oversampler.run(buffer, [&](float* const* io, int frames, int numReal) {
+        for (int i = 0; i < frames; ++i) {
+          const float d = drive.next();
+          const float cornerHz = corner.next();
+          if (osTick.step())
+            for (Lane& lane : lanes)
+              lane.rolloff.setCutoff(cornerHz, osRate);
+          const float k = 1.0f + kSmoothGainSpan * d * d;
+          const float share = kMinShare + (1.0f - kMinShare) * d;
+          for (int ch = 0; ch < numReal; ++ch) {
+            Lane& lane = lanes[ch];
+            const float v = lane.highpass.highpass(io[ch][i]);
+            const float u = lane.sidechain.highpass(v);
+            const float clipped = kSmoothClipLevel * softSat(k * u * (1.0f / kSmoothClipLevel));
+            const float sum = (v + share * clipped) * kSmoothClean;
+            io[ch][i] = lane.rolloff.lowpass(kSmoothLimit * softSat(sum * (1.0f / kSmoothLimit)));
+          }
+        }
+      });
+      for (int i = 0; i < numSamples; ++i) {
+        const float g = level.next();
+        treble.skip(1);
+        for (int ch = 0; ch < numLanes; ++ch) {
+          float* data = buffer.getWritePointer(ch);
+          data[i] *= g;
+        }
+      }
+      return;
+    }
 
     oversampler.run(buffer, [&](float* const* io, int frames, int numReal) {
       for (int i = 0; i < frames; ++i) {
@@ -105,6 +182,17 @@ protected:
   }
 
 private:
+  static constexpr float kHighpassHz = 120.0f;
+  static constexpr float kRolloffHz = 8000.0f;
+  // The Smooth voicing (see the header comment).
+  static constexpr float kSmoothHighpassHz = 20.0f;
+  static constexpr float kSmoothSidechainHz = 32.0f;
+  static constexpr float kSmoothCornerHz = 1450.0f;
+  static constexpr float kSmoothGainSpan = 15.3f;
+  static constexpr float kSmoothClipLevel = 0.0551f;
+  // The gain of the clean path (before the level control), whatever Drive is.
+  static constexpr float kSmoothClean = 1.503f;
+  static constexpr float kSmoothLimit = 0.2945f;
   static constexpr float kMinGain = 1.0f;
   static constexpr float kGainSpan = 40.0f;
   static constexpr float kMinShare = 0.3f;
@@ -117,13 +205,15 @@ private:
   static constexpr float kMakeup = 0.68f;
 
   struct Lane {
-    fx::OnePole highpass, rolloff;
+    fx::OnePole highpass, rolloff, sidechain;
     OnePoleShelf shelf;
   };
 
   Lane lanes[kMaxLanes];
   Oversampler4x oversampler;
-  fx::SmoothedParam drive, treble, level;
+  ControlTick osTick{kControlGridOs};
+  fx::SmoothedParam drive, corner, treble, level;
+  int appliedVoicing{-1};
   double sampleRate{48000.0};
 };
 

@@ -770,9 +770,10 @@
       "params": {
         "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -13.6 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -14.9 } }
       },
-      "notes": "Closest is the transparent drive (a clean path plus a clipped path). Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, GAIN 7, LEVEL 5): the unit is about 4.4 dB louder than our 0 dB, hence the offset."
+      "defaults": { "voicing": 1 },
+      "notes": "Closest is the transparent drive (a clean path plus a clipped path), on its smooth voicing, matched to the unit's response. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, GAIN 7, LEVEL 5): the unit is about 4.4 dB louder than our 0 dB, hence the offset."
     },
     "Obsessive Drive": {
       "kind": "drive.overdrive",
@@ -799,9 +800,10 @@
       "params": {
         "DISTORTION": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
         "FILTER": { "param": "filterPercent", "transform": { "scale": -10, "offset": 100 } },
-        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -33.6 } }
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -33.0 } }
       },
-      "notes": "DISTORTION, FILTER and VOLUME are the pedal's three knobs. Its filter is a low-pass that darkens as it goes up, so it is inverted onto our Filter. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, VOLUME 5): the unit sits 15.6 dB below our 0 dB at DISTORTION 3 and 7, hence the offset."
+      "defaults": { "voicing": 1 },
+      "notes": "DISTORTION, FILTER and VOLUME are the pedal's three knobs, on our open voicing, matched to the unit's response. Its filter is a low-pass that darkens as it goes up, so it is inverted onto our Filter. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, VOLUME 5): the unit sits 15.6 dB below our 0 dB at DISTORTION 3 and 7, hence the offset."
     },
     "Green 808": {
       "kind": "drive.overdrive",
@@ -878,7 +880,8 @@
         "HIGH": { "param": "highDb", "transform": { "scale": 2.4, "offset": -12 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -39.5 } }
       },
-      "notes": "DIST, LOW, MIDDLE, MIDFREQ, HIGH and LEVEL on a 0 to 10 scale. The middle frequency becomes 200 Hz to 3 kHz and the three tone knobs 12 dB either way. Tight and the gate stay at our defaults. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, DIST 6, LEVEL 5): the unit sits 21.5 dB below our 0 dB, hence the offset."
+      "defaults": { "voicing": 1 },
+      "notes": "On our resonant voicing, matched to the unit's response. DIST, LOW, MIDDLE, MIDFREQ, HIGH and LEVEL on a 0 to 10 scale. The middle frequency becomes 200 Hz to 3 kHz and the three tone knobs 12 dB either way. Tight and the gate stay at our defaults. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, DIST 6, LEVEL 5): the unit sits 21.5 dB below our 0 dB, hence the offset."
     },
     "Chief OD1": {
       "kind": "drive.overdrive",
@@ -907,8 +910,8 @@
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -40.9 } }
       },
-      "defaults": { "voicing": 2 },
-      "notes": "SUSTAIN, TONE and VOLUME, on the sustain voicing (two clipping stages, scooped tone). Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, SUSTAIN 6, VOLUME 5): the unit sits about 22.9 dB below our 0 dB, hence the offset."
+      "defaults": { "voicing": 3 },
+      "notes": "SUSTAIN, TONE and VOLUME, on the scooped voicing, matched to the unit's response. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, SUSTAIN 6, VOLUME 5): the unit sits about 22.9 dB below our 0 dB, hence the offset."
     },
     "Chief BD2": {
       "kind": "drive.overdrive",

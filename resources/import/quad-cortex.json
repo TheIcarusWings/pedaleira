@@ -287,11 +287,11 @@
       "kind": "drive.transparent",
       "verified": false,
       "params": {
-        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Closest is the transparent drive (a clean path plus a clipped path). Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Closest is the transparent drive (a clean path plus a clipped path). Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Obsessive Drive": {
       "kind": "drive.overdrive",
@@ -301,17 +301,16 @@
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "OD250": {
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
         "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump. Our overdrive is the nearest voicing."
+      "notes": "Gain and volume, the pedal's two knobs; our overdrive is the nearest voicing, its tone left at the default. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Rodent Drive": {
       "kind": "drive.distortion",
@@ -321,7 +320,7 @@
         "FILTER": { "param": "filterPercent", "transform": { "scale": -10, "offset": 100 } },
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "DISTORTION, FILTER and VOLUME are the pedal's three knobs. Its filter is a low-pass that darkens as it goes up, so it is inverted onto our Filter. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "DISTORTION, FILTER and VOLUME are the pedal's three knobs. Its filter is a low-pass that darkens as it goes up, so it is inverted onto our Filter. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Green 808": {
       "kind": "drive.overdrive",
@@ -331,25 +330,29 @@
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Exotic": {
       "kind": "drive.boost",
       "verified": false,
       "params": {
-        "GAIN": { "param": "gainDb", "transform": { "scale": 2, "offset": 0 } }
+        "GAIN": { "param": "gainDb", "transform": { "scale": 2, "offset": 0 } },
+        "BASS": { "param": "bassDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } }
       },
-      "notes": "A clean boost: its gain (0 to 10) becomes 0 to 20 dB. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "A clean boost: its gain (0 to 10) becomes 0 to 20 dB. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Freeman BOD": {
-      "kind": "drive.overdrive",
+      "kind": "drive.metal",
       "verified": false,
       "params": {
-        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "GAIN": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
+        "BASS": { "param": "lowDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "TREBLE": { "param": "highDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "TIGHT": { "param": "tightHz", "transform": { "scale": 54, "offset": 60 } },
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump. A higher gain overdrive: raise Drive, or try Metal Distortion for more."
+      "notes": "A high-gain drive with gain, bass, treble, presence, tight, trim and volume: our metal distortion fits best (presence and trim stay at our defaults). Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Brit Blues": {
       "kind": "drive.overdrive",
@@ -359,27 +362,29 @@
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Chief DS1": {
       "kind": "drive.distortion",
       "verified": false,
       "params": {
-        "DIST": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
+        "DISTORTION": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "filterPercent", "transform": { "scale": 10, "offset": 0 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Hard clipping distortion; its tone knob becomes our Filter. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Hard clipping distortion; its tone knob becomes our Filter. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Brit Governor": {
-      "kind": "drive.distortion",
+      "kind": "drive.metal",
       "verified": false,
       "params": {
         "GAIN": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
-        "TONE": { "param": "filterPercent", "transform": { "scale": 10, "offset": 0 } },
+        "BASS": { "param": "lowDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "MID": { "param": "midDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "TREBLE": { "param": "highDb", "transform": { "scale": 2.4, "offset": -12 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "A high gain British voicing, approximated by the distortion. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "A distortion with a three-band EQ: our metal distortion, its EQ at our fixed mid frequency. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Chief MT": {
       "kind": "drive.metal",
@@ -392,27 +397,26 @@
         "HIGH": { "param": "highDb", "transform": { "scale": 2.4, "offset": -12 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "DIST, LOW, MIDDLE, MIDFREQ, HIGH and LEVEL on a 0 to 10 scale. The middle frequency becomes 200 Hz to 3 kHz and the three tone knobs 12 dB either way. Tight and the gate stay at our defaults."
+      "notes": "DIST, LOW, MIDDLE, MIDFREQ, HIGH and LEVEL on a 0 to 10 scale. The middle frequency becomes 200 Hz to 3 kHz and the three tone knobs 12 dB either way. Tight and the gate stay at our defaults. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Chief OD1": {
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
-        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Gain and level, the pedal's two knobs; our overdrive with its tone at the default. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Chief SD1": {
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
-        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "OVERDRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Fuzz Pi": {
       "kind": "drive.fuzz",
@@ -423,7 +427,7 @@
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
       "defaults": { "voicing": 2 },
-      "notes": "SUSTAIN, TONE and VOLUME, on the sustain voicing (two clipping stages, scooped tone). Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "SUSTAIN, TONE and VOLUME, on the sustain voicing (two clipping stages, scooped tone). Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Chief BD2": {
       "kind": "drive.overdrive",
@@ -431,9 +435,9 @@
       "params": {
         "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Rage Booster": {
       "kind": "drive.trebleboost",
@@ -441,7 +445,7 @@
       "params": {
         "VOLUME": { "param": "gainDb", "transform": { "scale": 3, "offset": 0 } }
       },
-      "notes": "VOLUME (0 to 10) becomes the boost, 0 to 30 dB. Range and level stay at our defaults."
+      "notes": "VOLUME (0 to 10) becomes the boost, 0 to 30 dB. Range and level stay at our defaults. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Facial Fuzz": {
       "kind": "drive.fuzz",
@@ -451,15 +455,17 @@
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
       "defaults": { "voicing": 1 },
-      "notes": "FUZZ and VOLUME, on the germanium voicing. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "FUZZ and VOLUME, on the germanium voicing. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Exotic Z Boost": {
       "kind": "drive.boost",
       "verified": false,
       "params": {
-        "GAIN": { "param": "gainDb", "transform": { "scale": 2, "offset": 0 } }
+        "GAIN": { "param": "gainDb", "transform": { "scale": 2, "offset": 0 } },
+        "BASS": { "param": "bassDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } }
       },
-      "notes": "A clean boost: its gain (0 to 10) becomes 0 to 20 dB. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "A clean boost: its gain (0 to 10) becomes 0 to 20 dB. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Red Drive": {
       "kind": "drive.overdrive",
@@ -469,7 +475,7 @@
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Vemural Ray": {
       "kind": "drive.transparent",
@@ -477,50 +483,50 @@
       "params": {
         "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } },
-        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Closest is the transparent drive (a clean path plus a clipped path). Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Closest is the transparent drive (a clean path plus a clipped path). Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "No-Bell OD1": {
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
         "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "SPECTRUM": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Thunderpaw": {
       "kind": "drive.distortion",
       "verified": false,
       "params": {
         "DISTORTION": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
-        "TONE": { "param": "filterPercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+        "TREBLE": { "param": "filterPercent", "transform": { "scale": 10, "offset": 0 } },
+        "OUTPUT": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Distortion, with the tone knob onto our Filter. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Distortion, with the tone knob onto our Filter. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "MK3 Silicon Fuzz": {
       "kind": "drive.fuzz",
       "verified": false,
       "params": {
-        "FUZZ": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
+        "ATTACK": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
       "defaults": { "voicing": 0 },
-      "notes": "On the silicon voicing. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "On the silicon voicing. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "81 Creations Drive": {
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
-        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+        "DRV": { "param": "drivePercent", "transform": { "scale": 1, "offset": 0 } },
+        "CUT": { "param": "tonePercent", "transform": { "scale": -1, "offset": 100 } },
+        "OUTPUT": { "param": "levelDb", "transform": "linear" }
       },
-      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "BDDI": {
       "kind": "drive.bass",
@@ -528,29 +534,33 @@
       "params": {
         "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "BLEND": { "param": "blendPercent", "transform": { "scale": 10, "offset": 0 } },
+        "PRESENCE": { "param": "presenceDb", "transform": { "scale": 2.4, "offset": -12 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "notes": "Drive, blend and level; the lows stay clean below our crossover (200 Hz). Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "Drive, blend and level; the lows stay clean below our crossover (200 Hz). Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Douglas MT 3K": {
       "kind": "drive.bass",
       "verified": false,
       "params": {
-        "DIST": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "presenceDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "BLEND": { "param": "blendPercent", "transform": { "scale": 10, "offset": 0 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
       "defaults": { "blendPercent": 100 },
-      "notes": "A bass distortion, approximated by Bass Drive at full blend. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "A bass distortion, approximated by Bass Drive at full blend. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Douglas Vintage MT": {
       "kind": "drive.bass",
       "verified": false,
       "params": {
-        "DIST": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "BLEND": { "param": "blendPercent", "transform": { "scale": 10, "offset": 0 } },
         "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
       "defaults": { "blendPercent": 100 },
-      "notes": "A bass distortion, approximated by Bass Drive at full blend. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "A bass distortion, approximated by Bass Drive at full blend. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Soviet Fuzz": {
       "kind": "drive.fuzz",
@@ -561,7 +571,7 @@
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
       "defaults": { "voicing": 2 },
-      "notes": "A bass fuzz, on the sustain voicing, which does not keep the lows clean. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "A bass fuzz, on the sustain voicing, which does not keep the lows clean. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     },
     "Exotic Bass Z Boost": {
       "kind": "drive.bass",
@@ -571,7 +581,7 @@
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
       "defaults": { "blendPercent": 50 },
-      "notes": "A boost for bass, approximated by Bass Drive at a light setting; use Clean Boost for a plain boost. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+      "notes": "A boost for bass, approximated by Bass Drive at a light setting; use Clean Boost for a plain boost. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
     }
   },
   "categories": {

@@ -289,9 +289,16 @@ What is in it: compressors (VCA Comp's threshold; the other compressors fall
 back to a compressor at defaults), gates, a graphic EQ, five delays (feedback
 and mix), seven reverbs (pre delay and mix), the chorus, flanger, phaser,
 tremolo and vibrato blocks (rate and depth), envelope filter, auto wah, wahs,
-pitch shifter and octaver. Categories we have no block for (parametric EQ,
-overdrives, fixed filters, synths, loopers) are unmapped, and amps, cabs, IR
-loaders and captures are never mapped.
+pitch shifter and octaver, and the factory drive models (overdrives,
+distortions, fuzzes, boosts and the bass drives) onto the `drive.*` kinds.
+The drive entries come from the models' names and the usual controls of their
+kind, not from a dump: their knobs are assumed to read 0 to 10 and to carry
+the names the entries list (a name that does not match is reported as a
+dropped parameter), so each one is a starting point to set by ear. The
+`Guitar Overdrive` category falls back to `drive.overdrive` and `Bass
+Overdrive` to `drive.bass`. Categories we have no block for (parametric EQ,
+fixed filters, synths, loopers) are unmapped, and amps, cabs, IR loaders and
+captures are never mapped.
 
 ## What still needs a real unit
 

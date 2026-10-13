@@ -832,7 +832,7 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheCategoriesWeHave) {
       {"position":4,"model":"Crying Wah","category":"Wah","enabled":true,"params":{}},
       {"position":5,"model":"Brit 2203","category":"Guitar Amplifier","enabled":true,"params":{"GAIN":{"value":6}}},
       {"position":6,"model":"Some Capture","category":"Neural Capture","enabled":true,"params":{}},
-      {"position":7,"model":"Chief DS1","category":"Guitar Overdrive","enabled":true,"params":{}}]}]})");
+      {"position":7,"model":"Mono Looper","category":"Loopers","enabled":true,"params":{}}]}]})");
   const importer::ImportResult result = importer::convertForeignPreset(foreign, table);
   ASSERT_TRUE(result.ok) << result.error;
   const juce::var preset = result.preset;
@@ -859,6 +859,110 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheCategoriesWeHave) {
   // The phaser's SPEED has no unit, so it is not taken as our rate in Hz: it is named.
   EXPECT_TRUE(entryAt(report["droppedParams"], 0, 3, "param", "SPEED").isObject());
   EXPECT_FALSE(static_cast<bool>(entryAt(report["mapped"], 0, 0)["verified"]));
+}
+
+TEST(PresetImporterTest, TheBuiltInTableMapsTheFactoryDriveModels) {
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  struct Expected {
+    const char* model;
+    const char* kind;
+  };
+  const Expected expected[] = {
+      {"Myth Drive", "drive.transparent"},  {"Obsessive Drive", "drive.overdrive"},
+      {"OD250", "drive.overdrive"},         {"Rodent Drive", "drive.distortion"},
+      {"Green 808", "drive.overdrive"},     {"Exotic", "drive.boost"},
+      {"Freeman BOD", "drive.overdrive"},   {"Brit Blues", "drive.overdrive"},
+      {"Chief DS1", "drive.distortion"},    {"Brit Governor", "drive.distortion"},
+      {"Chief MT", "drive.metal"},          {"Chief OD1", "drive.overdrive"},
+      {"Chief SD1", "drive.overdrive"},     {"Fuzz Pi", "drive.fuzz"},
+      {"Chief BD2", "drive.overdrive"},     {"Rage Booster", "drive.trebleboost"},
+      {"Facial Fuzz", "drive.fuzz"},        {"Exotic Z Boost", "drive.boost"},
+      {"Red Drive", "drive.overdrive"},     {"Vemural Ray", "drive.transparent"},
+      {"No-Bell OD1", "drive.overdrive"},   {"Thunderpaw", "drive.distortion"},
+      {"MK3 Silicon Fuzz", "drive.fuzz"},   {"81 Creations Drive", "drive.overdrive"},
+      {"BDDI", "drive.bass"},               {"Douglas MT 3K", "drive.bass"},
+      {"Douglas Vintage MT", "drive.bass"}, {"Soviet Fuzz", "drive.fuzz"},
+      {"Exotic Bass Z Boost", "drive.bass"},
+  };
+  for (const Expected& item : expected) {
+    const juce::var model = table["models"][item.model];
+    ASSERT_TRUE(model.isObject()) << item.model;
+    EXPECT_EQ(model["kind"].toString(), item.kind) << item.model;
+    EXPECT_FALSE(static_cast<bool>(model["verified"])) << item.model;
+    EXPECT_TRUE(model["notes"].toString().isNotEmpty()) << item.model;
+  }
+  // A model of the whole category the table does not name still lands on a
+  // drive block.
+  EXPECT_EQ(table["categories"]["Guitar Overdrive"].toString(), "drive.overdrive");
+  EXPECT_EQ(table["categories"]["Bass Overdrive"].toString(), "drive.bass");
+}
+
+TEST(PresetImporterTest, DriveModelsGetTheirKindsAndTheKnobsOnOurScales) {
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  const juce::var foreign = parseJson(R"json({"format":"pedaleira-foreign-preset","version":1,
+    "source":"quad-cortex","name":"Drives","rows":[{"index":0,"blocks":[
+      {"position":0,"model":"Chief MT","category":"Guitar Overdrive","enabled":true,
+       "params":{"DIST":{"value":7},"LOW":{"value":5},"MIDDLE":{"value":2.5},
+                 "MIDFREQ":{"value":5},"HIGH":{"value":10},"LEVEL":{"value":5}}},
+      {"position":1,"model":"Rodent Drive","category":"Guitar Overdrive","enabled":true,
+       "params":{"DISTORTION":{"value":10},"FILTER":{"value":3},"VOLUME":{"value":5}}},
+      {"position":2,"model":"Fuzz Pi (M)","category":"Guitar Overdrive","enabled":true,
+       "params":{"SUSTAIN":{"value":8},"TONE":{"value":5},"VOLUME":{"value":5}}},
+      {"position":3,"model":"Green 808","category":"Guitar Overdrive","enabled":true,
+       "params":{"OVERDRIVE":{"value":4},"TONE":{"value":6},"LEVEL":{"value":7.5}}},
+      {"position":4,"model":"Rage Booster","category":"Guitar Overdrive","enabled":true,
+       "params":{"VOLUME":{"value":5}}},
+      {"position":5,"model":"Facial Fuzz","category":"Guitar Overdrive","enabled":true,
+       "params":{"FUZZ":{"value":6},"VOLUME":{"value":5}}},
+      {"position":6,"model":"A Pedal Not In The Table","category":"Guitar Overdrive","enabled":true,"params":{}},
+      {"position":7,"model":"A Bass Pedal Not In The Table","category":"Bass Overdrive","enabled":true,"params":{}}]}]})json");
+  const importer::ImportResult result = importer::convertForeignPreset(foreign, table);
+  ASSERT_TRUE(result.ok) << result.error;
+  const juce::var preset = result.preset;
+  const auto number = [&](int position, const char* id) {
+    return static_cast<double>(kindParam(slotNode(preset, 0, position), id));
+  };
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 0)), "drive.metal");
+  EXPECT_NEAR(number(0, "distortionPercent"), 70.0, 1e-3);
+  EXPECT_NEAR(number(0, "lowDb"), 0.0, 1e-3);
+  EXPECT_NEAR(number(0, "midDb"), -6.0, 1e-3);
+  EXPECT_NEAR(number(0, "midHz"), 1600.0, 1e-2);
+  EXPECT_NEAR(number(0, "highDb"), 12.0, 1e-3);
+  EXPECT_NEAR(number(0, "levelDb"), 0.0, 1e-3) << "5 on the knob is unity";
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "drive.distortion");
+  EXPECT_NEAR(number(1, "distortionPercent"), 100.0, 1e-3);
+  EXPECT_NEAR(number(1, "filterPercent"), 70.0, 1e-3) << "its filter is a low-pass that darkens upward";
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "drive.fuzz");
+  EXPECT_NEAR(number(2, "voicing"), 2.0, 1e-6) << "the sustain voicing";
+  EXPECT_NEAR(number(2, "fuzzPercent"), 80.0, 1e-3);
+  EXPECT_NEAR(number(2, "tonePercent"), 50.0, 1e-3);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "drive.overdrive");
+  EXPECT_NEAR(number(3, "drivePercent"), 40.0, 1e-3);
+  EXPECT_NEAR(number(3, "tonePercent"), 60.0, 1e-3);
+  EXPECT_NEAR(number(3, "levelDb"), 9.0, 1e-3);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 4)), "drive.trebleboost");
+  EXPECT_NEAR(number(4, "gainDb"), 15.0, 1e-3);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 5)), "drive.fuzz");
+  EXPECT_NEAR(number(5, "voicing"), 1.0, 1e-6) << "the germanium voicing";
+  EXPECT_NEAR(number(5, "fuzzPercent"), 60.0, 1e-3);
+
+  // Models the table does not name land on the category's drive block at
+  // its defaults, and the report says so.
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 6)), "drive.overdrive");
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 7)), "drive.bass");
+  const juce::var report = result.report;
+  EXPECT_EQ(countIn(report["mapped"]), 6);
+  EXPECT_EQ(countIn(report["approximated"]), 2);
+  EXPECT_EQ(countIn(report["unmapped"]), 0);
+  EXPECT_EQ(countIn(report["droppedParams"]), 0);
+  for (int position = 0; position < 6; ++position)
+    EXPECT_FALSE(static_cast<bool>(entryAt(report["mapped"], 0, position)["verified"])) << position;
 }
 
 // ####################

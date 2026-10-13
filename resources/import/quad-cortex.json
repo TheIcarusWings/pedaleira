@@ -243,6 +243,297 @@
       "kind": "pitch.octaver",
       "verified": false,
       "notes": "Parameters not mapped: names unknown. Ours is not polyphonic."
+    },
+
+    "Myth Drive": {
+      "kind": "drive.transparent",
+      "verified": false,
+      "params": {
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Closest is the transparent drive (a clean path plus a clipped path). Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Obsessive Drive": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "OD250": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump. Our overdrive is the nearest voicing."
+    },
+    "Rodent Drive": {
+      "kind": "drive.distortion",
+      "verified": false,
+      "params": {
+        "DISTORTION": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
+        "FILTER": { "param": "filterPercent", "transform": { "scale": -10, "offset": 100 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "DISTORTION, FILTER and VOLUME are the pedal's three knobs. Its filter is a low-pass that darkens as it goes up, so it is inverted onto our Filter. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Green 808": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "OVERDRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Exotic": {
+      "kind": "drive.boost",
+      "verified": false,
+      "params": {
+        "GAIN": { "param": "gainDb", "transform": { "scale": 2, "offset": 0 } }
+      },
+      "notes": "A clean boost: its gain (0 to 10) becomes 0 to 20 dB. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Freeman BOD": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump. A higher gain overdrive: raise Drive, or try Metal Distortion for more."
+    },
+    "Brit Blues": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Chief DS1": {
+      "kind": "drive.distortion",
+      "verified": false,
+      "params": {
+        "DIST": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "filterPercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Hard clipping distortion; its tone knob becomes our Filter. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Brit Governor": {
+      "kind": "drive.distortion",
+      "verified": false,
+      "params": {
+        "GAIN": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "filterPercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "A high gain British voicing, approximated by the distortion. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Chief MT": {
+      "kind": "drive.metal",
+      "verified": false,
+      "params": {
+        "DIST": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
+        "LOW": { "param": "lowDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "MIDDLE": { "param": "midDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "MIDFREQ": { "param": "midHz", "transform": { "scale": 280, "offset": 200 } },
+        "HIGH": { "param": "highDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "DIST, LOW, MIDDLE, MIDFREQ, HIGH and LEVEL on a 0 to 10 scale. The middle frequency becomes 200 Hz to 3 kHz and the three tone knobs 12 dB either way. Tight and the gate stay at our defaults."
+    },
+    "Chief OD1": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Chief SD1": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Fuzz Pi": {
+      "kind": "drive.fuzz",
+      "verified": false,
+      "params": {
+        "SUSTAIN": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "defaults": { "voicing": 2 },
+      "notes": "SUSTAIN, TONE and VOLUME, on the sustain voicing (two clipping stages, scooped tone). Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Chief BD2": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Rage Booster": {
+      "kind": "drive.trebleboost",
+      "verified": false,
+      "params": {
+        "VOLUME": { "param": "gainDb", "transform": { "scale": 3, "offset": 0 } }
+      },
+      "notes": "VOLUME (0 to 10) becomes the boost, 0 to 30 dB. Range and level stay at our defaults."
+    },
+    "Facial Fuzz": {
+      "kind": "drive.fuzz",
+      "verified": false,
+      "params": {
+        "FUZZ": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "defaults": { "voicing": 1 },
+      "notes": "FUZZ and VOLUME, on the germanium voicing. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Exotic Z Boost": {
+      "kind": "drive.boost",
+      "verified": false,
+      "params": {
+        "GAIN": { "param": "gainDb", "transform": { "scale": 2, "offset": 0 } }
+      },
+      "notes": "A clean boost: its gain (0 to 10) becomes 0 to 20 dB. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Red Drive": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Vemural Ray": {
+      "kind": "drive.transparent",
+      "verified": false,
+      "params": {
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Closest is the transparent drive (a clean path plus a clipped path). Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "No-Bell OD1": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Thunderpaw": {
+      "kind": "drive.distortion",
+      "verified": false,
+      "params": {
+        "DISTORTION": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "filterPercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Distortion, with the tone knob onto our Filter. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "MK3 Silicon Fuzz": {
+      "kind": "drive.fuzz",
+      "verified": false,
+      "params": {
+        "FUZZ": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "defaults": { "voicing": 0 },
+      "notes": "On the silicon voicing. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "81 Creations Drive": {
+      "kind": "drive.overdrive",
+      "verified": false,
+      "params": {
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, tone and level. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "BDDI": {
+      "kind": "drive.bass",
+      "verified": false,
+      "params": {
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "BLEND": { "param": "blendPercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "notes": "Drive, blend and level; the lows stay clean below our crossover (200 Hz). Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Douglas MT 3K": {
+      "kind": "drive.bass",
+      "verified": false,
+      "params": {
+        "DIST": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "defaults": { "blendPercent": 100 },
+      "notes": "A bass distortion, approximated by Bass Drive at full blend. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Douglas Vintage MT": {
+      "kind": "drive.bass",
+      "verified": false,
+      "params": {
+        "DIST": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "defaults": { "blendPercent": 100 },
+      "notes": "A bass distortion, approximated by Bass Drive at full blend. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Soviet Fuzz": {
+      "kind": "drive.fuzz",
+      "verified": false,
+      "params": {
+        "SUSTAIN": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
+        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "defaults": { "voicing": 2 },
+      "notes": "A bass fuzz, on the sustain voicing, which does not keep the lows clean. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
+    },
+    "Exotic Bass Z Boost": {
+      "kind": "drive.bass",
+      "verified": false,
+      "params": {
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 5, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+      },
+      "defaults": { "blendPercent": 50 },
+      "notes": "A boost for bass, approximated by Bass Drive at a light setting; use Clean Boost for a plain boost. Knob names and the 0 to 10 scale are assumed from the pedal's own controls, not read from a dump."
     }
   },
   "categories": {
@@ -255,8 +546,8 @@
     "Filter": null,
     "Pitch": null,
     "Utility": null,
-    "Guitar Overdrive": null,
-    "Bass Overdrive": null,
+    "Guitar Overdrive": "drive.overdrive",
+    "Bass Overdrive": "drive.bass",
     "FX Loop": null,
     "Loopers": null,
     "Morph": null,

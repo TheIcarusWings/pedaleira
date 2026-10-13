@@ -452,31 +452,31 @@
       "kind": "reverb.room",
       "verified": false,
       "params": {
-        "DECAY": { "param": "decayS", "transform": "linear" },
+        "DECAY": { "param": "decayS", "transform": { "scale": 0.674, "offset": 0 } },
         "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
         "HIGH PASS": { "param": "lowCutHz", "transform": "linear" },
         "LOW PASS": { "param": "highCutHz", "transform": "linear" },
         "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified. DECAY scaled from one unit measurement (CorOS d14e, DECAY 1 s): the unit's burst T60 is 0.65 s."
     },
     "Hall": {
       "kind": "reverb.hall",
       "verified": false,
       "params": {
-        "DECAY": { "param": "decayS", "transform": "linear" },
+        "DECAY": { "param": "decayS", "transform": { "scale": 0.563, "offset": 0 } },
         "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
         "HIGH PASS": { "param": "lowCutHz", "transform": "linear" },
         "LOW PASS": { "param": "highCutHz", "transform": "linear" },
         "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified. DECAY scaled from one unit measurement (CorOS d14e, DECAY 3 s): the unit's burst T60 is 1.65 s."
     },
     "Plate": {
       "kind": "reverb.plate",
       "verified": false,
       "params": {
-        "DECAY": { "param": "decayS", "transform": { "scale": 0.095, "offset": 0.5 } },
+        "DECAY": { "param": "decayS", "transform": { "scale": 0.0233, "offset": 0.5 } },
         "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
         "HF DAMPING": { "param": "damping", "transform": "linear" },
         "MOD DEPTH": { "param": "modulation", "transform": "linear" },
@@ -484,13 +484,13 @@
         "LOW PASS": { "param": "highCutHz", "transform": "linear" },
         "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "The unit gives DECAY in percent: mapped onto our 0.5 to 10 s range as a guess. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+      "notes": "The unit gives DECAY in percent: mapped onto our 0.5 to 10 s range as a guess. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified. DECAY scaled from one unit measurement (CorOS d14e, DECAY 50 %): the unit's burst T60 is 1.59 s; other values follow the line through it."
     },
     "Plate Lush": {
       "kind": "reverb.plate",
       "verified": false,
       "params": {
-        "DECAY": { "param": "decayS", "transform": { "scale": 0.095, "offset": 0.5 } },
+        "DECAY": { "param": "decayS", "transform": { "scale": 0.0447, "offset": 0.5 } },
         "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
         "HF DAMPING": { "param": "damping", "transform": "linear" },
         "MOD DEPTH": { "param": "modulation", "transform": "linear" },
@@ -498,7 +498,7 @@
         "LOW PASS": { "param": "highCutHz", "transform": "linear" },
         "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "The unit gives DECAY in percent: mapped onto our 0.5 to 10 s range as a guess. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+      "notes": "The unit gives DECAY in percent: mapped onto our 0.5 to 10 s range as a guess. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified. DECAY scaled from one unit measurement (CorOS d14e, DECAY 50 %): the unit's burst T60 is 2.60 s; other values follow the line through it."
     },
     "Plate Tight": {
       "kind": "reverb.plate",

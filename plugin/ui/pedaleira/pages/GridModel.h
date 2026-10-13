@@ -64,6 +64,8 @@ struct GridScene {
   bool active = false;
   // The scene differs from the defaults: it has a name of its own.
   bool named = false;
+  // The preset uses it (scene.add); the others are not shown.
+  bool inUse = true;
 };
 
 struct GridModel {

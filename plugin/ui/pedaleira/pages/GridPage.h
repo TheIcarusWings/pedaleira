@@ -28,10 +28,15 @@
 
 namespace pedaleira::ui {
 
+// The scenes the preset uses, then "Add scene" while there is room for one
+// more (a preset starts with one and can have eight).
 class ScenesStrip : public juce::Component {
 public:
   void setScenes(const std::vector<GridScene>& scenes);
   std::function<void(const juce::String&)> onSelect;
+  std::function<void()> onAdd;
+  // Right-click on a scene: the page offers to remove it.
+  std::function<void(const juce::String&)> onRemove;
 
   void paint(juce::Graphics& g) override;
   void mouseUp(const juce::MouseEvent& event) override;

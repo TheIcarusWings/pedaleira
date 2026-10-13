@@ -38,7 +38,10 @@ void paintGroupBox(juce::Graphics& g, juce::Rectangle<int> box, const juce::Stri
 // SCENES STRIP
 // ####################
 void ScenesStrip::setScenes(const std::vector<GridScene>& newScenes) {
-  scenes = newScenes;
+  scenes.clear();
+  for (const GridScene& scene : newScenes)
+    if (scene.inUse && scenes.size() < 8)
+      scenes.push_back(scene);
   repaint();
 }
 
@@ -54,7 +57,7 @@ void ScenesStrip::paint(juce::Graphics& g) {
   g.setColour(colour::line);
   g.fillRect(0, getHeight() - 1, getWidth(), 1);
   paint::label(g, "Scenes", {24, 0, 64, getHeight()});
-  for (size_t i = 0; i < scenes.size() && i < 8; ++i) {
+  for (size_t i = 0; i < scenes.size(); ++i) {
     const GridScene& scene = scenes[i];
     const auto area = buttonBounds(static_cast<int>(i));
     // Active: iris; a scene with a name of its own: raised; the rest plain.
@@ -72,12 +75,32 @@ void ScenesStrip::paint(juce::Graphics& g) {
     g.setFont(type::button());
     g.drawText(scene.name, inner, juce::Justification::centredLeft, true);
   }
+  if (scenes.size() < 8) {
+    const auto area = buttonBounds(static_cast<int>(scenes.size()));
+    paint::dashedOutline(g, area, size::buttonRadius, colour::line);
+    auto inner = area.reduced(10.0f, 0.0f);
+    icons::draw(g, icons::path(icons::Icon::plus), inner.removeFromLeft(14.0f).withSizeKeepingCentre(14.0f, 14.0f),
+                colour::muted);
+    inner.removeFromLeft(8.0f);
+    g.setFont(type::button());
+    g.setColour(colour::muted);
+    g.drawText("Add scene", inner, juce::Justification::centredLeft, true);
+  }
 }
 
 void ScenesStrip::mouseUp(const juce::MouseEvent& event) {
-  for (size_t i = 0; i < scenes.size() && i < 8; ++i)
-    if (buttonBounds(static_cast<int>(i)).contains(event.position) && onSelect)
-      onSelect(scenes[i].id);
+  for (size_t i = 0; i < scenes.size(); ++i)
+    if (buttonBounds(static_cast<int>(i)).contains(event.position)) {
+      if (event.mods.isPopupMenu()) {
+        if (scenes.size() > 1 && onRemove)
+          onRemove(scenes[i].id);
+      } else if (onSelect) {
+        onSelect(scenes[i].id);
+      }
+      return;
+    }
+  if (scenes.size() < 8 && buttonBounds(static_cast<int>(scenes.size())).contains(event.position) && onAdd)
+    onAdd();
 }
 
 // ####################
@@ -925,6 +948,9 @@ void BlockPanel::showSceneValues(int paramIndex) {
   const juce::var scenes = engine.read("scene.get");
   if (const auto* list = scenes["scenes"].getArray())
     for (const auto& scene : *list) {
+      // Only the scenes the preset uses.
+      if (!scene["inUse"].isVoid() && !static_cast<bool>(scene["inUse"]))
+        continue;
       double value = param.value;
       if (const auto* values = scene["values"].getArray())
         for (const auto& entry : *values)
@@ -993,7 +1019,7 @@ void BlockPanel::paint(juce::Graphics& g) {
     paint::label(g, "Per scene", heading, juce::Justification::centredLeft, colour::iris);
     g.setFont(type::sans(12.0f));
     g.setColour(colour::muted);
-    g.drawFittedText("Right-click a knob to give it a value per scene.", inner.withTrimmedTop(8),
+    g.drawFittedText("Add a scene and the knobs you turn keep a value in each scene.", inner.withTrimmedTop(8),
                      juce::Justification::topLeft, 2);
     return;
   }
@@ -1004,8 +1030,10 @@ void BlockPanel::paint(juce::Graphics& g) {
   g.drawText("Right-click a knob to assign", heading, juce::Justification::centredRight, false);
   inner.removeFromTop(10);
   auto cells = inner.removeFromTop(32);
-  const int cellWidth = (cells.getWidth() - 3 * 8) / 4;
-  for (size_t i = 0; i < sceneValues.size() && i < 4; ++i) {
+  // Four to a line at most; more scenes share the line in narrower cells.
+  const int perLine = juce::jmax(4, static_cast<int>(sceneValues.size()));
+  const int cellWidth = (cells.getWidth() - (perLine - 1) * 8) / perLine;
+  for (size_t i = 0; i < sceneValues.size(); ++i) {
     const auto cell = cells.removeFromLeft(cellWidth).toFloat();
     cells.removeFromLeft(8);
     const bool active = sceneValues[i].first == activeScene;
@@ -1016,11 +1044,6 @@ void BlockPanel::paint(juce::Graphics& g) {
     g.drawFittedText(sceneValues[i].first + " " + param.text(sceneValues[i].second),
                      cell.reduced(6.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.8f);
   }
-  inner.removeFromTop(10);
-  g.setFont(type::sans(12.0f));
-  g.setColour(colour::muted);
-  g.drawText("Scenes E to H use the scene A value until edited.", inner.removeFromTop(16),
-             juce::Justification::centredLeft, false);
 }
 
 void BlockPanel::resized() {
@@ -1267,6 +1290,31 @@ GridPage::GridPage(EngineClient& client)
     rigChanged();
   };
   scenePanel.onSelectScene = scenes.onSelect;
+  scenes.onAdd = [this] {
+    ensureGrid();
+    const EngineReply reply = engine.run("scene.add");
+    // The new scene is where the next edits go: select it.
+    if (reply.ok && reply.value["added"].toString().isNotEmpty())
+      engine.run("scene.select", object({{"scene", reply.value["added"].toString()}}));
+    panel = Panel::scene;
+    rigChanged();
+  };
+  scenes.onRemove = [this](const juce::String& scene) {
+    juce::PopupMenu menu;
+    menu.addItem("Remove scene " + scene, [this, scene] {
+      Dialog::Options options;
+      options.title = "Remove scene " + scene + "?";
+      options.message = "The scenes after it move down one place. Undo brings it back.";
+      options.confirm = "Remove scene";
+      juce::Component::SafePointer<GridPage> self(this);
+      prompt.show(options, [self, scene](bool confirmed, const juce::String&) {
+        if (self == nullptr || !confirmed)
+          return;
+        self->runRouting("scene.remove", object({{"scene", scene}}), "remove the scene");
+      });
+    });
+    menu.showMenuAsync(juce::PopupMenu::Options());
+  };
   scenePanel.onChanged = [this] { rigChanged(); };
   scenePanel.onOpenModes = [this] {
     if (onOpenModes)

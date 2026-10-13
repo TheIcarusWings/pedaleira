@@ -178,6 +178,7 @@ GridModel GridModel::read(EngineClient& engine) {
       s.name = scene["name"].toString();
       s.active = static_cast<bool>(scene["active"]);
       s.named = s.name != "Scene " + s.id;
+      s.inUse = scene["inUse"].isVoid() || static_cast<bool>(scene["inUse"]);
       model.scenes.push_back(s);
     }
   return model;

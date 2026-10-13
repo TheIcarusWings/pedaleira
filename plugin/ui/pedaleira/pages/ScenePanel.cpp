@@ -16,7 +16,7 @@ constexpr int kMaxRows = 6;
 constexpr int kBlockRowHeight = 32;
 constexpr int kBlockGap = 4;
 constexpr int kMaxBlockRows = 6;
-const char* const kHeads[5] = {"A", "B", "C", "D", "E-H"};
+const char* const kHeads[8] = {"A", "B", "C", "D", "E", "F", "G", "H"};
 
 }  // namespace
 
@@ -100,6 +100,7 @@ void ScenePanel::refresh(const GridModel& model) {
   const juce::var scenes = engine.read("scene.get");
   const int active = scenes["active"];
   const auto* list = scenes["scenes"].getArray();
+  sceneCount = scenes["count"].isVoid() ? 8 : juce::jlimit(1, 8, static_cast<int>(scenes["count"]));
   activeName.clear();
   if (list != nullptr && active >= 0 && active < list->size())
     activeName = list->getReference(active)["name"].toString();
@@ -193,27 +194,21 @@ void ScenePanel::layoutBlocks() {
 }
 
 juce::String ScenePanel::cellText(const ParamRow& row, int column) const {
-  if (column < 4)
-    return row.spec.text(row.values[static_cast<size_t>(column)]);
-  // E to H share a value until edited: shown as one, or "as A" when it is A's.
-  const juce::String first = row.spec.text(row.values[4]);
-  for (int i = 5; i < 8; ++i)
-    if (row.spec.text(row.values[static_cast<size_t>(i)]) != first)
-      return "varies";
-  return first == row.spec.text(row.values[0]) ? juce::String("as A") : first;
+  return row.spec.text(row.values[static_cast<size_t>(column)]);
 }
 
 juce::Rectangle<int> ScenePanel::headerCell(int column) const {
-  const int cell = (tableBox.getWidth() - kParameterColumn) / 5;
+  // A column per scene in use, five wide at least so one scene is not a slab.
+  const int cell = (tableBox.getWidth() - kParameterColumn) / juce::jmax(5, sceneCount);
   return {tableBox.getX() + kParameterColumn + column * cell, tableBox.getY(), cell, kHeaderHeight};
 }
 
 void ScenePanel::mouseUp(const juce::MouseEvent& event) {
   if (!event.mouseWasClicked() || !onSelectScene)
     return;
-  for (int column = 0; column < 5; ++column)
+  for (int column = 0; column < sceneCount; ++column)
     if (headerCell(column).contains(event.getPosition())) {
-      onSelectScene(column < 4 ? juce::String(kHeads[column]) : juce::String("E"));
+      onSelectScene(kHeads[column]);
       return;
     }
 }
@@ -270,7 +265,7 @@ void ScenePanel::paint(juce::Graphics& g) {
   g.setFont(type::sans(12.0f));
   g.setColour(colour::muted);
   const int noteLeft = 24 + 420 + 12;
-  g.drawText("Right-click or long-press any knob to assign it to scenes. Expression-assigned parameters are not stored in scenes.",
+  g.drawText("With more than one scene, a knob you turn keeps its value in each scene. Expression-assigned parameters are not stored in scenes.",
              noteLeft, 16, modes.getX() - 12 - noteLeft, 26, juce::Justification::centredRight, true);
 
   paint::label(g, "Scene name", {24, 54, kLeftWidth, 14});
@@ -287,14 +282,14 @@ void ScenePanel::paint(juce::Graphics& g) {
   const auto box = tableBox.toFloat();
   g.setColour(colour::ground);
   g.fillRoundedRectangle(box, size::panelRadius);
-  const int activeColumn = activeId.isEmpty() ? -1 : juce::jmin(4, juce::String("ABCDEFGH").indexOf(activeId));
+  const int activeColumn = activeId.isEmpty() ? -1 : juce::String("ABCDEFGH").indexOf(activeId);
   {
     juce::Graphics::ScopedSaveState state(g);
     juce::Path clip;
     clip.addRoundedRectangle(box, size::panelRadius);
     g.reduceClipRegion(clip);
     paint::label(g, "Parameter", {tableBox.getX() + 12, tableBox.getY(), kParameterColumn - 12, kHeaderHeight});
-    for (int column = 0; column < 5; ++column) {
+    for (int column = 0; column < sceneCount; ++column) {
       const auto head = headerCell(column);
       if (column == activeColumn) {
         g.setColour(colour::iris);
@@ -326,10 +321,10 @@ void ScenePanel::paint(juce::Graphics& g) {
       g.setColour(colour::text);
       g.drawText(row.blockName + " " + type::dot() + " " + row.paramName, tableBox.getX() + 28, y,
                  kParameterColumn - 36, kRowHeight, juce::Justification::centredLeft, true);
-      for (int column = 0; column < 5; ++column) {
+      for (int column = 0; column < sceneCount; ++column) {
         const juce::String text = cellText(row, column);
         g.setFont(type::mono(12.0f));
-        g.setColour(text == "as A" ? colour::muted : colour::text);
+        g.setColour(colour::text);
         g.drawText(text, headerCell(column).withY(y).withHeight(kRowHeight).reduced(10, 0),
                    juce::Justification::centredLeft, true);
       }

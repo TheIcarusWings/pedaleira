@@ -871,7 +871,13 @@ void LibraryPage::mouseDoubleClick(const juce::MouseEvent& event) {
   const int index = rowAt(event.getPosition());
   if (index < 0 || rows[static_cast<size_t>(index)].empty() || starBounds(index).contains(event.getPosition()))
     return;
-  perform(Act::load, targetOf(rows[static_cast<size_t>(index)]), {});
+  const Target target = targetOf(rows[static_cast<size_t>(index)]);
+  if (run("Could not load " + target.name, "preset.loadSlot",
+          object({{"slot", target.slot}, {"setlist", target.setlistId}}))) {
+    changed();
+    if (onOpenGrid)
+      onOpenGrid();
+  }
 }
 
 void LibraryPage::mouseMove(const juce::MouseEvent& event) {

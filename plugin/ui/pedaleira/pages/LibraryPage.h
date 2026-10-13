@@ -30,6 +30,8 @@ public:
   // The loaded preset or the library changed: the shell's header reads it
   // again.
   std::function<void()> onChanged;
+  // A preset double-clicked and loaded: show it on the grid.
+  std::function<void()> onOpenGrid;
 
   // What the list shows: one setlist, or a view over all of them.
   enum class View { setlist, all, favourites, recent };

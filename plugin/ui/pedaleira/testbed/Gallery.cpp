@@ -1,5 +1,6 @@
 #include "Gallery.h"
 
+#include "LookAndFeel.h"
 #include "Paint.h"
 #include "Type.h"
 
@@ -97,6 +98,53 @@ void Gallery::paint(juce::Graphics& g) {
   g.drawText("Plug the Volt line output 3 into the re-amp box, then into the amp input.", 40, 706, 800, 22,
              juce::Justification::centredLeft);
   paint::label(g, "Scene B " + type::dot() + " Stomp mode", {40, 732, 400, 18}, juce::Justification::centredLeft, colour::text);
+  // A popup menu as the app draws it: header, ticked, highlighted, disabled,
+  // a submenu and separators.
+  paint::label(g, "Menu", {1040, 72, 220, 16});
+  {
+    static PedaleiraLookAndFeel look;
+    const juce::PopupMenu::Options options;
+    const int width = 220, border = look.getPopupMenuBorderSizeWithOptions(options);
+    struct Row {
+      const char* text;
+      bool ticked, highlighted, enabled, separator, header, sub;
+    };
+    const Row rows[] = {{"Row 1 output", false, false, true, false, true, false},
+                        {"Not routed", false, false, true, false, false, false},
+                        {"", false, false, true, true, false, false},
+                        {"Out 1/2", true, false, true, false, false, false},
+                        {"Out 3/4", false, true, true, false, false, false},
+                        {"Stereo pair", false, false, true, false, false, true},
+                        {"Fed by another row", false, false, false, false, false, false},
+                        {"", false, false, true, true, false, false},
+                        {"Into row 2", false, false, true, false, false, false}};
+    int height = 2 * border;
+    for (const Row& row : rows)
+      height += row.separator ? 9 : row.header ? 28 : 32;
+    juce::Graphics::ScopedSaveState state(g);
+    g.setOrigin(1040, 96);
+    look.drawPopupMenuBackgroundWithOptions(g, width, height, options);
+    int y = border;
+    juce::PopupMenu sub;
+    sub.addItem("In 1/2", [] {});
+    for (const Row& row : rows) {
+      const int h = row.separator ? 9 : row.header ? 28 : 32;
+      const juce::Rectangle<int> area(border, y, width - 2 * border, h);
+      if (row.header) {
+        look.drawPopupMenuSectionHeaderWithOptions(g, area, row.text, options);
+      } else {
+        juce::PopupMenu::Item item(row.text);
+        item.isSeparator = row.separator;
+        item.isTicked = row.ticked;
+        item.isEnabled = row.enabled;
+        if (row.sub)
+          item.subMenu = std::make_unique<juce::PopupMenu>(sub);
+        look.drawPopupMenuItemWithOptions(g, area, row.highlighted, item, options);
+      }
+      y += h;
+    }
+  }
+
   g.setFont(type::value());
   g.setColour(colour::text);
   g.drawText(juce::String::fromUTF8("-12.4 dB \xc2\xb7 120.0 BPM \xc2\xb7 48 kHz / 128 \xc2\xb7 CC 43"), 40, 756, 600, 20,

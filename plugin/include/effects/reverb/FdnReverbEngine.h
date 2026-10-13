@@ -1,14 +1,19 @@
 #pragma once
-// What the room, hall and shimmer reverbs share around an FdnTank: the
-// pre-delay, the input diffusion, optional early reflections, the wet low
-// and high cut, the level law and the channel layouts. Each kind is then a
-// Design (its sizes), a parameter table and the mapping from one to the
-// other. Private to the reverb family.
+// What the reverbs built on an FdnTank (room, hall, shimmer, ambience,
+// modulated hall, cave, large hall, ducking reverb, vintage digital) share
+// around it: the pre-delay, the input diffusion, optional early reflections,
+// the wet low and high cut, the level law and the channel layouts. Each kind
+// is then a Design (its sizes), a parameter table and the mapping from one to
+// the other. Private to the reverb family.
 //
 // Signal path of one core:
 //
 //   in -> pre-delay -+-> early reflection taps -------------------+
 //                    +-> allpass diffusion -> FdnTank -> level ----+-> low/high cut -> out
+//
+// (Optional, off by default and then exact no-ops: an allpass smear on the
+// early taps, a swell in front of the diffusion, a freeze that shuts the
+// input and holds the loops lossless. See Design and Controls.)
 //
 // Layouts (docs/effects.md, Channels):
 //   mono          one core; its two tank outputs summed
@@ -48,6 +53,11 @@ public:
     std::array<float, kMaxEarlyTaps> earlyRightGains{};
     double earlyEnergy{0.0};
     double maxPreDelaySeconds{0.2};
+    // Two short allpasses on each side's early reflections (Controls::
+    // earlyDiffusion smears them). Off, the reflections go out as they are.
+    bool earlyDiffuser{false};
+    // The longest swell Controls::attack can ask for; 0 for none.
+    double attackMaxSeconds{0.0};
   };
 
   /** The parameter values, in engineering units, read at each control tick. */
@@ -63,6 +73,23 @@ public:
     // share of what all of them fully on would.
     float shimmerAmount{0.0f};
     double shimmerInterval{2.0};
+    // The large hall's extras; at their defaults they change nothing.
+    // Scale on the input allpasses' coefficients, 0 to 1 (1: as designed).
+    double lateDiffusion{1.0};
+    // Allpass smear on the early reflections, 0 to 1 (Design::earlyDiffuser).
+    double earlyDiffusion{1.0};
+    // 0 to 1: how slowly the late field swells in (Design::attackMaxSeconds).
+    float attack{0.0f};
+    // Speed of the tank's two oscillators; 0 keeps the design's.
+    double modRateHz{0.0};
+    // RT60 of the bass over the middle RT60 and the shelf's corner (Design::
+    // tank.bassBand), and the corner of the damping shelves (0: the design's).
+    double bassRatio{1.0};
+    float bassCornerHz{200.0f};
+    float dampCornerHz{0.0f};
+    // A freeze: the loops hold every band at unity, the input is shut and the
+    // output level stays where it was.
+    bool hold{false};
   };
 
   // The read position of the pre-delay glides to a new time (a short pitch
@@ -87,6 +114,13 @@ public:
     shimmerAmount.prepare(sampleRate, 0.06);
     lowCut.prepare(sampleRate, 0.03);
     highCut.prepare(sampleRate, 0.03);
+    lateDiffusion.prepare(sampleRate, 0.06);
+    earlyDiffusion.prepare(sampleRate, 0.06);
+    attack.prepare(sampleRate, 0.06);
+    bassRatio.prepare(sampleRate, 0.06);
+    bassCorner.prepare(sampleRate, 0.03);
+    dampCorner.prepare(sampleRate, 0.03);
+    inputLevel.prepare(sampleRate, 0.005);
     for (auto& core : cores)
       core.prepare(design, sampleRate);
     reset();
@@ -101,6 +135,13 @@ public:
     shimmerAmount.snapOnNextTarget();
     lowCut.snapOnNextTarget();
     highCut.snapOnNextTarget();
+    lateDiffusion.snapOnNextTarget();
+    earlyDiffusion.snapOnNextTarget();
+    attack.snapOnNextTarget();
+    bassRatio.snapOnNextTarget();
+    bassCorner.snapOnNextTarget();
+    dampCorner.snapOnNextTarget();
+    inputLevel.snapOnNextTarget();
     untilControl = 0;
     lastCores = 0;
   }
@@ -151,6 +192,9 @@ private:
     std::array<float, FdnTank::kMaxShifters> shimmerMix;
     double shimmerInterval;
     bool filtersMoved;
+    float lateDiffusion, earlyDiffusion, attack, inputLevel;
+    double modRateHz, bassRatio, bassCornerHz, dampCornerHz;
+    bool hold;
   };
 
   class Core {
@@ -166,6 +210,14 @@ private:
         longestTap = std::max({longestTap, d.earlyLeftSeconds[static_cast<size_t>(k)],
                                d.earlyRightSeconds[static_cast<size_t>(k)]});
       early.prepare(1, static_cast<int>(std::ceil(longestTap * d.tank.maxScale * fs)) + 4);
+      if (d.earlyDiffuser) {
+        const double seconds[2] = {0.0021, 0.0037};
+        const float coeffs[2] = {0.7f, 0.7f};
+        for (auto& chain : earlyDiffuser)
+          chain.prepare(seconds, coeffs, 2, fs);
+      }
+      if (d.attackMaxSeconds > 0.0)
+        attack.prepare(d.attackMaxSeconds, fs);
       tank.prepare(d.tank, fs);
       reset();
     }
@@ -175,6 +227,9 @@ private:
       preDelaySamples.snapOnNextTarget();
       diffuser.clear();
       early.clear();
+      for (auto& chain : earlyDiffuser)
+        chain.clear();
+      attack.reset();
       tank.reset();
       for (auto& filter : wet)
         filter.reset();
@@ -184,6 +239,16 @@ private:
 
     void control(const Smoothed& c) noexcept {
       preDelaySamples.setTarget(c.preDelaySamples);
+      diffuser.setScale(c.lateDiffusion);
+      if (design->earlyDiffuser)
+        for (auto& chain : earlyDiffuser)
+          chain.setScale(c.earlyDiffusion);
+      if (design->attackMaxSeconds > 0.0)
+        attack.control(c.attack);
+      if (snapPending)
+        inputGain.snap(c.inputLevel);
+      else
+        inputGain.aim(c.inputLevel);
 
       FdnTank::Control tc;
       tc.rt60 = c.rt60;
@@ -192,6 +257,11 @@ private:
       tc.modDepthSamples = c.modDepthSamples;
       tc.shimmerMix = c.shimmerMix;
       tc.shimmerRatio = {2.0, c.shimmerInterval};
+      tc.modRateHz = c.modRateHz;
+      tc.bassRatio = c.bassRatio;
+      tc.bassCornerHz = c.bassCornerHz;
+      tc.dampCornerHz = c.dampCornerHz;
+      tc.hold = c.hold;
       const bool wasFading = tank.isFading();
       tank.control(tc);
 
@@ -215,7 +285,8 @@ private:
       if (snapPending) {
         evenGain.snap(even);
         oddGain.snap(odd);
-      } else {
+      } else if (!c.hold) {
+        // Held, the output level stays where it was.
         evenGain.aim(even);
         oddGain.aim(odd);
       }
@@ -244,16 +315,24 @@ private:
   private:
     // Pre-delay, early line, diffusion and tank.
     void front(float x, float& even, float& odd) noexcept {
+      // Unity (exactly) unless a freeze has shut the input.
+      x *= inputGain.step();
       preDelay.write(0, x);
       // Linear, not Hermite: the times are whole samples at rest (exact
       // either way) and the read may sit at zero delay.
       const float delayed = preDelay.readLinear(0, 1.0f + preDelaySamples.next());
       if (design->earlyTaps > 0)
         early.write(0, delayed);
-      tank.process(diffuser.process(delayed), even, odd);
+      tank.process(diffuser.process(design->attackMaxSeconds > 0.0 ? attack.process(delayed) : delayed),
+                   even, odd);
     }
 
-    float earlyTapsOf(int side) const noexcept {
+    float earlyTapsOf(int side) noexcept {
+      const float taps = earlyRaw(side);
+      return design->earlyDiffuser ? earlyDiffuser[static_cast<size_t>(side)].process(taps) : taps;
+    }
+
+    float earlyRaw(int side) const noexcept {
       const int count = design->earlyTaps;
       if (count == 0)
         return 0.0f;
@@ -292,6 +371,9 @@ private:
     fx::SmoothedParam preDelaySamples;
     AllpassChain diffuser;
     fx::DelayLine early;
+    std::array<AllpassChain, 2> earlyDiffuser{};
+    AttackSmear attack;
+    Ramped inputGain{1.0f, 1.0f, 0.0f};
     FdnTank tank;
     std::array<WetFilter, 2> wet{};
     Ramped evenGain, oddGain;
@@ -314,7 +396,10 @@ private:
     c.preDelaySamples = std::round(
         juce::jlimit(0.0f, static_cast<float>(design.maxPreDelaySeconds * 1000.0), raw.preDelayMs) *
         0.001f * static_cast<float>(sampleRate));
-    c.modDepthSamples = modDepth.advance(raw.modDepthMs) * 0.001f * static_cast<float>(sampleRate);
+    // A freeze also stills the moving lines: an interpolated read between two
+    // samples is not quite lossless, and a held tail must not lose anything.
+    c.modDepthSamples =
+        modDepth.advance(raw.hold ? 0.0f : raw.modDepthMs) * 0.001f * static_cast<float>(sampleRate);
     // The shifters come in one after another, each all the way before the
     // next starts (see FdnTank::readShifted for why not all together). The
     // mix is an amplitude share and what is heard is its energy, hence the
@@ -325,6 +410,16 @@ private:
       c.shimmerMix[static_cast<size_t>(k)] = std::sqrt(
           juce::jlimit(0.0f, 1.0f, amount * static_cast<float>(shifters) - static_cast<float>(k)));
     c.shimmerInterval = raw.shimmerInterval;
+    c.lateDiffusion = lateDiffusion.advance(static_cast<float>(raw.lateDiffusion));
+    c.earlyDiffusion = earlyDiffusion.advance(static_cast<float>(raw.earlyDiffusion));
+    c.attack = attack.advance(raw.attack);
+    c.modRateHz = raw.modRateHz;
+    c.bassRatio = static_cast<double>(bassRatio.advance(static_cast<float>(raw.bassRatio)));
+    c.bassCornerHz = static_cast<double>(bassCorner.advance(raw.bassCornerHz));
+    c.dampCornerHz = static_cast<double>(dampCorner.advance(raw.dampCornerHz));
+    c.hold = raw.hold;
+    // The input fades out and in over a few milliseconds, not at once.
+    c.inputLevel = inputLevel.advance(raw.hold ? 0.0f : 1.0f);
     const float lowBefore = lowCut.current(), highBefore = highCut.current();
     c.lowCutHz = lowCut.advance(raw.lowCutHz);
     c.highCutHz = highCut.advance(raw.highCutHz);
@@ -337,6 +432,7 @@ private:
   double sampleRate{48000.0};
   std::array<Core, kMaxChannels> cores;
   ControlSmoother rt60, highRatio, modDepth, shimmerAmount, lowCut, highCut;
+  ControlSmoother lateDiffusion, earlyDiffusion, attack, bassRatio, bassCorner, dampCorner, inputLevel;
   int untilControl{0};
   int lastCores{0};
 };

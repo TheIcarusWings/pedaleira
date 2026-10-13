@@ -1,7 +1,7 @@
 #pragma once
 // A sixteen-line feedback delay network (Jot and Chaigne 1991; Schlecht and
-// Habets 2017 for the choice of matrix): the late field of the room, hall
-// and shimmer reverbs. Private to the reverb family.
+// Habets 2017 for the choice of matrix): the late field of the reverbs of
+// the family built on it (FdnReverbEngine.h). Private to the reverb family.
 //
 //   lines     sixteen delays of pairwise different prime lengths, so no two
 //             share a period
@@ -56,6 +56,10 @@ public:
     double shifterLowpassHz{6500.0};
     // Corner of the damping shelves.
     double dampingCornerHz{4000.0};
+    // A second shelf per line, below a corner given at run time, that sets
+    // the RT60 of the bass as a multiple of the middle one (Control::
+    // bassRatio). Off, the lines have only the damping shelf.
+    bool bassBand{false};
     // Length of the crossfade a size change takes.
     double fadeSeconds{0.08};
   };
@@ -66,6 +70,17 @@ public:
     double highRatio{1.0};
     double scale{1.0};
     float modDepthSamples{0.0f};
+    // Speed of the two oscillators of the chorus; 0 keeps the design's rates.
+    double modRateHz{0.0};
+    // With Design::bassBand: RT60 below bassCornerHz over the middle RT60
+    // (above 1 the bass rings longer), and the corner of that shelf.
+    double bassRatio{1.0};
+    double bassCornerHz{200.0};
+    // Corner of the damping shelves; 0 keeps the design's.
+    double dampCornerHz{0.0};
+    // The loops lossless: every band holds its level (a freeze). The caller
+    // keeps the output gains and shuts the input.
+    bool hold{false};
     // 0 to 1 per shifter: how much of its line's read is the shifted one.
     std::array<float, kMaxShifters> shimmerMix{};
     // Pitch ratio of the even and of the odd shifters.
@@ -91,9 +106,10 @@ public:
     fadeSamples = kControlInterval *
                   std::max(1, static_cast<int>(std::lround(design.fadeSeconds * sampleRate /
                                                            kControlInterval)));
-    corner = shelfCorner(design.dampingCornerHz, sampleRate);
+    corner = designCorner = shelfCorner(design.dampingCornerHz, sampleRate);
     for (int j = 0; j < 2; ++j)
       lfo[static_cast<size_t>(j)].setRate(design.modRatesHz[static_cast<size_t>(j)], sampleRate);
+    appliedModRate = 0.0;
     const double grainAngle = juce::MathConstants<double>::twoPi / grainSamples;
     grainStepCos = static_cast<float>(std::cos(grainAngle));
     grainStepSin = static_cast<float>(std::sin(grainAngle));
@@ -105,6 +121,7 @@ public:
   void reset() noexcept {
     lines.clear();
     shelfState.fill(0.0f);
+    bassState.fill(0.0f);
     lfo[0].reset(0.0);
     lfo[1].reset(0.125);
     for (int k = 0; k < kMaxShifters; ++k) {
@@ -145,7 +162,21 @@ public:
       }
     }
 
-    const bool moved = c.rt60 != appliedRt60 || c.highRatio != appliedHighRatio;
+    // The shelves' corners and the oscillators' speed move freely (nothing
+    // in them is a gain); with the defaults they are the design's.
+    corner = c.dampCornerHz > 0.0 ? shelfCorner(c.dampCornerHz, sampleRate) : designCorner;
+    if (design.bassBand)
+      bassCorner = shelfCorner(c.bassCornerHz, sampleRate);
+    if (c.modRateHz != appliedModRate) {
+      const double ratio = design.modRatesHz[1] / design.modRatesHz[0];
+      const double first = c.modRateHz > 0.0 ? c.modRateHz : design.modRatesHz[0];
+      lfo[0].setRate(first, sampleRate);
+      lfo[1].setRate(c.modRateHz > 0.0 ? first * ratio : design.modRatesHz[1], sampleRate);
+      appliedModRate = c.modRateHz;
+    }
+
+    const bool moved = c.rt60 != appliedRt60 || c.highRatio != appliedHighRatio ||
+                       c.bassRatio != appliedBassRatio || c.hold != appliedHold;
     if (snapPending || moved || fadeRemaining > 0 || !gainsSettled) {
       // Where the fade will be at the end of this interval: the gains follow
       // the line lengths across it.
@@ -158,10 +189,11 @@ public:
       for (int i = 0; i < kLines; ++i) {
         const size_t n = static_cast<size_t>(i);
         const double length = current[n] + fade * (target[n] - current[n]);
-        const double lowGain = decayGain(length, c.rt60, sampleRate);
+        // Held, every band passes at exactly unity.
+        const double lowGain = c.hold ? 1.0 : decayGain(length, c.rt60, sampleRate);
         energy[i & 1] += lowGain * lowGain;
         const float low = static_cast<float>(lowGain);
-        const float high = static_cast<float>(decayGain(length, highRt60, sampleRate));
+        const float high = c.hold ? 1.0f : static_cast<float>(decayGain(length, highRt60, sampleRate));
         if (snapPending) {
           gainHigh[n].snap(high);
           gainShelf[n].snap(low - high);
@@ -169,13 +201,30 @@ public:
           gainHigh[n].aim(high);
           gainShelf[n].aim(low - high);
         }
+        if (design.bassBand) {
+          // What the bass shelf adds on top of the middle gain: the bass band
+          // as a whole passes at decayGain(length, rt60 * ratio), which is
+          // never above 1, and the shelf's own gain never exceeds its low
+          // end (see DampingShelf), so the loop stays passive.
+          const double bassGain =
+              c.hold ? 1.0
+                     : decayGain(length, c.rt60 * juce::jlimit(0.05, 20.0, c.bassRatio), sampleRate);
+          const float extra = static_cast<float>(bassGain / lowGain - 1.0);
+          if (snapPending)
+            gainBass[n].snap(extra);
+          else
+            gainBass[n].aim(extra);
+        }
       }
-      passEnergy = {energy[0], energy[1]};
+      if (!c.hold)
+        passEnergy = {energy[0], energy[1]};
       // Settled once a tick has re-aimed at unchanged targets: the ramps are
       // then exactly on them and need no more work.
       gainsSettled = !snapPending && !moved && fadeRemaining == 0 && rampsIdle();
       appliedRt60 = c.rt60;
       appliedHighRatio = c.highRatio;
+      appliedBassRatio = c.bassRatio;
+      appliedHold = c.hold;
     }
 
     const float depth = juce::jlimit(0.0f, static_cast<float>(maxModSamples), c.modDepthSamples);
@@ -247,6 +296,15 @@ public:
       }
     }
 
+    // The bass shelf first (unity above its corner, `extra` more below it),
+    // then the damping shelf, in series: each one's gain is bounded by its
+    // own two ends, so their product is too.
+    if (design.bassBand)
+      for (int i = 0; i < kLines; ++i) {
+        const size_t n = static_cast<size_t>(i);
+        bassState[n] += bassCorner * (s[i] - bassState[n]);
+        s[i] += gainBass[n].value * bassState[n];
+      }
     for (int i = 0; i < kLines; ++i) {
       const size_t n = static_cast<size_t>(i);
       shelfState[n] += corner * (s[i] - shelfState[n]);
@@ -256,6 +314,8 @@ public:
       for (int i = 0; i < kLines; ++i) {
         gainHigh[static_cast<size_t>(i)].step();
         gainShelf[static_cast<size_t>(i)].step();
+        if (design.bassBand)
+          gainBass[static_cast<size_t>(i)].step();
       }
 
     float sumEven = 0.0f, sumOdd = 0.0f;
@@ -340,7 +400,8 @@ private:
 
   bool rampsIdle() const noexcept {
     for (int i = 0; i < kLines; ++i)
-      if (gainHigh[static_cast<size_t>(i)].delta != 0.0f || gainShelf[static_cast<size_t>(i)].delta != 0.0f)
+      if (gainHigh[static_cast<size_t>(i)].delta != 0.0f || gainShelf[static_cast<size_t>(i)].delta != 0.0f ||
+          gainBass[static_cast<size_t>(i)].delta != 0.0f)
         return false;
     return true;
   }
@@ -417,8 +478,12 @@ private:
   std::array<int, kLines> target{};
   std::array<Ramped, kLines> gainHigh{};
   std::array<Ramped, kLines> gainShelf{};
+  std::array<Ramped, kLines> gainBass{};
   std::array<float, kLines> shelfState{};
+  std::array<float, kLines> bassState{};
   float corner{1.0f};
+  float designCorner{1.0f};
+  float bassCorner{1.0f};
   int maxLength{2};
   int maxModSamples{0};
   int fadeSamples{kControlInterval};
@@ -426,6 +491,9 @@ private:
   double appliedScale{1.0};
   double appliedRt60{0.0};
   double appliedHighRatio{0.0};
+  double appliedBassRatio{1.0};
+  double appliedModRate{0.0};
+  bool appliedHold{false};
   // Sum of the squared low-frequency line gains, even and odd lines.
   std::array<double, 2> passEnergy{{1.0, 1.0}};
   bool snapPending{true};

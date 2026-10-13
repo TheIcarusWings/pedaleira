@@ -15,6 +15,8 @@
 #include <cmath>
 
 #include "effects/EffectDsp.h"
+#include "effects/dsp/Ducker.h"
+#include "effects/reverb/ReverbDuck.h"
 #include "effects/reverb/ReverbParts.h"
 
 namespace {
@@ -285,7 +287,8 @@ class PlateReverbProcessor final : public ParameterisedBlockProcessor {
 public:
   static constexpr const char* kKindId = "reverb.plate";
 
-  enum Param { kDecayS = 0, kPreDelayMs, kDamping, kLowCutHz, kHighCutHz, kModulation, kSpillover };
+  enum Param { kDecayS = 0, kPreDelayMs, kDamping, kLowCutHz, kHighCutHz, kModulation, kDuckDb, kDuckReleaseMs,
+         kSpillover };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -303,6 +306,7 @@ public:
       t.push_back(BlockParamSpec::floatParam("highCutHz", "High cut", "Hz", 1000.0f, 20000.0f, 12000.0f)
                       .withSkew(0.4f));
       t.push_back(BlockParamSpec::floatParam("modulation", "Modulation", "%", 0.0f, 100.0f, 30.0f));
+      fx::appendDuckParams(t);
       t.push_back(spilloverParam());
       return t;
     }();
@@ -339,6 +343,7 @@ protected:
     modDepth.prepare(sampleRate, 0.1);
     lowCut.prepare(sampleRate, 0.03);
     highCut.prepare(sampleRate, 0.03);
+    ducking.prepare(sampleRate);
     resetEffect();
   }
 
@@ -352,9 +357,16 @@ protected:
     highCut.snapOnNextTarget();
     untilControl = 0;
     lastCores = 0;
+    ducking.reset();
   }
 
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext& ctx) override {
+    const bool stereo = blockHasStereoImage(buffer.getNumChannels(), ctx);
+    ducking.run(buffer, stereo, param(kDuckDb), param(kDuckReleaseMs),
+                [&](juce::AudioBuffer<float>& wet) { processWet(wet, stereo); });
+  }
+
+  void processWet(juce::AudioBuffer<float>& buffer, bool stereo) {
     const int numSamples = buffer.getNumSamples();
     const int numChannels = juce::jmin(buffer.getNumChannels(), kMaxChannels);
     if (numChannels <= 0)
@@ -362,7 +374,6 @@ protected:
     // True stereo: one tank fed the sum of both inputs, its two tap sets
     // left and right. Otherwise (mono, dual mono, in front of an amp model)
     // one whole mono plate per channel and nothing crossing.
-    const bool stereo = blockHasStereoImage(buffer.getNumChannels(), ctx);
     const int activeCores = stereo ? 1 : numChannels;
     if (activeCores > lastCores && lastCores != 0)
       cores[1].reset();
@@ -479,6 +490,7 @@ private:
   }
 
   std::array<Core, kMaxChannels> cores;
+  fx::reverb::WetDucking ducking;
   fx::reverb::ControlSmoother rt60, highRatio, modDepth, lowCut, highCut;
   double sampleRate{48000.0};
   int untilControl{0};

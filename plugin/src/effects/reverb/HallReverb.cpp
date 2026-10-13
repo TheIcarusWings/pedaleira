@@ -8,7 +8,9 @@
 #include <cmath>
 
 #include "effects/EffectDsp.h"
+#include "effects/dsp/Ducker.h"
 #include "effects/reverb/FdnReverbEngine.h"
+#include "effects/reverb/ReverbDuck.h"
 
 namespace {
 
@@ -26,6 +28,8 @@ public:
     kLowCutHz,
     kHighCutHz,
     kModulation,
+    kDuckDb,
+    kDuckReleaseMs,
     kSpillover
   };
 
@@ -46,6 +50,7 @@ public:
       t.push_back(BlockParamSpec::floatParam("highCutHz", "High cut", "Hz", 1000.0f, 20000.0f, 8000.0f)
                       .withSkew(0.4f));
       t.push_back(BlockParamSpec::floatParam("modulation", "Modulation", "%", 0.0f, 100.0f, 30.0f));
+      fx::appendDuckParams(t);
       t.push_back(spilloverParam());
       return t;
     }();
@@ -76,13 +81,23 @@ protected:
     d.diffuserCoeffs = {0.7f, 0.7f, 0.6f, 0.6f};
     d.maxPreDelaySeconds = 0.2;
     engine.prepare(d, spec.sampleRate);
+    ducking.prepare(spec.sampleRate);
     resetEffect();
   }
 
-  void resetEffect() noexcept override { engine.reset(); }
+  void resetEffect() noexcept override {
+    engine.reset();
+    ducking.reset();
+  }
 
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext& ctx) override {
-    engine.process(buffer, blockHasStereoImage(buffer.getNumChannels(), ctx), [this] {
+    const bool stereo = blockHasStereoImage(buffer.getNumChannels(), ctx);
+    ducking.run(buffer, stereo, param(kDuckDb), param(kDuckReleaseMs),
+                [&](juce::AudioBuffer<float>& wet) { processWet(wet, stereo); });
+  }
+
+  void processWet(juce::AudioBuffer<float>& buffer, bool stereo) {
+    engine.process(buffer, stereo, [this] {
       FdnReverbEngine::Controls c;
       c.rt60 = param(kDecayS);
       c.highRatio = fx::reverb::dampingToHighRatio(param(kDamping));
@@ -104,6 +119,7 @@ private:
   static constexpr double kStructureSeconds = 0.2;
 
   FdnReverbEngine engine;
+  fx::reverb::WetDucking ducking;
 };
 
 }  // namespace

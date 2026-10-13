@@ -73,7 +73,10 @@ def fake_catalog():
         fake_model(8003, "Hall", "Reverb", FakeSpec(0, "PRE DELAY", 0.0, 100.0, "ms"), FakeSpec(1, "MIX", 0.0, 100.0, "%")),
         fake_model(9001, "Twin", "Reverb"),
         fake_model(9002, "Twin", "Reverb"),
+        fake_model(9101, "Phaser", "Modulation"),
+        fake_model(9102, "Phaser", "Modulation"),
     ]
+    models[-2].superseded = True
     return NS(models={m.id: m for m in models})
 
 
@@ -757,6 +760,10 @@ class PrepareTakeTest(unittest.TestCase):
         self.assertEqual(item.model.id, 6005)
         self.assertEqual(item.settings[0].kwargs, {"real": 250.0})
         self.assertEqual(self.prepare({"name": "t", "model": 5005}).model.name, "VCA Comp")
+
+    def test_a_shared_name_means_the_current_model(self):
+        self.assertEqual(self.prepare({"name": "t", "model": "phaser"}).model.id, 9102)
+        self.assertEqual(self.prepare({"name": "t", "model": 9101}).model.id, 9101)
 
     def test_problems_become_errors_not_exceptions(self):
         self.assertIn("no model named", self.prepare({"name": "t", "model": "Nope"}).error)

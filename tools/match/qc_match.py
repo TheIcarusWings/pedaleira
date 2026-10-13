@@ -862,7 +862,10 @@ def all_models(catalog: Any) -> list:
 
 
 def resolve_model(catalog: Any, ref: Any) -> Any:
-    """A catalogue model by id or by name (case, spaces and punctuation ignored). Ambiguity is an error."""
+    """A catalogue model by id or by name (case, spaces and punctuation ignored).
+
+    A name shared by an old superseded model and one current model means the current one;
+    any other ambiguity is an error."""
     models = all_models(catalog)
     if isinstance(ref, int):
         for model in models:
@@ -875,6 +878,9 @@ def resolve_model(catalog: Any, ref: Any) -> Any:
         hint = f" Close names: {', '.join(close)}." if close else ""
         raise PlanError(f"the unit's catalogue has no model named {ref!r}.{hint} Use --catalog to list them.")
     if len(matches) > 1:
+        current = [m for m in matches if not getattr(m, "superseded", False)]
+        if len(current) == 1:
+            return current[0]
         ids = ", ".join(f"{m.id} ({m.category})" for m in matches)
         raise PlanError(f"{ref!r} names several models: {ids}. Give the id in the plan.")
     return matches[0]

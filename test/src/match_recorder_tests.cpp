@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -308,6 +309,44 @@ TEST(MatchTakeTest, CheckRefusesSilenceAndMissingMarkers) {
   EXPECT_FALSE(check.markersFound);
   ASSERT_FALSE(check.problems.empty());
   EXPECT_NE(check.problems.front().find("sync markers"), std::string::npos);
+}
+
+TEST(MatchTakeTest, AttenuatedSignalIsScaledAndRefusesGainAboveZero) {
+  const auto& samples = signalUnderTest().samples;
+  const std::vector<float> same = MatchTake::attenuatedSamples(samples, 0.0);
+  EXPECT_EQ(same, samples);
+  const std::vector<float> quieter = MatchTake::attenuatedSamples(samples, -12.0);
+  ASSERT_EQ(quieter.size(), samples.size());
+  float peak = 0.0f, peakQuiet = 0.0f;
+  for (size_t n = 0; n < samples.size(); ++n) {
+    peak = std::max(peak, std::abs(samples[n]));
+    peakQuiet = std::max(peakQuiet, std::abs(quieter[n]));
+  }
+  EXPECT_NEAR(20.0 * std::log10(peakQuiet / peak), -12.0, 0.001);
+  EXPECT_THROW(MatchTake::attenuatedSamples(samples, 1.0), std::invalid_argument);
+  EXPECT_THROW(MatchTake::attenuatedSamples(samples, std::nan("")), std::invalid_argument);
+}
+
+TEST(MatchTakeTest, CheckReportsTheLevelAgainstWhatWasPlayed) {
+  // Played 12 dB down through a unity path: the level is 0 dB against what
+  // was played, -12 dB against nominal, and the take is not clipped.
+  const float gain = std::pow(10.0f, -12.0f / 20.0f);
+  const auto nominal = MatchTake::checkTake(delayedSignal(480, gain), kRate, signalUnderTest());
+  EXPECT_NEAR(nominal.levelGainDb, -12.0, 0.5);
+  const auto played = MatchTake::checkTake(delayedSignal(480, gain), kRate, signalUnderTest(), -12.0);
+  EXPECT_NEAR(played.levelGainDb, 0.0, 0.5);
+  EXPECT_FALSE(played.clipped);
+  EXPECT_TRUE(played.passed);
+}
+
+TEST(MatchTakeTest, ClipCheckStillFiresWhenThePlayedSignalWasAttenuated) {
+  // The unit adds 15 dB to a signal played 6 dB down: still a clipped take.
+  juce::AudioBuffer<float> hot = delayedSignal(480, std::pow(10.0f, 9.0f / 20.0f));
+  for (int n = 0; n < hot.getNumSamples(); ++n)
+    hot.setSample(0, n, juce::jlimit(-1.0f, 1.0f, hot.getSample(0, n)));
+  const auto check = MatchTake::checkTake(hot, kRate, signalUnderTest(), -6.0);
+  EXPECT_TRUE(check.clipped);
+  EXPECT_FALSE(check.passed);
 }
 
 TEST(MatchTakeTest, CheckRefusesAnImplausibleLevel) {

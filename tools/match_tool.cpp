@@ -12,10 +12,10 @@
 //   PedaleiraMatch devices
 //   PedaleiraMatch record --device <name> [--type <device type>] --out-ch <a[,b]>
 //                         --in-ch <c[,d]> --name <file stem> [--dir match/ref]
-//                         [--rate 48000] [--buffer 256]
+//                         [--rate 48000] [--buffer 256] [--gain-db -6]
 //   PedaleiraMatch session --plan <plan.txt> --device <name> [--type <device type>]
 //                          --out-ch <a[,b]> --in-ch <c[,d]> [--dir match/ref]
-//                          [--rate 48000] [--buffer 256] [--overwrite]
+//                          [--rate 48000] [--buffer 256] [--gain-db -6] [--overwrite]
 //   PedaleiraMatch plugin-params --plugin <file> [--state <file>] [--json]
 //   PedaleiraMatch plugin-render --plugin <file> --out <reference.wav> [--in <signal.wav>]
 //                          [--state <file>] [--set NAME=VALUE]... [--set-text NAME=TEXT]...
@@ -91,10 +91,11 @@ constexpr const char* kUsage =
     "       PedaleiraMatch devices\n"
     "       PedaleiraMatch record --device <name> [--type <device type>] --out-ch <a[,b]>\n"
     "                             --in-ch <c[,d]> --name <file stem> [--dir match/ref]\n"
-    "                             [--rate 48000] [--buffer 256]\n"
+    "                             [--rate 48000] [--buffer 256] [--gain-db -6]\n"
     "       PedaleiraMatch session --plan <plan.txt> --device <name> [--type <device type>]\n"
     "                              --out-ch <a[,b]> --in-ch <c[,d]> [--dir match/ref]\n"
-    "                              [--rate 48000] [--buffer 256] [--overwrite]\n"
+    "                              [--rate 48000] [--buffer 256] [--gain-db -6]\n"
+    "                              [--overwrite]\n"
     "  signals write the test signal (WAV) and its manifest (JSON) into <dir>\n"
     "  analyse  measure a recording of the test signal; JSON on stdout or in --out\n"
     "  compare  compare two analyses (or recordings, analysed first); JSON on stdout\n"
@@ -103,6 +104,8 @@ constexpr const char* kUsage =
     "  devices list audio devices, their channels and sample rates\n"
     "  record   play the test signal and record one take (48 kHz) into <dir>/<name>.wav\n"
     "  session  record the takes of a plan file, one prompt per take\n"
+    "  --gain-db  play the test signal this many dB below nominal (0 to -60); the clip check\n"
+    "             is unchanged and the level printed is against what was played\n"
     "  --out-ch, --in-ch  1-based channel numbers; the same signal plays on each --out-ch,\n"
     "                     one or two --in-ch make a mono or stereo take\n"
     "       PedaleiraMatch plugin-params --plugin <file> [--state <file>] [--json]\n"
@@ -178,6 +181,12 @@ Options parseOptions(int argc, char** argv) {
           text.getIntValue() > 16384)
         throw UsageError("bad value for --buffer: " + text.toStdString() + " (16 to 16384 samples)");
       opts.record.bufferSize = text.getIntValue();
+    } else if (flag == "--gain-db") {
+      const juce::String text = value(i);
+      if (text.isEmpty() || !text.containsOnly("0123456789.-") || text.getDoubleValue() > 0.0 ||
+          text.getDoubleValue() < -60.0)
+        throw UsageError("bad value for --gain-db: " + text.toStdString() + " (0 to -60 dB)");
+      opts.record.signalGainDb = text.getDoubleValue();
     } else if (flag == "--overwrite") {
       opts.record.overwrite = true;
     } else if (flag == "--plugin") {

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <vector>
 
 namespace pitchtest {
@@ -135,5 +136,57 @@ inline double meanDelayFromEnvelopeSamples(const std::vector<float>& out,
   }
   return count > 0 ? sum / count : 0.0;
 }
+
+
+/** Power of the spectral line at `hz` in x[begin, begin + n), normalised like
+    lineDb (a full-scale sine reads 1): a Hann-windowed single-bin DFT with the
+    phasor advanced by rotation, which makes the many evaluations of
+    peakFrequencyHz cheap. */
+inline double linePower(const float* x, size_t n, double hz) {
+  const double w = 2.0 * kPi * hz / kRate;
+  const std::complex<double> rotation(std::cos(-w), std::sin(-w));
+  std::complex<double> phasor(1.0, 0.0);
+  std::complex<double> acc(0.0, 0.0);
+  const double windowStep = 2.0 * kPi / static_cast<double>(n - 1);
+  for (size_t i = 0; i < n; ++i) {
+    const double window = 0.5 - 0.5 * std::cos(windowStep * static_cast<double>(i));
+    acc += window * static_cast<double>(x[i]) * phasor;
+    phasor *= rotation;
+    if ((i & 1023u) == 1023u)
+      phasor /= std::abs(phasor);
+  }
+  const double mag = std::abs(acc) / (0.25 * static_cast<double>(n));
+  return mag * mag;
+}
+
+/** The frequency of the strongest line within `rangeCents` of `expectedHz`,
+    found to about a tenth of a cent: a coarse scan in 4-cent steps, then 0.1
+    cent steps around the best. Meaningless for a signal with nothing near
+    `expectedHz`; check lineDb first. */
+inline double peakFrequencyHz(const std::vector<float>& x, size_t begin, size_t end,
+                              double expectedHz, double rangeCents = 60.0) {
+  end = std::min(end, x.size());
+  const size_t n = end - begin;
+  double bestCents = 0.0, best = -1.0;
+  for (double cents = -rangeCents; cents <= rangeCents + 1.0e-9; cents += 4.0) {
+    const double power = linePower(x.data() + begin, n, expectedHz * std::pow(2.0, cents / 1200.0));
+    if (power > best) {
+      best = power;
+      bestCents = cents;
+    }
+  }
+  double fineBest = -1.0, fineCents = bestCents;
+  for (double cents = bestCents - 4.0; cents <= bestCents + 4.0 + 1.0e-9; cents += 0.1) {
+    const double power = linePower(x.data() + begin, n, expectedHz * std::pow(2.0, cents / 1200.0));
+    if (power > fineBest) {
+      fineBest = power;
+      fineCents = cents;
+    }
+  }
+  return expectedHz * std::pow(2.0, fineCents / 1200.0);
+}
+
+/** `hz` against `reference`, in cents. */
+inline double centsBetween(double hz, double reference) { return 1200.0 * std::log2(hz / reference); }
 
 }  // namespace pitchtest

@@ -355,9 +355,9 @@ public:
 protected:
   void prepareEffect(const EffectSpec& spec) override {
     sampleRate = spec.sampleRate;
-    latch.prepare(sampleRate, param(kWindow));
+    latch.prepare(sampleRate, param(kWindow), 24.0);
     for (auto& voice : voices)
-      voice.prepare(sampleRate, spec.maxBlockSize, latch.current());
+      voice.prepare(sampleRate, spec.maxBlockSize, latch.current(), latch.latencySamples());
     for (auto& copy : scratch)
       copy.setSize(2, juce::jmax(1, spec.maxBlockSize), false, true, false);
     for (auto& tracker : trackers)
@@ -451,7 +451,7 @@ protected:
           continue;
         float* pointers[2] = {scratch[v].getWritePointer(0),
                               numChannels > 1 ? scratch[v].getWritePointer(1) : nullptr};
-        voices[v].process(pointers, numChannels, dual, start, length, laneSemitones[v], window);
+        voices[v].process(pointers, numChannels, dual, start, length, laneSemitones[v], window, latch.latencySamples());
       }
       mixSegment(io, numChannels, start, length, tracking, dual, running);
     });

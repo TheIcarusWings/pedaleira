@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 
+#include <random>
+
 using namespace pitchtest;
 
 namespace {
@@ -16,8 +18,10 @@ namespace {
 constexpr const char* kKind = "pitch.shifter";
 
 // The window choices and what the engine says their latency is.
+// The constant attack latency the block reports: the engine's smallest onset
+// delay for the window at the widest interval (+-24 st).
 int engineLatency(int windowIndex) {
-  return PitchShift::latencySamples(PitchShift::windowFromIndex(windowIndex), kRate);
+  return PitchShift::minOnsetDelaySamples(PitchShift::windowFromIndex(windowIndex), kRate, 24.0);
 }
 
 const BlockParamSpec& specOf(const BlockKindInfo& info, const char* id) {
@@ -34,16 +38,12 @@ TEST(PitchShifterTest, Conforms) {
   ConformanceOptions options;
   options.params = {{"semitones", -5.0}, {"cents", 10.0}};
   options.stateParams = {{"semitones", 7.0}, {"cents", -23.0}, {"window", 2.0}};
-  // The conformance latency check plays an impulse and expects the wet path to
-  // start exactly at the reported latency (MatchesOnset), or no earlier
-  // (AtMostOnset). Neither fits a shifter whose tap is not at a constant
-  // delay: an impulse after a start meets the tap at the floor and arrives
-  // after 2 ms / ratio (96 samples at unison, 384 at -24 st, 24 at +24 st),
-  // always before the mean the block reports, which is a long-run average.
-  // So the generic check is skipped, and the latency is tested below in
-  // three ways: exactly at unison (a pure delay), as the engine's mean at
-  // other intervals, and as the bound on how late an attack can be.
-  options.latency = LatencyCheck::Skip;
+  // The latency check plays an impulse and expects the wet path to start
+  // exactly at the reported latency: true of the engine's constant-latency mode
+  // (PitchShift.h) at every interval, to the sample at the peak; the 1 % onset the
+  // check reads comes a few samples early (cubic interpolation spreads the
+  // impulse), hence the tolerance.
+  options.latencyToleranceSamples = 4;
   options.cpuAverageBudgetNs = 25000.0;
   options.cpuWorstBudgetNs = 250000.0;
   expectKindConforms("pitch.shifter", options);
@@ -176,7 +176,7 @@ TEST(PitchShifterTest, ATrueStereoImageIsKeptWhenTheSidesDiffer) {
 TEST(PitchShifterTest, ReportsTheEnginesLatencyForEachWindowAndLatchesIt) {
   EffectRig rig(kKind);
   EXPECT_EQ(rig.latencySamples(), engineLatency(1));  // the 30 ms default: 16 ms
-  EXPECT_EQ(rig.latencySamples(), 768);
+  EXPECT_EQ(rig.latencySamples(), 446);
   rig.set("window", 3.0);
   // The wet path and the reported latency change in one instant: until the
   // framework commits the change, the old figure stands (and the wet path
@@ -184,7 +184,7 @@ TEST(PitchShifterTest, ReportsTheEnginesLatencyForEachWindowAndLatchesIt) {
   EXPECT_EQ(rig.latencySamples(), engineLatency(1));
   rig.settle();
   EXPECT_EQ(rig.latencySamples(), engineLatency(3));
-  EXPECT_EQ(rig.latencySamples(), 1488);
+  EXPECT_EQ(rig.latencySamples(), 880);
   for (int w = 0; w < 4; ++w) {
     rig.set("window", w);
     rig.settle();
@@ -244,47 +244,64 @@ TEST(PitchShifterTest, AtHalfMixTheDryAndTheShiftedNoteAreBothThereAtHalfLevel) 
   EXPECT_NEAR(lineDb(out, from, to, 392.0), input - 6.02, 1.0);
 }
 
-TEST(PitchShifterTest, TheAverageTapDelayIsTheReportedLatencyWithinTheEnginesSpread) {
-  // The latency a shifter really has is the delay of its tap, which wanders
-  // between the floor and the window. Its time average is measured from the
-  // loudness of a triangle-shaped swell (meanDelayFromEnvelopeSamples) and
-  // compared with the report, which is the engine's own mean. The two agree
-  // within the engine's spread: a down-shift runs about 1.8 times the report
-  // (the tap keeps drifting while it fades to its next position, and the
-  // fades are long), an up-shift 0.5 to 0.8. Measured with this engine at
-  // the 30 ms window: -12 st 1.80, -5 st 1.81, +3 st 0.62, +7 st 0.78,
-  // +12 st 0.49.
-  const double seconds = 14.0;
-  std::vector<float> in = harmonicTone(seconds, 196.0, 0.4f);
-  applyTriangleEnvelope(in);
-  double ratioSum = 0.0;
-  int count = 0;
-  struct Case {
-    double window, semitones;
-  };
-  for (const Case& c : {Case{1, -12}, Case{1, -5}, Case{1, 3}, Case{1, 7}, Case{1, 12},
-                        Case{3, -12}, Case{3, 12}, Case{0, 7}}) {
-    EffectRig rig(kKind, {{"semitones", c.semitones}, {"window", c.window}, {"mix", 1.0}});
-    const std::vector<float> out = rig.render(in);
-    const double measured = meanDelayFromEnvelopeSamples(out, in, 4.0);
-    const double reported = rig.latencySamples();
-    const double ratio = measured / reported;
-    std::cout << "[   MEAN   ] window " << c.window << ", " << c.semitones << " st: measured "
-              << static_cast<int>(measured) << " samples, reported " << static_cast<int>(reported)
-              << " (" << juce::String(ratio, 2) << "x)" << std::endl;
-    EXPECT_GT(ratio, 0.4) << "window " << c.window << ", " << c.semitones << " st";
-    EXPECT_LT(ratio, 2.2) << "window " << c.window << ", " << c.semitones << " st";
-    if (c.window == 1) {
-      ratioSum += ratio;
-      ++count;
+TEST(PitchShifterTest, AnImpulseArrivesExactlyAtTheReportedLatencyAtEveryIntervalAndWindow) {
+  // The engine fix (PitchShift.h, constant-latency mode): a shifter cannot delay
+  // a held note by a constant, but it delays an event by one. The impulse
+  // response of the block, on each window, at intervals across the range and
+  // with fine settings: its peak and its onset are exactly the reported figure.
+  int checked = 0;
+  for (int w = 0; w < 4; ++w) {
+    for (const double semitones : {-24.0, -12.0, -7.0, -1.0, 1.0, 2.0, 3.0, 7.0, 12.0, 19.0, 24.0}) {
+      for (const double cents : {0.0, 23.0}) {
+        SCOPED_TRACE("window " + std::to_string(w) + ", " + std::to_string(semitones) + " st, " + std::to_string(cents) + " ct");
+        EffectRig rig(kKind, {{"window", static_cast<double>(w)}, {"semitones", semitones}, {"cents", cents}, {"mix", 1.0}});
+        EffectRig reference{juce::String()};
+        const std::vector<float> ir = captureImpulseResponse(rig, 0.3);
+        const int origin = onsetIndex(captureImpulseResponse(reference, 0.05));
+        ASSERT_EQ(rig.latencySamples(), engineLatency(w));
+        EXPECT_EQ(peakIndexOf(ir) - origin, rig.latencySamples());
+        // The 1 % onset comes up to eight samples early at -24 st: the engine
+        // reads between samples (cubic interpolation, +-2 input samples of
+        // spread, which is +-8 output samples at a quarter of the speed).
+        EXPECT_LE(onsetIndex(ir) - origin, rig.latencySamples());
+        EXPECT_GE(onsetIndex(ir) - origin, rig.latencySamples() - 8);
+        ++checked;
+      }
     }
   }
-  // Across the intervals the report is the right order: the mean of the
-  // ratios at the default window is near one.
-  EXPECT_NEAR(ratioSum / count, 1.1, 0.35);
+  std::cout << "[ LATENCY  ] " << checked << " impulse responses, every one exactly at the reported latency; the 30 ms window reports "
+            << engineLatency(1) << " samples (" << juce::String(engineLatency(1) / 48.0, 2) << " ms), against 768 before" << std::endl;
 }
 
-TEST(PitchShifterTest, AnAttackAfterASteadyNoteArrivesWithinTheWindow) {
+TEST(PitchShifterTest, AnImpulseAfterAHeldNoteStillArrivesOnTime) {
+  // The same after a held tone and 100 ms of silence (the engine's tap is
+  // wherever its drift left it; the onset puts it back).
+  for (const double semitones : {-12.0, -5.0, 3.0, 7.0, 12.0}) {
+    SCOPED_TRACE(semitones);
+    EffectRig rig(kKind, {{"semitones", semitones}, {"mix", 1.0}});
+    EffectRig reference{juce::String()};
+    std::vector<float> in = sine(1.0, 220.0, 0.3f, kRate);
+    in.resize(in.size() + 4800, 0.0f);
+    const size_t at = in.size();
+    in.resize(in.size() + 24000, 0.0f);
+    in[at] = 0.8f;
+    std::vector<float> ref = in;
+    const std::vector<float> out = rig.render(in);
+    const std::vector<float> dry = reference.render(ref);
+    const int origin = static_cast<int>(std::max_element(dry.begin() + static_cast<std::ptrdiff_t>(at), dry.end(),
+                                                         [](float a, float b) { return std::abs(a) < std::abs(b); }) - dry.begin());
+    int first = -1;
+    for (size_t i = at; i < out.size(); ++i)
+      if (std::abs(out[i]) > 0.2f) {
+        first = static_cast<int>(i);
+        break;
+      }
+    ASSERT_GE(first, 0);
+    EXPECT_NEAR(first - origin, rig.latencySamples(), 4);
+  }
+}
+
+TEST(PitchShifterTest, AnAttackAfterASteadyNoteArrivesAtTheReportedLatency) {
   // The felt latency is the attacks', which the engine pulls back to its
   // floor when it can (plugin/docs/pitch-shift.md). A 20 ms noise burst over a
   // steady tone, at four moments: the burst's onset in the output is never
@@ -310,9 +327,7 @@ TEST(PitchShifterTest, AnAttackAfterASteadyNoteArrivesWithinTheWindow) {
       ASSERT_GE(onset, 0) << "the attack never arrived";
       std::cout << "[  ATTACK  ] " << semitones << " st: " << onset << " samples ("
                 << juce::String(onset / 48.0, 1) << " ms)" << std::endl;
-      EXPECT_LE(onset, 1440 + 480) << "later than the window and a margin";
-      if (semitones > 0.0)
-        EXPECT_LE(onset, 800);
+      EXPECT_NEAR(onset, rig.latencySamples(), 40) << "an attack arrives at the reported latency";
     }
   }
 }
@@ -415,13 +430,12 @@ TEST(PitchShifterTest, MovingTheIntervalUnderAudioStaysWithinAStatedStep) {
 }
 
 TEST(PitchShifterTest, AnyIntervalChangeIsBoundedByTheSignalItself) {
-  // The engine's weakest spot: a jump to a large up-shift while its tap is
-  // close to the write head (it parks 2 ms behind at unison, and passes by
-  // there after a splice) is spliced late and can click. This is the bound
-  // that holds for every pair of intervals, measured with a 330 Hz sine
-  // (worst of the pairs: 0 to +12 st, a step of 1.4 times the peak): never a
-  // step beyond the signal's whole range, never an excursion beyond a bit
-  // over its peak. What the engine settles to is the interval tests' business.
+  // The engine's old weak spot (fixed in PitchShift.cpp): a jump to a large
+  // up-shift while a tap was close to the write head let that tap run into it
+  // and read stale audio. Before the fix the worst pair (24 to -5 st) stepped
+  // 0.375 on a 0.25 sine, 1.5 times its peak. Now every pair of intervals, on a
+  // 330 Hz sine, stays within the slope of the highest tone involved
+  // (1320 Hz at 0.25: 0.043 per sample) with a little room.
   const double intervals[] = {-24, -12, -5, 0, 5, 12, 24};
   float worst = 0.0f;
   for (const double from : intervals) {
@@ -440,7 +454,69 @@ TEST(PitchShifterTest, AnyIntervalChangeIsBoundedByTheSignalItself) {
   }
   std::cout << "[   STEP   ] largest step over every pair of intervals: " << worst
             << " (peak 0.25, range 0.5)" << std::endl;
-  EXPECT_LT(worst, 0.5f);
+  EXPECT_LT(worst, 0.06f);
+}
+
+TEST(PitchShifterTest, RandomIntervalJumpsNeverStepMoreThanTheSinesOwnSlope) {
+  // 12 s of sine per run, an interval jump every 50 to 600 ms to a random
+  // setting in -24..+24 (a third of them whole semitones, one in seven back to
+  // unison), seeds and pitches varied. A step is a click when it is above 1.5
+  // times the largest slope of the highest tone in the run. Before the engine
+  // fix: 9 of 12 runs clicked, up to 14 times the slope.
+  double worst = 0.0;
+  for (unsigned seed = 1; seed <= 6; ++seed) {
+    std::mt19937 rng(seed);
+    const double hz = 90.0 * std::pow(2.0, (seed % 6) * 0.9);
+    const double seconds = 8.0;
+    const std::vector<float> tone = sine(seconds, hz, 0.25f, kRate);
+    EffectRig rig(kKind, {{"semitones", 0.0}, {"mix", 1.0}});
+    std::uniform_real_distribution<double> gap(0.05, 0.6), interval(-24.0, 24.0);
+    std::vector<float> out;
+    double nextChange = 0.5, highest = hz;
+    size_t at = 0;
+    const size_t block = 256;
+    while (at < tone.size()) {
+      if (static_cast<double>(at) / kRate >= nextChange) {
+        double st = (rng() % 3 == 0) ? std::round(interval(rng)) : interval(rng);
+        if (rng() % 7 == 0)
+          st = 0.0;
+        rig.set("semitones", std::round(st));
+        rig.set("cents", (st - std::round(st)) * 100.0);
+        highest = std::max(highest, hz * std::pow(2.0, st / 12.0));
+        nextChange += gap(rng);
+      }
+      const size_t n = std::min(block, tone.size() - at);
+      const std::vector<float> part = rig.render(std::vector<float>(tone.begin() + static_cast<std::ptrdiff_t>(at),
+                                                                    tone.begin() + static_cast<std::ptrdiff_t>(at + n)));
+      out.insert(out.end(), part.begin(), part.end());
+      at += n;
+    }
+    const double slope = 0.25 * 2.0 * kPi * highest / kRate;
+    const double ratio = static_cast<double>(maxStep(out, 9600, out.size())) / slope;
+    worst = std::max(worst, ratio);
+    EXPECT_LT(ratio, 1.5) << "seed " << seed << " at " << hz << " Hz";
+  }
+  std::cout << "[   STEP   ] worst step over six runs of random interval jumps: " << juce::String(worst, 2)
+            << " x the slope of the highest tone (before the fix: 14.3)" << std::endl;
+}
+
+TEST(PitchShifterTest, MovingTheMixUnderAudioDoesNotClick) {
+  // The mix is the chain's, but the block's dry share is its delayed copy: a
+  // mix moved in steps from wet to dry to a blend, over a sine at +7 st. The
+  // largest step is within the slopes of the two tones involved (220 Hz and
+  // 330 Hz at 0.25: 0.018 per sample together).
+  EffectRig rig(kKind, {{"semitones", 7.0}, {"mix", 1.0}});
+  const double mixes[] = {1.0, 0.5, 0.0, 0.25, 1.0, 0.0, 0.75};
+  const std::vector<float> tone = sine(0.5 * 7.0, 220.0, 0.25f, kRate);
+  std::vector<float> out;
+  for (int i = 0; i < 7; ++i) {
+    rig.set("mix", mixes[i]);
+    const std::vector<float> part = rig.render(std::vector<float>(tone.begin() + i * 24000, tone.begin() + (i + 1) * 24000));
+    out.insert(out.end(), part.begin(), part.end());
+  }
+  const float largest = maxStep(out, 9600, out.size());
+  std::cout << "[   STEP   ] largest step across six mix changes: " << largest << std::endl;
+  EXPECT_LT(largest, 0.04f);
 }
 
 TEST(PitchShifterTest, TheTailFollowsTheWindowAndCoversTheMeasuredDecay) {

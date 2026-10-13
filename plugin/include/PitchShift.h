@@ -40,7 +40,20 @@
  * Latency reported to the host: the tap's mean delay, (floor + buffer) / 2,
  * a constant per Window and rate; the semitone knob never moves it (the
  * engine keeps running at a 1.0 ratio through 0, where the tap simply
- * stops drifting).
+ * stops drifting). That figure is an average: a shifted note's own delay
+ * wanders between the floor and the window.
+ *
+ * Constant-latency mode (Params::onsetDelaySamples > 0), for the chain
+ * blocks that need a latency they can state exactly. A shifter cannot delay a
+ * sustained note by a constant (a shifted note IS a drifting delay), but it
+ * can delay an event by one: at every pick attack (and from a cold start) the
+ * tap is placed onsetDelay * ratio samples behind the write head, so the
+ * attack, which sits that far ahead of the tap and is approached at `ratio`
+ * samples a sample, arrives exactly onsetDelay samples after it went in,
+ * whatever the interval. That is the latency the block reports, and an
+ * impulse measures it to the sample. A note that starts without an attack the
+ * detector recognises (a swell, a legato note within 40 ms of another) arrives
+ * wherever the tap is, between the floor and the window, as before.
  *
  * The shift is continuous (semitones is a float): the deck's STEP toggle
  * decides whether the processor hands over whole semitones or the knob's
@@ -106,6 +119,15 @@ public:
     // Frequency above which the dry bypasses the shifter. 0: off.
     float tonalityHz = 0.0f;
     Window window = kDefaultWindow;
+    // 0 (the default, the input stage's mode): the tap wanders between the
+    // floor and the window and the latency is its mean, (floor + window) / 2.
+    // Above 0: constant attack latency (see the class comment). The delay in
+    // samples that a pick attack, or any impulse, arrives with at the output
+    // whatever the interval: at an onset the tap is placed exactly this many
+    // samples (times the ratio) behind the write head. It must be at least
+    // minOnsetDelaySamples() for the intervals in use or the engine lands as
+    // near as it can and the attack is early.
+    int onsetDelaySamples = 0;
   };
 
   PitchShift();
@@ -127,8 +149,16 @@ public:
       running. */
   void process(juce::AudioBuffer<float>& buffer);
 
-  /** Added latency for the current window at the prepared rate. */
+  /** Added latency for the current window at the prepared rate: the tap's
+      mean delay, or in constant-latency mode (Params::onsetDelaySamples) that
+      delay itself. */
   int latencySamples() const;
+  /** Constant-latency mode: the smallest onset delay at which an attack can
+      land exactly at every interval of -maxAbsSemitones..+maxAbsSemitones
+      (including the fine settings between them) with the window `w`. Below
+      it the landing needs more runway than the buffer gives at some
+      interval. About 6 to 10 ms for the 30 ms window. */
+  static int minOnsetDelaySamples(Window w, double sampleRate, double maxAbsSemitones);
   /** The same figure for any window/rate (the message thread reports it to
       the host before the audio thread has switched): the tap's mean delay. */
   static int latencySamples(Window w, double sampleRate) {

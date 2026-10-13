@@ -76,9 +76,9 @@ TEST(HarmonizerTest, Conforms) {
                          {"voice1Semitones", 3.0}, {"voice1Degree", 10.0}, {"voice1Db", -9.0},
                          {"voice1Pan", -20.0},    {"voice2Semitones", -5.0}, {"voice2Degree", 20.0},
                          {"voice2Db", -2.0},      {"voice2Pan", 35.0},   {"window", 0.0}};
-  // As for the shifter (see pitch_shifter_tests.cpp): the voices are read
-  // through a tap whose delay is an average, and are not the input anyway.
-  options.latency = LatencyCheck::Skip;
+  // As for the shifter (see pitch_shifter_tests.cpp): an impulse reaches the
+  // voices exactly at the reported latency.
+  options.latencyToleranceSamples = 4;  // the 1 % onset of an interpolated impulse
   expectKindConforms("pitch.harmonizer", options);
 }
 
@@ -434,13 +434,13 @@ TEST(HarmonizerTest, TheDryGuitarStaysAtUnityBesideTheVoicesUpToFiftyPercent) {
 
 TEST(HarmonizerTest, ReportsTheEnginesLatencyAndDelaysTheDryShareByIt) {
   EffectRig rig(kKind, {{"mix", 0.0}});
-  EXPECT_EQ(rig.latencySamples(), PitchShift::latencySamples(PitchShift::Window::ms30, kRate));
+  EXPECT_EQ(rig.latencySamples(), PitchShift::minOnsetDelaySamples(PitchShift::Window::ms30, kRate, 24.0));
   const std::vector<float> in = noise(0.5, 81u, 0.25f, kRate);
   EXPECT_EQ(estimateDelaySamples(rig.render(in), in, 0, 4000), rig.latencySamples());
   rig.set("window", 3.0);
-  EXPECT_EQ(rig.latencySamples(), 768) << "latched until the framework commits it";
+  EXPECT_EQ(rig.latencySamples(), 446) << "latched until the framework commits it";
   rig.settle();
-  EXPECT_EQ(rig.latencySamples(), PitchShift::latencySamples(PitchShift::Window::ms60, kRate));
+  EXPECT_EQ(rig.latencySamples(), PitchShift::minOnsetDelaySamples(PitchShift::Window::ms60, kRate, 24.0));
   rig.restart();
   EXPECT_EQ(estimateDelaySamples(rig.render(in), in, 0, 4000), rig.latencySamples());
 }

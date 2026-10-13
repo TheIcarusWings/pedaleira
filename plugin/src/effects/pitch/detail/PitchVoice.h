@@ -14,9 +14,13 @@
 //    is wet only, so a start has to be run through on silence first (a
 //    run-in) and only then meets audio; PitchVoice does that lazily on the
 //    first block that needs the voice;
-//  - the engine's window decides its latency, which the framework wants
-//    latched (BlockProcessor::commitLatency); WindowLatch keeps that
-//    bookkeeping in one place;
+//  - the engine runs in its constant-latency mode (PitchShift.h, Params::
+//    onsetDelaySamples): an attack, or an impulse, arrives exactly the block's
+//    reported latency after it went in, at every interval. That latency
+//    depends on the window (the engine's buffer) and on the widest interval the
+//    kind offers, and the framework wants it latched
+//    (BlockProcessor::commitLatency); WindowLatch keeps that bookkeeping in one
+//    place;
 //  - every control reaches the engine on a fixed 16-sample grid counted from
 //    the start of the stream, never from the start of a host block, so the
 //    output does not depend on the block size (docs/effects.md, Realtime
@@ -114,17 +118,23 @@ private:
 /** The window (and with it the latency) a block runs with, latched as
     BlockProcessor asks: the parameter may move at any time, the wet path and
     the reported latency change together at commitLatency(). Atomics, because
-    the latency is read from the message thread while the audio thread plays. */
+    the latency is read from the message thread while the audio thread plays.
+
+    The latency is the engine's constant attack latency for the window: the
+    smallest delay at which an attack can land exactly at every interval up to
+    `maxAbsSemitones` either way (PitchShift::minOnsetDelaySamples). It does not
+    depend on the interval set, so moving the interval never moves it. */
 class WindowLatch {
 public:
-  void prepare(double sampleRate, float windowParam) noexcept {
+  void prepare(double sampleRate, float windowParam, double maxAbsSemitones) noexcept {
     rate = sampleRate;
+    range = maxAbsSemitones;
     commit(windowParam);
   }
   void commit(float windowParam) noexcept {
     const int index = indexOf(windowParam);
     windowIndex.store(index, std::memory_order_relaxed);
-    latency.store(PitchShift::latencySamples(PitchShift::windowFromIndex(index), rate),
+    latency.store(PitchShift::minOnsetDelaySamples(PitchShift::windowFromIndex(index), rate, range),
                   std::memory_order_relaxed);
   }
   bool pending(float windowParam) const noexcept {
@@ -155,6 +165,7 @@ private:
                         static_cast<int>(std::lround(windowParam)));
   }
   double rate{48000.0};
+  double range{24.0};
   std::atomic<int> windowIndex{static_cast<int>(PitchShift::kDefaultWindow)};
   std::atomic<int> latency{0};
 };
@@ -165,8 +176,9 @@ public:
   /** Not on the audio thread. Allocates the engines and the run-in buffer, and
       runs the engines in, so that the first block that plays costs nothing
       extra (later cold starts, after a bypass, happen on the audio thread). */
-  void prepare(double sampleRate, int maxBlockSize, PitchShift::Window window) {
+  void prepare(double sampleRate, int maxBlockSize, PitchShift::Window window, int onsetDelay) {
     rate = sampleRate;
+    onsetDelaySamples = onsetDelay;
     // Fresh engines, not the old ones prepared again: PitchShift counts the
     // samples it has seen without ever resetting the count, and its read
     // position is a double that starts from it, so an engine that has played
@@ -198,13 +210,14 @@ public:
       mono each channel is its own lane with its own engine and its own
       interval; otherwise the channels share lane 0. */
   void process(float* const* channels, int numChannels, bool dualMono, int start, int length,
-               const float (&semitones)[kMaxLanes], PitchShift::Window window) {
+               const float (&semitones)[kMaxLanes], PitchShift::Window window, int onsetDelay) {
+    onsetDelaySamples = onsetDelay;
     const int lanes = (dualMono && numChannels > 1) ? 2 : 1;
     for (int lane = 0; lane < lanes; ++lane) {
       PitchShift& engine = *engines[lane];
       if (cold[lane])
         coldStart(lane, window);
-      engine.setParams(PitchShift::Params{semitones[lane], 0.0f, window});
+      engine.setParams(PitchShift::Params{semitones[lane], 0.0f, window, onsetDelaySamples});
       float* pointers[kMaxLanes] = {channels[lane] + start,
                                     (lanes == 1 && numChannels > 1) ? channels[1] + start : nullptr};
       juce::AudioBuffer<float> view(pointers, lanes == 1 ? juce::jmin(numChannels, 2) : 1, 0, length);
@@ -224,7 +237,7 @@ private:
   // delay the first note by the distance it drifted.
   void coldStart(int lane, PitchShift::Window window) {
     PitchShift& engine = *engines[lane];
-    const PitchShift::Params unity{0.0f, 0.0f, window};
+    const PitchShift::Params unity{0.0f, 0.0f, window, onsetDelaySamples};
     engine.setParams(unity);
     if (engine.isRunning()) {
       engine.setEnabled(false);
@@ -244,6 +257,7 @@ private:
   }
 
   double rate{48000.0};
+  int onsetDelaySamples{0};
   int runInSamples{1};
   std::unique_ptr<PitchShift> engines[kMaxLanes];
   juce::AudioBuffer<float> silence;

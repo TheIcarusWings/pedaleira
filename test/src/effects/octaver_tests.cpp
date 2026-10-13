@@ -29,11 +29,9 @@ TEST(OctaverTest, Conforms) {
   options.params = {{"octDown1Db", -6.0}, {"octDown2Db", -9.0}, {"octUp1Db", -12.0}};
   options.stateParams = {{"dryLevelDb", -3.0}, {"octDown1Db", -10.0}, {"octDown2Db", -4.0},
                          {"octUp1Db", -8.0},   {"subToneHz", 450.0},  {"window", 3.0}};
-  // As for the shifter (see pitch_shifter_tests.cpp): the voices are read
-  // through a tap whose delay is an average, so an impulse does not arrive at
-  // the reported latency. The exact figure is tested below with the voices
-  // off, where the block is the direct signal and a delay line.
-  options.latency = LatencyCheck::Skip;
+  // As for the shifter (see pitch_shifter_tests.cpp): an impulse reaches the
+  // direct signal and every voice exactly at the reported latency.
+  options.latencyToleranceSamples = 4;  // the 1 % onset of an interpolated impulse
   expectKindConforms("pitch.octaver", options);
 }
 
@@ -157,9 +155,8 @@ TEST(OctaverTest, TheSubToneIsALowPassOnTheSubVoicesOnly) {
 
 TEST(OctaverTest, TheDirectSignalIsDelayedByTheReportedLatencyAtEveryWindow) {
   // With the voices off the block is the direct signal and a delay by the
-  // reported latency, so that figure is exact, and the voices (whose delay is
-  // an average, see the shifter tests) are blended with a direct signal that
-  // is as late as they are on average.
+  // reported latency, so that figure is exact, and the voices (whose attacks
+  // arrive at the same figure, see the shifter tests) are blended with it.
   for (int w = 0; w < 4; ++w) {
     SCOPED_TRACE("window " + std::to_string(w));
     Params p = voices(0.0, kOff, kOff, kOff);
@@ -167,7 +164,7 @@ TEST(OctaverTest, TheDirectSignalIsDelayedByTheReportedLatencyAtEveryWindow) {
     EffectRig rig(kKind, p);
     EffectRig reference{juce::String()};
     const int latency = rig.latencySamples();
-    EXPECT_EQ(latency, PitchShift::latencySamples(PitchShift::windowFromIndex(w), kRate));
+    EXPECT_EQ(latency, PitchShift::minOnsetDelaySamples(PitchShift::windowFromIndex(w), kRate, 24.0));
 
     const std::vector<float> ir = captureImpulseResponse(rig, 0.2);
     const int origin = onsetIndex(captureImpulseResponse(reference, 0.05));
@@ -188,14 +185,14 @@ TEST(OctaverTest, TheDirectSignalIsDelayedByTheReportedLatencyAtEveryWindow) {
 
 TEST(OctaverTest, ALatencyChangeIsLatchedAndMovesTheDirectSignalWithIt) {
   EffectRig rig(kKind, voices(0.0, kOff, kOff, kOff));
-  EXPECT_EQ(rig.latencySamples(), 768);
+  EXPECT_EQ(rig.latencySamples(), 446);
   rig.set("window", 3.0);
-  EXPECT_EQ(rig.latencySamples(), 768);
+  EXPECT_EQ(rig.latencySamples(), 446);
   rig.settle();
-  EXPECT_EQ(rig.latencySamples(), 1488);
+  EXPECT_EQ(rig.latencySamples(), 880);
   const std::vector<float> ir = captureImpulseResponse(rig, 0.2);
   EffectRig reference{juce::String()};
-  EXPECT_EQ(onsetIndex(ir) - onsetIndex(captureImpulseResponse(reference, 0.05)), 1488);
+  EXPECT_EQ(onsetIndex(ir) - onsetIndex(captureImpulseResponse(reference, 0.05)), 880);
 }
 
 TEST(OctaverTest, TheMixCrossfadesTheBlendAgainstTheChainsDirectSignal) {

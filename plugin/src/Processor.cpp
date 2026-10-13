@@ -124,6 +124,9 @@ TONE3000Processor::TONE3000Processor()
   midiMapper.onSceneSelect = [this](int scene) { selectScene(scene); };
   midiMapper.onTapTempo = [this](double timeMs) { tapTempo(timeMs); };
   midiMapper.onTunerEnabled = [this](bool enabled) { setTunerEnabled(enabled); };
+  midiMapper.onLooperControl = [this](MidiMapper::FixedControl control, int value) {
+    handleLooperControl(control, value);
+  };
   midiMapper.onFootswitchMode = [this](int mode) {
     setFootswitchMode(static_cast<FootswitchMode>(juce::jlimit(0, 3, mode)));
   };
@@ -1142,6 +1145,9 @@ void TONE3000Processor::prepareToPlay(double sampleRate, int samplesPerBlock) {
   }
 
   tuner.prepare(sampleRate);
+  // Allocates the loop's memory (and keeps a loop already there at the same
+  // rate); never on the audio thread.
+  looper.prepare(sampleRate);
 
   // CPU readout: proportion of the callback budget spent in processBlock.
   loadMeasurer.reset(sampleRate, samplesPerBlock);
@@ -2696,6 +2702,14 @@ void TONE3000Processor::runOutputStrip(int index, juce::AudioBuffer<float>& buff
   processToneStack(buffer);
 
   // ##########
+  // Looper: records this output and adds the loop to it, so the loop is
+  // heard through the output level, the auto-align mute and the meters
+  // below. Idle (no loop), it costs a few branches.
+  // ##########
+  looper.process(buffer.getArrayOfWritePointers(), numChannels, numSamples,
+                 rtTransport.bpm);
+
+  // ##########
   // Auto-align probe mute: fades the output before the probe starts, holds
   // silence through capture and analysis, ramps back after the result is
   // applied (see AutoOffset.h). Sits before the output stage so the meters
@@ -3045,6 +3059,36 @@ juce::AudioProcessorEditor* TONE3000Processor::createEditor() {
 #else
   return nullptr;
 #endif
+}
+
+// A looper control from the MIDI map (CC 48 to 61 by default), called on the
+// audio thread from MidiMapper::processMidi. The looper's own controls are
+// lock-free, so the action is applied at the start of the looper's pass over
+// this very block, further down in processBlock.
+void TONE3000Processor::handleLooperControl(MidiMapper::FixedControl control, int value) noexcept {
+  using C = MidiMapper::FixedControl;
+  using A = Looper::Action;
+  switch (control) {
+    case C::looperRecord: looper.requestFromAudioThread(A::record); break;
+    case C::looperOverdub: looper.requestFromAudioThread(A::overdub); break;
+    case C::looperPlay: looper.requestFromAudioThread(A::play); break;
+    case C::looperStop: looper.requestFromAudioThread(A::stop); break;
+    case C::looperUndo: looper.requestFromAudioThread(A::undo); break;
+    case C::looperRedo: looper.requestFromAudioThread(A::redo); break;
+    case C::looperClear: looper.requestFromAudioThread(A::clear); break;
+    case C::looperCycle: looper.requestFromAudioThread(A::cycle); break;
+    case C::looperPlayStop: looper.requestFromAudioThread(A::playStop); break;
+    case C::looperHalfSpeed: looper.setHalfSpeed(value != 0); break;
+    case C::looperReverse: looper.setReverse(value != 0); break;
+    case C::looperOneShot: looper.setOneShot(value != 0); break;
+    case C::looperQuantise: looper.setQuantise(value != 0); break;
+    case C::looperLevel:
+      looper.setLevelDb(Looper::kMinLevelDb + (Looper::kMaxLevelDb - Looper::kMinLevelDb) *
+                                                  static_cast<float>(juce::jlimit(0, 127, value)) /
+                                                  127.0f);
+      break;
+    default: break;
+  }
 }
 
 EngineCommands& TONE3000Processor::commandLayer() {

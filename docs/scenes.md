@@ -129,7 +129,7 @@ default on it is silent. `midi.getMap` lists them under `defaults`.
 | 45 | 64 or above on, below off | Tuner |
 | 46 | | Reserved: gig view (ignored) |
 | 47 | 0 to 3 | Footswitch mode: preset, scene, stomp, hybrid |
-| 48 to 61 | | Reserved: looper (ignored) |
+| 48 to 61 | see `docs/looper.md` | The looper: record, overdub, play, stop, undo, redo, clear, half speed, reverse, one shot, quantise, level, cycle, play / stop |
 
 Program changes are unchanged. `MidiMapper::setFixedControlCc` moves a default
 to another controller or switches it off; that is not saved or exposed as a

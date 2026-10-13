@@ -38,7 +38,7 @@
  *   CC 45  value >= 64   tuner on, below 64 off
  *   CC 46                reserved: gig view (no engine side yet, ignored)
  *   CC 47  value 0-3     footswitch mode: preset, scene, stomp, hybrid
- *   CC 48-61             reserved: looper (deferred, ignored)
+ *   CC 48-61             the looper (see below and docs/looper.md)
  *
  * They are defaults, not hard wiring. Each lives in a table that
  * setFixedControlCc can re-point or switch off, and a controller number the
@@ -84,18 +84,49 @@ public:
   // Audio thread.
   void processMidi(const juce::MidiBuffer& midi);
 
-  /** The fixed default controls (see the class comment). */
-  enum class FixedControl : int { sceneSelect = 0, tapTempo, tuner, footswitchMode, count };
+  /** The fixed default controls (see the class comment). The looper's run
+      from CC 48 to CC 61 in this order: record, overdub, play, stop, undo,
+      redo and clear are presses; half speed, reverse, one shot and quantise
+      are switches (64 and above on); level is 0 to 127 over the looper's
+      level range; cycle is the single-pedal record, overdub, play; playStop
+      toggles playback. */
+  enum class FixedControl : int {
+    sceneSelect = 0,
+    tapTempo,
+    tuner,
+    footswitchMode,
+    looperRecord,
+    looperOverdub,
+    looperPlay,
+    looperStop,
+    looperUndo,
+    looperRedo,
+    looperClear,
+    looperHalfSpeed,
+    looperReverse,
+    looperOneShot,
+    looperQuantise,
+    looperLevel,
+    looperCycle,
+    looperPlayStop,
+    count
+  };
   static constexpr int kNumFixedControls = static_cast<int>(FixedControl::count);
   /** The controller numbers they answer to out of the box. */
   static constexpr int kDefaultSceneSelectCc = 43;
   static constexpr int kDefaultTapTempoCc = 44;
   static constexpr int kDefaultTunerCc = 45;
   static constexpr int kDefaultFootswitchModeCc = 47;
-  /** Reserved and ignored for now: gig view, and the looper's range. */
+  /** Reserved and ignored for now: gig view. */
   static constexpr int kReservedGigViewCc = 46;
-  static constexpr int kReservedLooperFirstCc = 48;
-  static constexpr int kReservedLooperLastCc = 61;
+  /** The looper's range: one controller per looper control, in order. */
+  static constexpr int kLooperFirstCc = 48;
+  static constexpr int kLooperLastCc = 61;
+  static constexpr int kNumLooperControls = 14;
+  static constexpr bool isLooperControl(FixedControl control) {
+    return static_cast<int>(control) >= static_cast<int>(FixedControl::looperRecord) &&
+           control != FixedControl::count;
+  }
 
   /** Re-point a fixed control to another controller number, or switch it off
       with -1. Any thread. Not saved: the hook a later, user-editable version
@@ -152,6 +183,12 @@ public:
   std::function<void(bool enabled)> onTunerEnabled;
   /** The footswitch mode index 0-3 (preset, scene, stomp, hybrid). */
   std::function<void(int mode)> onFootswitchMode;
+  /** A looper control (CC 48 to 61 by default). Unlike every hook above this
+      one is called ON THE AUDIO THREAD, from processMidi, because the looper
+      takes its controls lock-free and the action should land in the very
+      block the message arrived in: it must not block or allocate. `value` is
+      1 for a press, 0 or 1 for a switch, and 0 to 127 for the level. */
+  std::function<void(FixedControl control, int value)> onLooperControl;
 
 private:
   enum class Source : int { cc = 0, note = 1 };
@@ -246,7 +283,11 @@ private:
   // the audio thread, and one consumer, so a plain FIFO) because the
   // intervals between them are the whole message.
   std::array<std::atomic<int>, kNumFixedControls> fixedControlCc{
-      kDefaultSceneSelectCc, kDefaultTapTempoCc, kDefaultTunerCc, kDefaultFootswitchModeCc};
+      kDefaultSceneSelectCc, kDefaultTapTempoCc, kDefaultTunerCc, kDefaultFootswitchModeCc,
+      kLooperFirstCc,        kLooperFirstCc + 1, kLooperFirstCc + 2, kLooperFirstCc + 3,
+      kLooperFirstCc + 4,    kLooperFirstCc + 5, kLooperFirstCc + 6, kLooperFirstCc + 7,
+      kLooperFirstCc + 8,    kLooperFirstCc + 9, kLooperFirstCc + 10, kLooperFirstCc + 11,
+      kLooperFirstCc + 12,   kLooperFirstCc + 13};
   std::atomic<int> pendingScene{-1};
   std::atomic<int> pendingTuner{-1};  // 0 / 1
   std::atomic<int> pendingFootswitchMode{-1};
@@ -256,6 +297,8 @@ private:
   // Audio-thread scratch for the tap control's press detection (see
   // applyEvent): the last value its controller sent, -1 before the first.
   int lastTapCcValue{-1};
+  // The same for the looper's presses, one per control.
+  std::array<int, kNumFixedControls> lastLooperCcValue{};
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiMapper)
 };

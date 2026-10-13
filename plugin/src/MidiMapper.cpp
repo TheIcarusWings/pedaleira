@@ -1,6 +1,8 @@
 #include "MidiMapper.h"
 
-MidiMapper::MidiMapper(juce::AudioProcessorValueTreeState& params) : parameters(params) {}
+MidiMapper::MidiMapper(juce::AudioProcessorValueTreeState& params) : parameters(params) {
+  lastLooperCcValue.fill(-1);
+}
 
 MidiMapper::~MidiMapper() {
   cancelPendingUpdate();
@@ -117,6 +119,30 @@ void MidiMapper::applyFixedControl(int ccNumber, int value, double timeMs) {
       pendingFootswitchMode.store(value);
       triggerAsyncUpdate();
     }
+  } else if (onLooperControl) {
+    // The looper's controls take the looper's lock-free door straight from
+    // here: no hop to the message thread, so the action lands in this block.
+    for (int i = static_cast<int>(FixedControl::looperRecord); i < kNumFixedControls; ++i) {
+      const auto control = static_cast<FixedControl>(i);
+      if (ccNumber != ccOf(control))
+        continue;
+      switch (control) {
+        case FixedControl::looperHalfSpeed:
+        case FixedControl::looperReverse:
+        case FixedControl::looperOneShot:
+        case FixedControl::looperQuantise: onLooperControl(control, value >= 64 ? 1 : 0); break;
+        case FixedControl::looperLevel: onLooperControl(control, value); break;
+        default: {
+          // A press, by the same rule as the tap and the mapped toggles.
+          int& last = lastLooperCcValue[static_cast<size_t>(i)];
+          const bool press = value >= 64 || last < 64;
+          last = value;
+          if (press)
+            onLooperControl(control, 1);
+          break;
+        }
+      }
+    }
   }
 }
 
@@ -207,8 +233,11 @@ juce::var MidiMapper::getState() const {
 
   // The fixed controls and whether a mapping on the same controller number
   // currently silences each.
-  static constexpr const char* kFixedControlNames[kNumFixedControls] = {"sceneSelect", "tapTempo",
-                                                                        "tuner", "footswitchMode"};
+  static constexpr const char* kFixedControlNames[kNumFixedControls] = {
+      "sceneSelect",    "tapTempo",       "tuner",          "footswitchMode", "looperRecord",
+      "looperOverdub",  "looperPlay",     "looperStop",     "looperUndo",     "looperRedo",
+      "looperClear",    "looperHalfSpeed", "looperReverse", "looperOneShot",  "looperQuantise",
+      "looperLevel",    "looperCycle",    "looperPlayStop"};
   juce::Array<juce::var> defaults;
   for (int i = 0; i < kNumFixedControls; ++i) {
     const int cc = fixedControlCc[static_cast<size_t>(i)].load();

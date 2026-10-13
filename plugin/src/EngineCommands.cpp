@@ -228,6 +228,7 @@ EngineCommands::EngineCommands(TONE3000Processor& p, Scope s) : processor(p), sc
   registerLiveCommands();
   registerSceneCommands();
   registerFootswitchCommands();
+  registerLooperCommands();
   registerGridCommands();
   registerLibraryCommands();
 
@@ -1501,8 +1502,10 @@ void EngineCommands::registerMidiCommands() {
 
   commands.add({
       "midi.getMap",
-      "Returns the MIDI map: the channel filter (0 is omni) and each mapping's target, source "
-      "(cc or note) and number.",
+      "Returns the MIDI map: the channel filter (0 is omni), each mapping's target, source "
+      "(cc or note) and number, and defaults, the fixed controls (scene select, tap tempo, "
+      "tuner, footswitch mode and the fourteen looper controls, CC 48 to 61) each with its "
+      "action, cc and whether a mapping of the user's own overrides it.",
       {},
       false,
       CommandPermission::read,

@@ -471,3 +471,105 @@ and the parameters the unit has that the mapping does not use. It does not chang
 **What to send back:** `qc-reports/qc-catalog.json`, `qc-reports/mapping-check.md` and, after a
 session, `match/report.md`. With the catalogue the mapping can be completed and its entries marked
 verified one by one.
+
+## Matching against a plugin
+
+The same measurement can use a plugin you own as the reference instead of a unit: an amp
+simulator, a pedal or a rack effect that runs as a VST3 (or an Audio Unit on macOS). It is for one
+thing only: measuring the reference, offline on your own computer, to tune **our own** models. The
+plugin is hosted by `PedaleiraMatch` with the same hosting code the app uses for a plugin block, the
+test signal goes through it, and what comes out is analysed and compared like a recording of a unit.
+
+**Nothing a third-party plugin produces is shipped or committed.** No impulse response, preset,
+state or audio from it goes into this repository, a release or a model. Everything is written to
+a folder of your own (`--dir`, outside the checkout): `PedaleiraMatch plugin-render` and
+`plugin_match.py` refuse to write inside the repository, and `plugin_match.py` refuses a plugin or
+state file inside it (the test plugin of the test suite is the one exception). **You need a licence
+for the plugin and have to check its terms:** whether measuring it for your own use is allowed is
+between you and its maker. Nothing here decompiles, decrypts or copies the plugin; only the audio
+it returns is measured. Nothing uses the network.
+
+### The commands
+
+```
+# List the parameters of a plugin (row, name, current text, number of steps), to write a plan from.
+PedaleiraMatch plugin-params --plugin "/Library/Audio/Plug-Ins/VST3/Some Distortion.vst3"
+PedaleiraMatch plugin-params --plugin "..." --state amp.vstpreset --json
+
+# Render the test signal through it into a reference WAV and a JSON beside it.
+PedaleiraMatch plugin-render --plugin "..." --out ref/take.wav \
+    [--state amp.vstpreset] [--in signal.wav] \
+    [--set NAME=VALUE]... [--set-text NAME=TEXT]... [--set-index ROW=VALUE]... \
+    [--block 512] [--tail 4] [--channels 1|2]
+```
+
+- The plugin is loaded by file path. It is first scanned in a helper process (a broken plugin
+  costs the helper, not the tool), with a scratch scan cache: your own plugin cache and folders are
+  neither read nor written. On macOS an Audio Unit is given as its identifier
+  (`AudioUnit:Effects/aufx,xxxx,yyyy`).
+- It runs at 48 kHz in blocks of at most `--block` samples, in the layout the app's hosted block
+  negotiates (stereo in and out first, then mono in and stereo out, then mono). The test signal is
+  mono; it feeds both sides of a stereo input. The reference has as many channels as the plugin has
+  outputs (`--channels` overrides it); a stereo output folds to mono for a mono reference.
+- `--state` restores a state before any parameter is set: a `.vstpreset` file, or a raw state chunk
+  (what the plugin's own state call wrote; for an Audio Unit its preset data).
+- Parameters are set in the order given, after the state. `--set` takes a normalised value from 0
+  to 1, `--set-text` a value as the plugin shows it (`"-6 dB"`, `"3 kHz"`), which the plugin converts
+  itself, and `--set-index` a normalised value for a row of `plugin-params`. Names match without
+  regard to case and must match one parameter; a name that matches several is refused (use the row).
+- The plugin's reported latency is compensated: sample n of the reference answers sample n of the
+  test signal. The JSON beside the WAV records the plugin's name, vendor and version, the state file,
+  every parameter as requested and as the plugin holds it afterwards (normalised value and its text),
+  the layout, the latency compensated, the tail, and the block size.
+
+### A plan
+
+`tools/match/plugin_match.py` runs the whole session from a plan, like `qc_match.py`: for each take
+it renders the reference through the plugin, renders ours with `PedaleiraRender` over the same
+signal, analyses and compares both with `PedaleiraMatch`, and writes `report.md` in the same form.
+
+```json
+{
+  "format": "pedaleira-plugin-match-plan",
+  "version": 1,
+  "plugin": {
+    "path": "/Library/Audio/Plug-Ins/VST3/Some Distortion.vst3",
+    "params": { "Tone": 0.5, "Level": { "text": "0.0 dB" } }
+  },
+  "takes": [
+    { "name": "dist-gain-sweep",
+      "sweep": { "param": "Gain", "values": [0, 0.25, 0.5, 0.75, 1] },
+      "ours": { "kind": "drive.distortion",
+                "params": { "filterPercent": 60, "levelDb": 0 },
+                "sweep": { "param": "distortionPercent", "values": [0, 25, 50, 75, 100] } } }
+  ]
+}
+```
+
+`plugin` at the top holds the defaults of every take (`path`, `state`, `params`); a take's own
+`plugin` block is laid over it. A parameter is `"Name": 0.5` (normalised), `"Name": {"text": "3 kHz"}`
+(or just `"Name": "3 kHz"`), or `"label": {"index": 4, "value": 0.5}` (a row). `ours` is as in the
+Quad Cortex plan: a `kind`, its `params`, and the common `mix`, `inputGain`, `outputGain`, `enabled`;
+a take without `ours` only renders and analyses the reference.
+
+A `sweep` makes one take per value: `{"param": "Gain", "values": [...]}` sets that plugin parameter
+to each value (numbers, texts, or a row number as `param`) and names the takes `<name>-01-<value>`,
+`<name>-02-<value>` and so on. When `ours` has its own `sweep` of the same length, it sets one of our
+parameters to the matching value on each take, so reference and ours sweep together; without one, ours
+stays fixed.
+
+```
+python3 tools/match/plugin_match.py --plan plan.json --dir ~/PedaleiraMatch/dist          # a dry run
+python3 tools/match/plugin_match.py --plan plan.json --dir ~/PedaleiraMatch/dist --go     # render
+```
+
+The default is a dry run that prints every command as it would run. `--dir` must be outside the
+repository. The folder gets `signal/`, `ref/` (the references and their JSON), `ours/`, `analysis/`,
+`presets/` and `report.md`. A reference that exists is not replaced unless `--overwrite` is given.
+The report says, for each take, the plugin and version, the latency compensated, every parameter as
+the plugin shows it, our settings, the score per group and overall, and the metrics out of tolerance.
+Our side always comes from the plan, so the report never calls a mapping verified.
+
+Tune against what the numbers say, not against one score: a gain sweep shows whether our curve has
+the same shape as the plugin's (compare the `staircase` and harmonic figures across the takes), and a
+plugin's gain stages usually differ from ours by a fixed offset that the level metrics show plainly.

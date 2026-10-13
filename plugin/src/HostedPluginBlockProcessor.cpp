@@ -262,6 +262,25 @@ void HostedPluginInstance::applyState(const juce::MemoryBlock& chunk) {
   refreshTail();
 }
 
+bool HostedPluginInstance::applyVst3Preset(const juce::MemoryBlock& preset) {
+  if (!onMessageThread())
+    return false;
+  auto* client = plugin->getVST3Client();
+  if (client == nullptr)
+    return false;
+  for (size_t i = 0; i < exposed.size(); ++i)
+    dirty[i].store(false);
+  bool accepted = false;
+  try {
+    accepted = client->setPreset(preset);
+  } catch (...) {
+    juce::Logger::writeToLog("[Plugin] " + pluginIdentity.name + " threw while loading a preset");
+  }
+  refreshMirrors();
+  stateDirty.store(true);
+  return accepted;
+}
+
 void HostedPluginInstance::captureState() {
   juce::MemoryBlock fresh;
   try {
@@ -347,6 +366,28 @@ juce::String HostedPluginInstance::parameterText(int index) const {
     return parameter->getText(getParameter(index), 64);
   } catch (...) {
     return {};
+  }
+}
+
+bool HostedPluginInstance::valueForText(int index, const juce::String& text,
+                                        float& value) const {
+  if (!onMessageThread() || index < 0 || index >= static_cast<int>(exposed.size()))
+    return false;
+  try {
+    value = exposed[static_cast<size_t>(index)]->getValueForText(text);
+    return std::isfinite(value);
+  } catch (...) {
+    return false;
+  }
+}
+
+int HostedPluginInstance::parameterNumSteps(int index) const {
+  if (!onMessageThread() || index < 0 || index >= static_cast<int>(exposed.size()))
+    return 0;
+  try {
+    return exposed[static_cast<size_t>(index)]->getNumSteps();
+  } catch (...) {
+    return 0;
   }
 }
 

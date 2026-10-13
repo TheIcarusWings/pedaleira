@@ -196,3 +196,86 @@ They use fake pyquadcortex objects and a mocked `subprocess`, so no unit, no lib
 binaries are needed. They check that the proxy refuses every save and settings call, the refusal on
 a preset with unsaved edits, the plan and mapping logic, the command lines built for `PedaleiraMatch`
 and `PedaleiraRender`, and that a dry run makes no grid edit and does not even connect.
+
+## Matching against a plugin
+
+`plugin_match.py` is the same flow with a plugin you own as the reference (a VST3, or an Audio
+Unit on macOS) instead of a unit. It is for measuring references offline, on your computer, to tune
+our own models, and for nothing else.
+
+- **Nothing a third-party plugin produces is shipped or committed.** No IR, preset, state or audio
+  from it goes into the repo. Everything is written to `--dir`, which must be outside the checkout;
+  the script (and `PedaleiraMatch plugin-render`) refuses to write inside it, and the script refuses a
+  plugin or state file inside it (the test suite's own PedaleiraTestFx excepted).
+- You must have a licence for the plugin and check its terms. Nothing is decompiled, decrypted or
+  copied; only the audio it returns is measured. No network is used.
+
+Build `PedaleiraMatch` and `PedaleiraRender` as above. First list the plugin's parameters to write a
+plan from:
+
+```
+build/tools/PedaleiraMatch_artefacts/Release/PedaleiraMatch plugin-params --plugin "/path/Some Distortion.vst3"
+```
+
+That prints each parameter's row, name, current text and number of steps (`continuous` for a
+float). `--state file.vstpreset` first restores a state (a `.vstpreset`, or a raw state chunk), and
+`--json` prints it as JSON. Then run the plan (a dry run unless `--go`):
+
+```
+python3 tools/match/plugin_match.py --plan tools/match/example-plugin-plan.json --dir ~/PedaleiraMatch/dist
+python3 tools/match/plugin_match.py --plan tools/match/example-plugin-plan.json --dir ~/PedaleiraMatch/dist --go
+```
+
+| Option | What it does |
+|---|---|
+| `--plan FILE` | The takes (below). |
+| `--go` | Render. Without it the script prints the plan as it will run and does nothing. |
+| `--dir DIR` | Where the session goes (`signal/`, `ref/`, `ours/`, `analysis/`, `presets/`, `report.md`). Outside the repo; needed with `--go`. |
+| `--tail S`, `--block N`, `--channels 1\|2` | Seconds rendered past the signal (default 4), the plugin's block size (default 512), and the channels of both sides (default: the plugin's output width). |
+| `--overwrite` | Replace a reference that exists already. The default is to fail the take. |
+| `--match-tool`, `--render-tool` | Other paths for the two tools. |
+
+### The plan
+
+```json
+{
+  "format": "pedaleira-plugin-match-plan",
+  "version": 1,
+  "plugin": {
+    "path": "/Library/Audio/Plug-Ins/VST3/Some Distortion.vst3",
+    "params": { "Tone": 0.5, "Level": { "text": "0.0 dB" } }
+  },
+  "takes": [
+    { "name": "dist-gain-sweep",
+      "sweep": { "param": "Gain", "values": [0, 0.25, 0.5, 0.75, 1] },
+      "ours": { "kind": "drive.distortion",
+                "params": { "filterPercent": 60, "levelDb": 0 },
+                "sweep": { "param": "distortionPercent", "values": [0, 25, 50, 75, 100] } } }
+  ]
+}
+```
+
+- `plugin` (at the top, and optionally in a take, laid over it): `path` (a file, or an
+  `AudioUnit:` identifier), `state` (optional file; `null` in a take drops the shared one) and
+  `params`.
+- A parameter is `"Name": 0.5` (normalised 0 to 1; names match without regard to case),
+  `"Name": {"text": "-6 dB"}` or `"Name": "-6 dB"` (the plugin converts the text), or
+  `"label": {"index": 4, "value": 0.5}` (a row of `plugin-params`). Settings apply in order, after the
+  state.
+- `ours`: `kind`, `params`, and the common `mix`, `inputGain`, `outputGain`, `enabled`, as in the
+  Quad Cortex plan. A take without `ours` renders and analyses the reference only.
+- `sweep`: `{"param": "Gain", "values": [0, 0.25, ...]}` expands into one take per value, named
+  `<name>-01-<value>`, `<name>-02-<value>`. The values are numbers, texts, and `param` may be a row
+  number. When `ours` has a `sweep` of its own with the same number of values (`{"param":
+  "distortionPercent", "values": [...]}`), ours takes the matching value on each take, so both sides
+  sweep together; otherwise ours stays fixed.
+- `notes`: free text for the report.
+
+Each reference comes with a JSON beside it (`ref/<take>.json`): the plugin's name and version, the
+state, every parameter as requested and as the plugin holds it (normalised value and shown text), the
+layout, and the latency that was compensated. The report is `<dir>/report.md`, in the form of the
+Quad Cortex one.
+
+Tests: `python3 -m unittest tools/match/test_plugin_match.py` (plan parsing, sweeps, the safety
+checks, the command lines and a mocked session; no plugin needed). The C++ half is covered by
+`match_plugin_tests.cpp` in the DSP test suite, against the test plugin.

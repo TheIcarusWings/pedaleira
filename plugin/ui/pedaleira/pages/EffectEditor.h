@@ -7,6 +7,7 @@
 #pragma once
 
 #include "EditorParts.h"
+#include "GraphicEqView.h"
 
 #include <map>
 #include <memory>
@@ -66,6 +67,9 @@ private:
   std::map<juce::String, ParamKnob*> knobsById;
   std::map<juce::String, ChoiceCell*> choicesById;
   std::map<juce::String, SwitchRow*> switchesById;
+
+  // The graphic equaliser's bands, drawn as sliders over their curve.
+  std::unique_ptr<GraphicEqView> graphicEq;
 
   juce::Rectangle<int> presetsBounds, noteBounds;
   PushButton saveAs{"Save as"};

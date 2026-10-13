@@ -20,7 +20,7 @@ class PingPongDelayProcessor final : public ParameterisedBlockProcessor {
 public:
   static constexpr const char* kKindId = "delay.pingpong";
 
-  enum Param { kSync = 0, kDivision, kTimeMs, kFeedback, kSpread, kRatio, kToneHz, kSpillover };
+  enum Param { kSync = 0, kDivision, kTimeMs, kFeedback, kSpread, kRatio, kToneHz, kDuckDb, kDuckReleaseMs, kSpillover };
 
   // The free time stops at 2 s; a synced time that would be longer is held
   // at this length.
@@ -51,6 +51,7 @@ public:
       t.push_back(BlockParamSpec::choiceParam("ratio", "Ratio", {"1:1", "Dotted", "Golden"}, 0));
       t.push_back(BlockParamSpec::floatParam("toneHz", "Tone", "Hz", 500.0f, 20000.0f, 8000.0f)
                       .withSkew(0.4f));
+      appendDuckParams(t);
       t.push_back(spilloverParam());
       return t;
     }();
@@ -78,6 +79,8 @@ protected:
     feedbackGain.prepare(sampleRate, 0.02);
     spreadAmount.prepare(sampleRate, 0.03);
     toneCutoff.prepare(sampleRate, 0.02);
+    for (auto& duck : ducker)
+      duck.prepare(sampleRate);
     resetEffect();
   }
 
@@ -91,6 +94,8 @@ protected:
     spreadAmount.snapOnNextTarget();
     toneCutoff.snapOnNextTarget();
     grid.reset();
+    for (auto& duck : ducker)
+      duck.reset();
   }
 
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext& ctx) override {
@@ -113,6 +118,8 @@ protected:
     // gradually instead of switching it.
     spreadAmount.setTarget(bounce ? param(kSpread) * 0.01f : 0.0f);
     toneCutoff.setTarget(param(kToneHz));
+    for (auto& duck : ducker)
+      duck.setTarget(param(kDuckDb), param(kDuckReleaseMs));
 
     float* channels[kMaxChannels] = {buffer.getWritePointer(0),
                                      numChannels > 1 ? buffer.getWritePointer(1) : nullptr};
@@ -130,8 +137,9 @@ protected:
         // does, and what a mono rig renders for each side of dual mono.
         for (int ch = 0; ch < numChannels; ++ch) {
           const float echo = readEcho(ch);
-          line.write(ch, softLimit(channels[ch][i] + feedback * tone[ch].lowpass(echo)));
-          channels[ch][i] = echo;
+          const float input = channels[ch][i];
+          line.write(ch, softLimit(input + feedback * tone[ch].lowpass(echo)));
+          channels[ch][i] = echo * ducker[ch].next(input, input);
         }
         continue;
       }
@@ -154,8 +162,11 @@ protected:
       line.write(0, softLimit(inject + feedback * ((1.0f - spread) * fedLeft + spread * fedRight)));
       line.write(1, softLimit((1.0f - spread) * (inRight + feedback * fedRight) +
                               spread * feedback * fedLeft));
-      channels[0][i] = echoLeft;
-      channels[1][i] = echoRight;
+      // The ducking of a bounce is linked: one gain from the louder side, so
+      // the image does not lean.
+      const float duck = ducker[0].next(inLeft, inRight);
+      channels[0][i] = echoLeft * duck;
+      channels[1][i] = echoRight * duck;
     }
   }
 
@@ -185,6 +196,7 @@ private:
   fx::SmoothedParam spreadAmount;
   fx::SmoothedParam toneCutoff;
   ControlTick grid;
+  Ducker ducker[kMaxChannels];
   double sampleRate{48000.0};
   std::atomic<double> lastBpm{120.0};
 };

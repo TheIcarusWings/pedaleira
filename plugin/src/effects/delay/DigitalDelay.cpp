@@ -25,6 +25,8 @@ public:
     kHighCutHz,
     kModDepth,
     kModRateHz,
+    kDuckDb,
+    kDuckReleaseMs,
     kSpillover
   };
 
@@ -54,6 +56,7 @@ public:
                       .withAffectsTail());
       t.push_back(BlockParamSpec::floatParam("modRateHz", "Mod Rate", "Hz", 0.05f, 10.0f, 0.8f)
                       .withSkew(0.4f));
+      appendDuckParams(t);
       t.push_back(spilloverParam());
       return t;
     }();
@@ -88,6 +91,8 @@ protected:
     highCut.prepare(sampleRate, 0.02);
     modSamples.prepare(sampleRate, 0.05);
     lfo.prepare(sampleRate);
+    for (auto& duck : ducker)
+      duck.prepare(sampleRate);
     resetEffect();
   }
 
@@ -105,6 +110,8 @@ protected:
     modSamples.snapOnNextTarget();
     lfo.reset();
     grid.reset();
+    for (auto& duck : ducker)
+      duck.reset();
   }
 
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext& ctx) override {
@@ -125,6 +132,8 @@ protected:
     highCut.setTarget(param(kHighCutHz));
     modSamples.setTarget(param(kModDepth) * 0.01f * static_cast<float>(kMaxModSeconds * sampleRate));
     lfo.setRateHz(static_cast<double>(param(kModRateHz)));
+    for (auto& duck : ducker)
+      duck.setTarget(param(kDuckDb), param(kDuckReleaseMs));
 
     // The right side runs a quarter turn behind the left, but only for a true
     // stereo image. Dual mono and mono modulate every channel alike, so each
@@ -166,9 +175,11 @@ protected:
             highCutFilter[ch][1].lowpass(highCutFilter[ch][0].lowpass(lowCutFilter[ch].highpass(echo)));
         // The ceiling leaves ordinary levels alone and keeps a hot input at
         // full feedback from running away.
-        line.write(ch, softLimit(channels[ch][i] + feedback * filtered));
-        // Wet only: the dry signal and the balance are the block's mix.
-        channels[ch][i] = echo;
+        const float input = channels[ch][i];
+        line.write(ch, softLimit(input + feedback * filtered));
+        // Wet only: the dry signal and the balance are the block's mix. The
+        // ducking lowers it while the input is loud.
+        channels[ch][i] = echo * ducker[ch].next(input, input);
       }
     }
   }
@@ -195,6 +206,7 @@ private:
   fx::SmoothedParam modSamples;
   fx::Lfo lfo;
   ControlTick grid;
+  Ducker ducker[kMaxChannels];
   double sampleRate{48000.0};
   std::atomic<double> lastBpm{120.0};
 };

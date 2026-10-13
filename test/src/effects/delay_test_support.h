@@ -254,9 +254,12 @@ inline BypassRender renderBypass(const char* kind, const Params& params, bool sp
     coming after a bypass (here between `ringFromMs` and `ringToMs` after it),
     fall below -60 dB by the reported tail and then add nothing; audio played
     after the bypass never reaches the loop; with the switch off the tail is
-    cut after the 25 ms bypass fade. */
+    cut after the 25 ms bypass fade. What is left 30 ms after the fade is the
+    rig's DC blocker forgetting the mean of the wet it was playing, which for a
+    noise burst is random (a few thousandths); `cutResidueBound` is the limit
+    for it, and a kind whose wet sums several taps of the noise may raise it. */
 inline void expectSpilloverBehaviour(const char* kind, const Params& params, double ringFromMs,
-                                     double ringToMs) {
+                                     double ringToMs, float cutResidueBound = 5.0e-4f) {
   const BypassRender on = renderBypass(kind, params, true, false);
   const BypassRender onLate = renderBypass(kind, params, true, true);
   const BypassRender off = renderBypass(kind, params, false, false);
@@ -284,7 +287,7 @@ inline void expectSpilloverBehaviour(const char* kind, const Params& params, dou
 
   // Switch off: the 25 ms fade, then nothing but the DC blocker settling.
   EXPECT_GT(peakOf(off.added, 0, off.bypassAt), 0.03f);
-  EXPECT_LT(peakOf(off.added, off.bypassAt + static_cast<size_t>(ms(30.0))), 5.0e-4f);
+  EXPECT_LT(peakOf(off.added, off.bypassAt + static_cast<size_t>(ms(30.0))), cutResidueBound);
   EXPECT_LT(peakOf(off.added, off.bypassAt + static_cast<size_t>(ms(400.0))), 1.0e-6f);
   EXPECT_LT(off.idleResidue, 1.0e-6f);
 }

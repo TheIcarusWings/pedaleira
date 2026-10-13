@@ -57,6 +57,100 @@
       },
       "notes": "Nine bands onto our ten: 65 Hz goes to our 63 Hz band, our 31.5 Hz band stays flat. Gains past 12 dB and the output past 12 dB are clamped. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
+    "Parametric-3": {
+      "kind": "eq.parametric3",
+      "verified": false,
+      "params": {
+        "1 FREQ": { "param": "b1Freq", "transform": "linear" },
+        "1 GAIN": { "param": "b1Gain", "transform": "linear" },
+        "1 Q": { "param": "b1Q", "transform": "linear" },
+        "1 TYPE": { "param": "b1Type", "transform": "linear" },
+        "1 BYPASS": { "param": "b1Bypass", "transform": "linear" },
+        "2 FREQ": { "param": "b2Freq", "transform": "linear" },
+        "2 GAIN": { "param": "b2Gain", "transform": "linear" },
+        "2 Q": { "param": "b2Q", "transform": "linear" },
+        "2 BYPASS": { "param": "b2Bypass", "transform": "linear" },
+        "3 FREQ": { "param": "b3Freq", "transform": "linear" },
+        "3 GAIN": { "param": "b3Gain", "transform": "linear" },
+        "3 Q": { "param": "b3Q", "transform": "linear" },
+        "3 TYPE": { "param": "b3Type", "transform": "linear" },
+        "3 BYPASS": { "param": "b3Bypass", "transform": "linear" },
+        "OUTPUT": { "param": "levelDb", "transform": "linear" }
+      },
+      "notes": "TYPE 0 or 1 is peak or shelf (band 1 shelves low, band 3 high); gains past 18 dB are clamped. Names and ranges from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Parametric-8": {
+      "kind": "eq.parametric8",
+      "verified": false,
+      "params": {
+        "1 FREQ": { "param": "b1Freq", "transform": "linear" },
+        "1 GAIN": { "param": "b1Gain", "transform": "linear" },
+        "1 Q": { "param": "b1Q", "transform": "linear" },
+        "1 TYPE": { "param": "b1Type", "transform": "linear" },
+        "1 BYPASS": { "param": "b1Bypass", "transform": "linear" },
+        "2 FREQ": { "param": "b2Freq", "transform": "linear" },
+        "2 GAIN": { "param": "b2Gain", "transform": "linear" },
+        "2 Q": { "param": "b2Q", "transform": "linear" },
+        "2 BYPASS": { "param": "b2Bypass", "transform": "linear" },
+        "3 FREQ": { "param": "b3Freq", "transform": "linear" },
+        "3 GAIN": { "param": "b3Gain", "transform": "linear" },
+        "3 Q": { "param": "b3Q", "transform": "linear" },
+        "3 BYPASS": { "param": "b3Bypass", "transform": "linear" },
+        "4 FREQ": { "param": "b4Freq", "transform": "linear" },
+        "4 GAIN": { "param": "b4Gain", "transform": "linear" },
+        "4 Q": { "param": "b4Q", "transform": "linear" },
+        "4 BYPASS": { "param": "b4Bypass", "transform": "linear" },
+        "5 FREQ": { "param": "b5Freq", "transform": "linear" },
+        "5 GAIN": { "param": "b5Gain", "transform": "linear" },
+        "5 Q": { "param": "b5Q", "transform": "linear" },
+        "5 BYPASS": { "param": "b5Bypass", "transform": "linear" },
+        "6 FREQ": { "param": "b6Freq", "transform": "linear" },
+        "6 GAIN": { "param": "b6Gain", "transform": "linear" },
+        "6 Q": { "param": "b6Q", "transform": "linear" },
+        "6 BYPASS": { "param": "b6Bypass", "transform": "linear" },
+        "7 FREQ": { "param": "b7Freq", "transform": "linear" },
+        "7 GAIN": { "param": "b7Gain", "transform": "linear" },
+        "7 Q": { "param": "b7Q", "transform": "linear" },
+        "7 BYPASS": { "param": "b7Bypass", "transform": "linear" },
+        "8 FREQ": { "param": "b8Freq", "transform": "linear" },
+        "8 GAIN": { "param": "b8Gain", "transform": "linear" },
+        "8 Q": { "param": "b8Q", "transform": "linear" },
+        "8 TYPE": { "param": "b8Type", "transform": "linear" },
+        "8 BYPASS": { "param": "b8Bypass", "transform": "linear" },
+        "OUTPUT": { "param": "levelDb", "transform": "linear" }
+      },
+      "notes": "TYPE 0 or 1 is peak or shelf on bands 1 and 8; gains past 18 dB are clamped. Names and ranges from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Low-High Cut": {
+      "kind": "eq.cut",
+      "verified": false,
+      "params": {
+        "HPF FREQ": { "param": "hpFreq", "transform": "linear" },
+        "HPF SLOPE": { "param": "hpSlope", "transform": { "map": { "0": 0, "6": 1, "12": 2, "18": 3, "24": 4, "36": 5, "48": 6 } } },
+        "LPF FREQ": { "param": "lpFreq", "transform": "linear" },
+        "LPF SLOPE": { "param": "lpSlope", "transform": { "map": { "0": 0, "6": 1, "12": 2, "18": 3, "24": 4, "36": 5, "48": 6 } } },
+        "OUTPUT": { "param": "levelDb", "transform": "linear" }
+      },
+      "notes": "The slope lists' option labels are not known yet: the map assumes 0 (off), 6, 12, 18, 24, 36 and 48 dB/oct; any other label is reported as dropped. Names and ranges from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Plugin Parametric-4": {
+      "kind": "eq.console4",
+      "verified": false,
+      "params": {
+        "HPF": { "param": "hpFreq", "transform": "linear" },
+        "LO GAIN": { "param": "lowGain", "transform": "linear" },
+        "LO FREQ": { "param": "lowFreq", "transform": "linear" },
+        "LO MID GAIN": { "param": "lowMidGain", "transform": "linear" },
+        "LO MID FREQ": { "param": "lowMidFreq", "transform": "linear" },
+        "HI MID GAIN": { "param": "highMidGain", "transform": "linear" },
+        "HI MID FREQ": { "param": "highMidFreq", "transform": "linear" },
+        "HI GAIN": { "param": "highGain", "transform": "linear" },
+        "HI FREQ": { "param": "highFreq", "transform": "linear" },
+        "LPF": { "param": "lpFreq", "transform": "linear" }
+      },
+      "defaults": { "hpOn": 1, "lpOn": 1 },
+      "notes": "The unit's filters have no switch, so ours are switched on. Names and ranges from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
 
     "Digital Delay": {
       "kind": "delay.digital",
@@ -65,36 +159,109 @@
         "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
         "SYNC": { "param": "sync", "transform": "linear" },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Names and units from a unit's catalogue (CorOS d14e), as Digital Delay (M) and (ST): DELAY TIME 7 to 6000 ms, SYNC on by default (then the time follows SYNC NOTE), FEEDBACK and MIX in percent. Not yet measured against the unit's sound."
+      "notes": "Names and units from a unit's catalogue (CorOS d14e), as Digital Delay (M) and (ST): DELAY TIME 7 to 6000 ms, SYNC on by default (then the time follows SYNC NOTE), FEEDBACK and MIX in percent. Not yet measured against the unit's sound. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
     },
     "Analog Delay": {
       "kind": "delay.analog",
       "verified": false,
       "params": {
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Feedback and mix only; the time is not mapped."
+      "notes": "Feedback and mix only; the time is not mapped. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
     },
     "Tape Delay": {
       "kind": "delay.tape",
       "verified": false,
       "params": {
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Feedback and mix only; the time, wow, flutter and drive are not mapped."
+      "notes": "Feedback and mix only; the time, wow, flutter and drive are not mapped. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
     },
     "Simple Delay": {
       "kind": "delay.simple",
       "verified": false,
       "params": {
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
+      },
+      "notes": "Feedback and mix only; the time is not mapped. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
+    },
+    "Slapback Delay": {
+      "kind": "delay.slapback",
+      "verified": false,
+      "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
+      },
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 40 to 200 ms, FEEDBACK and MIX in percent, LOW PASS and HIGH PASS in Hz. LOW PASS becomes our tone sweep; HIGH PASS has no counterpart here and is dropped, and the saturation and wobble are ours and stay at their defaults. A FEEDBACK above our 60% is clamped and reported. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. The curve of DELAY TIME has not been measured, so the dump's value is taken as milliseconds."
+    },
+    "Dual Delay": {
+      "kind": "delay.dual",
+      "verified": false,
+      "params": {
+        "DELAY TIME L": { "param": "leftTimeMs", "unit": "ms", "transform": "linear" },
+        "DELAY TIME R": { "param": "rightTimeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK L": { "param": "leftFeedback", "unit": "%", "transform": "linear" },
+        "FEEDBACK R": { "param": "rightFeedback", "unit": "%", "transform": "linear" },
+        "X-FEEDBACK": { "param": "crossFeedback", "unit": "%", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "unit": "Hz", "transform": "linear" },
+        "LOW PASS": { "param": "highCutHz", "unit": "Hz", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
+      },
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME L and R 7 to 6000 ms, FEEDBACK L and R and X-FEEDBACK in percent, HIGH PASS 20 to 800 Hz and LOW PASS 1000 to 16000 Hz (the L and R names are the catalogue's wording, not yet seen in a dump). HIGH PASS is our low cut and LOW PASS our high cut. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. The curve of the times has not been measured, so the dump's values are taken as milliseconds."
+    },
+    "Reverse Delay": {
+      "kind": "delay.reverse",
+      "verified": false,
+      "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Feedback and mix only; the time is not mapped."
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 20 to 4000 ms (ours is 100 to 2000, so a value outside is clamped and reported), FEEDBACK and MIX in percent, HIGH PASS and LOW PASS in Hz. LOW PASS becomes our tone; HIGH PASS has no counterpart here and is dropped. The curve of DELAY TIME has not been measured."
+    },
+    "Dual Reverse Delay": {
+      "kind": "delay.reverse",
+      "verified": false,
+      "params": {
+        "DELAY TIME L": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK L": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Placed on our reverse delay, which has one side: only the left time and feedback are taken and the right ones are dropped (the L and R names are the catalogue's wording, not yet seen in a dump). LOW PASS becomes our tone; HIGH PASS is dropped."
+    },
+    "Circular Delay": {
+      "kind": "delay.multitap",
+      "verified": false,
+      "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "DIFFUSION": { "param": "diffusion", "unit": "%", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "unit": "Hz", "transform": "linear" },
+        "LOW PASS": { "param": "highCutHz", "unit": "Hz", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Placed on our multi-tap delay, a diffused cluster of repeats. From a unit's catalogue (CorOS d14e): DELAY TIME 27 to 2000 ms, FEEDBACK 0 to 95 %, DIFFUSION and MIX in percent, HIGH PASS and LOW PASS in Hz. HIGH PASS is our low cut and LOW PASS our high cut. The tap count and pattern are ours and stay at their defaults. The sound is a neighbour of the unit's, not a copy."
     },
     "Simple Ping Pong Delay": {
       "kind": "delay.pingpong",

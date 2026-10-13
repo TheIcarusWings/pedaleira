@@ -245,6 +245,44 @@
       "notes": "Parameters not mapped: names unknown. Ours is not polyphonic."
     },
 
+    "Gain": {
+      "kind": "utility.gain",
+      "verified": false,
+      "params": {
+        "LEVEL": { "param": "gainDb", "unit": "dB", "transform": "linear" },
+        "PAN": { "param": "pan", "transform": "linear" },
+        "PHASE INVERT": { "param": "phaseInvert", "transform": "linear" }
+      },
+      "notes": "Names, ranges and units assumed (LEVEL -60 to +12 dB, PAN -1 to 1, PHASE INVERT a switch), not read from a dump. Ours runs -24 to +24 dB, so a level below -24 is clamped and reported. Our pan is a balance control on a stereo signal (-1 left to +1 right)."
+    },
+    "Volume": {
+      "kind": "utility.volume",
+      "verified": false,
+      "params": {
+        "LEVEL": { "param": "positionPercent", "unit": "%", "transform": "linear" },
+        "CURVE": { "param": "curve", "transform": { "map": { "Linear": 0, "Audio": 1, "Log": 1, "Audio taper": 1 } } }
+      },
+      "notes": "Names assumed (LEVEL 0 to 100 %, a CURVE switch), not read from a dump. The floor stays at our default (silence at the heel). Our position is the pedal position, which the expression pedal drives."
+    },
+    "Doubler": {
+      "kind": "utility.doubler",
+      "verified": false,
+      "params": {
+        "SPREAD": { "param": "spreadMs", "unit": "ms", "transform": "linear" },
+        "DRY LEVEL": { "param": "dryDb", "unit": "dB", "transform": "linear" },
+        "FX LEVEL": { "param": "doubledDb", "unit": "dB", "transform": "linear" }
+      },
+      "notes": "Names and units assumed, not read from a dump. Our spread runs 3 to 60 ms and the levels -40 to +12 dB; values outside are clamped and reported. The doubling is our own design (a slowly moving short delay), so it is close in kind, not in sound."
+    },
+    "Phase Doctor": {
+      "kind": "utility.phase",
+      "verified": false,
+      "params": {
+        "Ø POLARITY": { "param": "polarity", "transform": "linear" }
+      },
+      "notes": "Only the polarity switch is mapped (name assumed). The other controls are dropped; set the delay by ear, 0 to 5 ms."
+    },
+
     "Myth Drive": {
       "kind": "drive.transparent",
       "verified": false,

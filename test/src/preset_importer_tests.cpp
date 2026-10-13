@@ -965,6 +965,53 @@ TEST(PresetImporterTest, DriveModelsGetTheirKindsAndTheKnobsOnOurScales) {
     EXPECT_FALSE(static_cast<bool>(entryAt(report["mapped"], 0, position)["verified"])) << position;
 }
 
+TEST(PresetImporterTest, UtilityModelsGetTheirKinds) {
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  const juce::var foreign = parseJson(R"json({"format":"pedaleira-foreign-preset","version":1,
+    "source":"quad-cortex","name":"Utilities","rows":[{"index":0,"blocks":[
+      {"position":0,"model":"Gain (M)","category":"Utility","enabled":true,
+       "params":{"LEVEL":{"value":-60,"unit":"dB"},"PAN":{"value":-0.5},"PHASE INVERT":{"value":true}}},
+      {"position":1,"model":"Volume","category":"Utility","enabled":true,
+       "params":{"LEVEL":{"value":40,"unit":"%"},"CURVE":{"value":"Linear"}}},
+      {"position":2,"model":"Doubler (ST)","category":"Utility","enabled":true,
+       "params":{"SPREAD":{"value":80,"unit":"ms"},"DRY LEVEL":{"value":-3,"unit":"dB"},
+                 "FX LEVEL":{"value":-6,"unit":"dB"}}},
+      {"position":3,"model":"Phase Doctor","category":"Utility","enabled":true,
+       "params":{"Ø POLARITY":{"value":true},"SOMETHING ELSE":{"value":3}}}]}]})json");
+  const importer::ImportResult result = importer::convertForeignPreset(foreign, table);
+  ASSERT_TRUE(result.ok) << result.error;
+  const juce::var preset = result.preset;
+  const auto number = [&](int position, const char* id) {
+    return static_cast<double>(kindParam(slotNode(preset, 0, position), id));
+  };
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 0)), "utility.gain");
+  EXPECT_NEAR(number(0, "gainDb"), -24.0, 1e-3) << "clamped to our range";
+  EXPECT_NEAR(number(0, "pan"), -0.5, 1e-3);
+  EXPECT_NEAR(number(0, "phaseInvert"), 1.0, 1e-6);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "utility.volume");
+  EXPECT_NEAR(number(1, "positionPercent"), 40.0, 1e-3);
+  EXPECT_NEAR(number(1, "curve"), 0.0, 1e-6);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "utility.doubler");
+  EXPECT_NEAR(number(2, "spreadMs"), 60.0, 1e-3) << "clamped to our range";
+  EXPECT_NEAR(number(2, "dryDb"), -3.0, 1e-3);
+  EXPECT_NEAR(number(2, "doubledDb"), -6.0, 1e-3);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "utility.phase");
+  EXPECT_NEAR(number(3, "polarity"), 1.0, 1e-6);
+  EXPECT_NEAR(number(3, "delayMs"), 0.0, 1e-6);
+
+  const juce::var report = result.report;
+  EXPECT_EQ(countIn(report["mapped"]), 4);
+  EXPECT_EQ(countIn(report["unmapped"]), 0);
+  EXPECT_EQ(countIn(report["droppedParams"]), 1) << "the Phase Doctor control with no entry";
+  EXPECT_EQ(countIn(report["approximated"]), 2) << "the two clamped values";
+  for (int position = 0; position < 4; ++position)
+    EXPECT_FALSE(static_cast<bool>(entryAt(report["mapped"], 0, position)["verified"])) << position;
+}
+
 // ####################
 // THE COMMAND
 // ####################

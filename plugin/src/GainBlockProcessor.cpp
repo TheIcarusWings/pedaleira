@@ -3,7 +3,7 @@
 const BlockParamTable& GainBlockProcessor::parameterSpecs() {
   static const BlockParamTable table = {
       BlockParamSpec::floatParam("gainDb", "Gain", "dB", -24.0f, 24.0f, 0.0f),
-      BlockParamSpec::floatParam("pan", "Pan", "", -1.0f, 1.0f, 0.0f),
+      BlockParamSpec::floatParam("pan", "Pan", "balance", -1.0f, 1.0f, 0.0f),
       BlockParamSpec::boolParam("phaseInvert", "Phase Invert", false),
   };
   return table;
@@ -34,17 +34,21 @@ void GainBlockProcessor::prepareEffect(const EffectSpec& spec) {
 }
 
 void GainBlockProcessor::processEffect(juce::AudioBuffer<float>& buffer,
-                                       const BlockProcessContext&) {
+                                       const BlockProcessContext& ctx) {
   const int numSamples = buffer.getNumSamples();
   const bool stereo = buffer.getNumChannels() > 1;
+  // Two independent signals (dual mono) have nothing to balance against
+  // each other: the level and the polarity apply to both alike, and pan
+  // only acts on one stereo signal.
+  const bool balance = stereo && !ctx.dualMono;
 
   float left = 1.0f, right = 1.0f;
-  targetGains(stereo, left, right);
-  if (snapOnNextBlock || stereo != lastStereo) {
+  targetGains(balance, left, right);
+  if (snapOnNextBlock || balance != lastStereo) {
     gainLeft.setCurrentAndTargetValue(left);
     gainRight.setCurrentAndTargetValue(right);
     snapOnNextBlock = false;
-    lastStereo = stereo;
+    lastStereo = balance;
   } else {
     gainLeft.setTargetValue(left);
     gainRight.setTargetValue(right);

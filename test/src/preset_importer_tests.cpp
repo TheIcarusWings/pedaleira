@@ -829,7 +829,7 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheCategoriesWeHave) {
        "params":{"PRE DELAY":{"value":40,"unit":"ms"},"MIX":{"value":25,"unit":"%"}}},
       {"position":3,"model":"Phaser","category":"Modulation","enabled":true,
        "params":{"SPEED":{"value":40},"DEPTH":{"value":65,"unit":"%"}}},
-      {"position":4,"model":"Crying Wah","category":"Wah","enabled":true,"params":{}},
+      {"position":4,"model":"Petrucci Wah","category":"Wah","enabled":true,"params":{}},
       {"position":5,"model":"Brit 2203","category":"Guitar Amplifier","enabled":true,"params":{"GAIN":{"value":6}}},
       {"position":6,"model":"Some Capture","category":"Neural Capture","enabled":true,"params":{}},
       {"position":7,"model":"Mono Looper","category":"Loopers","enabled":true,"params":{}}]}]})");

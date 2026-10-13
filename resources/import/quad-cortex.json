@@ -18,12 +18,22 @@
     "Simple Gate": {
       "kind": "dynamics.gate",
       "verified": false,
-      "notes": "Parameters not mapped: names unknown."
+      "params": {
+        "THRESHOLD": { "param": "thresholdDb", "transform": "linear" }
+      },
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Utility Gate": {
       "kind": "dynamics.gate",
       "verified": false,
-      "notes": "Parameters not mapped: names unknown."
+      "params": {
+        "THRESHOLD": { "param": "thresholdDb", "transform": "linear" },
+        "ATTACK": { "param": "attackMs", "transform": "linear" },
+        "HOLD": { "param": "holdMs", "transform": "linear" },
+        "RELEASE": { "param": "releaseMs", "transform": "linear" },
+        "RANGE": { "param": "rangeDb", "transform": "linear" }
+      },
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Adaptive Gate": {
       "kind": "dynamics.gate",
@@ -33,7 +43,19 @@
     "Graphic 9": {
       "kind": "eq.graphic10",
       "verified": false,
-      "notes": "Nine bands against our ten at other centre frequencies, and the band names are unknown: placed flat. Set the bands by ear."
+      "params": {
+        "65Hz": { "param": "band63", "transform": "linear" },
+        "125Hz": { "param": "band125", "transform": "linear" },
+        "250Hz": { "param": "band250", "transform": "linear" },
+        "500Hz": { "param": "band500", "transform": "linear" },
+        "1kHz": { "param": "band1k", "transform": "linear" },
+        "2kHz": { "param": "band2k", "transform": "linear" },
+        "4kHz": { "param": "band4k", "transform": "linear" },
+        "8kHz": { "param": "band8k", "transform": "linear" },
+        "16kHz": { "param": "band16k", "transform": "linear" },
+        "OUTPUT": { "param": "levelDb", "transform": "linear" }
+      },
+      "notes": "Nine bands onto our ten: 65 Hz goes to our 63 Hz band, our 31.5 Hz band stays flat. Gains past 12 dB and the output past 12 dB are clamped. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
 
     "Digital Delay": {
@@ -88,156 +110,273 @@
       "kind": "reverb.room",
       "verified": false,
       "params": {
-        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "DECAY": { "param": "decayS", "transform": "linear" },
+        "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "transform": "linear" },
+        "LOW PASS": { "param": "highCutHz", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Pre delay (up to 100 ms in the manual) and mix. Decay and the filters are not mapped: their names and units are unconfirmed."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Hall": {
       "kind": "reverb.hall",
       "verified": false,
       "params": {
-        "DECAY": { "param": "decayS", "unit": "s", "transform": "linear" },
-        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "DECAY": { "param": "decayS", "transform": "linear" },
+        "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "transform": "linear" },
+        "LOW PASS": { "param": "highCutHz", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Decay, pre delay and mix; the filters are not mapped. The unit's catalogue (CorOS d14e) gives DECAY 1 to 10 s and PRE DELAY 1 to 100 ms."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Plate": {
       "kind": "reverb.plate",
       "verified": false,
       "params": {
-        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "DECAY": { "param": "decayS", "transform": { "scale": 0.095, "offset": 0.5 } },
+        "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
+        "HF DAMPING": { "param": "damping", "transform": "linear" },
+        "MOD DEPTH": { "param": "modulation", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "transform": "linear" },
+        "LOW PASS": { "param": "highCutHz", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Pre delay and mix only; decay and the filters are not mapped."
+      "notes": "The unit gives DECAY in percent: mapped onto our 0.5 to 10 s range as a guess. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Plate Lush": {
       "kind": "reverb.plate",
       "verified": false,
       "params": {
-        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "DECAY": { "param": "decayS", "transform": { "scale": 0.095, "offset": 0.5 } },
+        "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
+        "HF DAMPING": { "param": "damping", "transform": "linear" },
+        "MOD DEPTH": { "param": "modulation", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "transform": "linear" },
+        "LOW PASS": { "param": "highCutHz", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "A variant of Plate; ours has one plate."
+      "notes": "The unit gives DECAY in percent: mapped onto our 0.5 to 10 s range as a guess. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Plate Tight": {
       "kind": "reverb.plate",
       "verified": false,
       "params": {
-        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "DECAY": { "param": "decayS", "transform": { "scale": 0.095, "offset": 0.5 } },
+        "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
+        "HF DAMPING": { "param": "damping", "transform": "linear" },
+        "MOD DEPTH": { "param": "modulation", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "transform": "linear" },
+        "LOW PASS": { "param": "highCutHz", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "A variant of Plate; ours has one plate."
+      "notes": "The unit gives DECAY in percent: mapped onto our 0.5 to 10 s range as a guess. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Shimmer": {
       "kind": "reverb.shimmer",
       "verified": false,
       "params": {
-        "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "DECAY": { "param": "decayS", "transform": "linear" },
+        "FEEDBACK": { "param": "shimmer", "transform": "linear" },
+        "DAMPING": { "param": "damping", "transform": "linear" },
+        "MOD DEPTH": { "param": "modulation", "transform": "linear" },
+        "PRE DELAY": { "param": "preDelayMs", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Pre delay and mix only; decay and the filters are not mapped."
+      "notes": "Its FEEDBACK (how much of the shifted sound returns) drives our Shimmer amount; PITCH stays at our octave. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Spring": {
       "kind": "reverb.spring",
       "verified": false,
       "params": {
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "TONE": { "param": "tone", "transform": "linear" },
+        "BOING": { "param": "dwell", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Mono and stereo versions are one model here. Only the mix is mapped."
+      "notes": "BOING, how hard the springs are struck, maps onto our Dwell. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
 
     "Vintage Chorus": {
       "kind": "modulation.chorus",
       "verified": false,
       "params": {
-        "CHR RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" }
+        "CHR RATE": { "param": "rateHz", "transform": "linear" },
+        "WIDTH": { "param": "width", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "The unit's catalogue (CorOS d14e) has no RATE or DEPTH here: a chorus rate CHR RATE (0.3 to 3 Hz) and a vibrato section (VIB RATE, VIB DEPTH) beside MIX, WIDTH and MODE. Only the chorus rate is mapped."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Chorus Engine": {
       "kind": "modulation.chorus",
       "verified": false,
       "params": {
-        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
-        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+        "RATE": { "param": "rateHz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "transform": "linear" },
+        "TONE FREQ": { "param": "toneHz", "transform": "linear" },
+        "WIDTH": { "param": "width", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Rate and depth only."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Digital Flanger": {
       "kind": "modulation.flanger",
       "verified": false,
       "params": {
-        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
-        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+        "RATE": { "param": "rateHz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "transform": "linear" },
+        "DELAY": { "param": "manualMs", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "transform": "linear" },
+        "WIDTH": { "param": "width", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Rate and depth only."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Flanger Engine": {
       "kind": "modulation.flanger",
       "verified": false,
       "params": {
-        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
-        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+        "RATE": { "param": "rateHz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "transform": "linear" },
+        "DELAY": { "param": "manualMs", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "transform": "linear" },
+        "WIDTH": { "param": "width", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Rate and depth only."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Flangerish": {
       "kind": "modulation.flanger",
       "verified": false,
       "params": {
-        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
-        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+        "RATE": { "param": "rateHz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "transform": "linear" },
+        "WIDTH": { "param": "width", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Rate and depth only."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Phaser": {
       "kind": "modulation.phaser",
       "verified": false,
       "params": {
-        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+        "DEPTH": { "param": "depth", "transform": "linear" },
+        "WIDTH": { "param": "width", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "The unit's catalogue (CorOS d14e) has no RATE: its speed is SPEED, 0 to 100 with no unit, so it is not mapped to our rate in Hz. DEPTH is on one of the two Phaser models only."
+      "notes": "SPEED is a 0 to 100 knob, not Hz, so the rate stays at ours until it is timed on a unit. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Tremolo": {
       "kind": "modulation.tremolo",
       "verified": false,
       "params": {
-        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
-        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+        "RATE": { "param": "rateHz", "transform": "linear" },
+        "DEPTH": { "param": "depth", "transform": "linear" }
       },
-      "notes": "Rate and depth only."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Vibrato": {
       "kind": "modulation.vibrato",
       "verified": false,
       "params": {
-        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" }
+        "RATE": { "param": "rateHz", "transform": "linear" },
+        "DEPTH": { "param": "depthCents", "transform": "linear" },
+        "FADE IN": { "param": "riseMs", "transform": "linear" }
       },
-      "notes": "Rate only: ours sets the depth in cents, and the unit of theirs is unconfirmed."
+      "notes": "DEPTH in percent maps onto cents one for one, a guess. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Rotary": {
       "kind": "modulation.rotary",
       "verified": false,
-      "notes": "Parameters not mapped: names unknown."
+      "params": {
+        "SPEED": { "param": "speed", "transform": "linear" },
+        "DRIVE": { "param": "drive", "transform": "linear" }
+      },
+      "notes": "SPEED is the slow and fast switch: 0 slow, 1 fast, as ours. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
 
     "Envelope Filter": {
       "kind": "filter.envelope",
       "verified": false,
-      "notes": "Parameters not mapped: names unknown."
+      "params": {
+        "SENS": { "param": "sensitivityPct", "transform": { "scale": 2.78, "offset": -50 } },
+        "ATTACK": { "param": "attackMs", "transform": "linear" },
+        "DECAY": { "param": "releaseMs", "transform": "linear" },
+        "FREQ": { "param": "lowHz", "transform": "linear" },
+        "RESO": { "param": "resonancePct", "transform": { "scale": 11.1, "offset": -11.1 } },
+        "LEVEL": { "param": "levelDb", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "SENS (18 to 54 dB) is spread over our 0 to 100 % and RESO (1 to 10) over our resonance. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Auto Wah": {
-      "kind": "filter.autowah",
+      "kind": "filter.envelope",
       "verified": false,
-      "notes": "Parameters not mapped: names unknown."
+      "params": {
+        "SENSITIVITY": { "param": "sensitivityPct", "transform": "linear" },
+        "ATTACK": { "param": "attackMs", "transform": "linear" },
+        "RELEASE": { "param": "releaseMs", "transform": "linear" }
+      },
+      "notes": "The unit's auto wah follows the playing, so it maps onto our envelope filter. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Crying Wah": {
+      "kind": "filter.wah",
+      "verified": false,
+      "params": {
+        "WAH": { "param": "positionPct", "transform": { "scale": 100, "offset": 0 } }
+      },
+      "notes": "WAH is the pedal position, 0 to 1. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Crying Clyde Wah": {
+      "kind": "filter.wah",
+      "verified": false,
+      "params": {
+        "WAH": { "param": "positionPct", "transform": { "scale": 100, "offset": 0 } }
+      },
+      "notes": "WAH is the pedal position, 0 to 1. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Bubba Wah": {
+      "kind": "filter.wah",
+      "verified": false,
+      "params": {
+        "WAH": { "param": "positionPct", "transform": { "scale": 100, "offset": 0 } }
+      },
+      "notes": "WAH is the pedal position, 0 to 1. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Bass Wah": {
+      "kind": "filter.wah",
+      "verified": false,
+      "params": {
+        "WAH": { "param": "positionPct", "transform": { "scale": 100, "offset": 0 } }
+      },
+      "notes": "WAH is the pedal position, 0 to 1. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Bad Horse": {
+      "kind": "filter.wah",
+      "verified": false,
+      "params": {
+        "WAH": { "param": "positionPct", "transform": { "scale": 100, "offset": 0 } }
+      },
+      "notes": "WAH is the pedal position, 0 to 1. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+    },
+    "Crying Wah From Hell": {
+      "kind": "filter.wah",
+      "verified": false,
+      "params": {
+        "WAH": { "param": "positionPct", "transform": { "scale": 100, "offset": 0 } }
+      },
+      "notes": "WAH is the pedal position, 0 to 1; its range, Q and boost stay at ours. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
 
     "Pitch Shifter": {
       "kind": "pitch.shifter",
       "verified": false,
-      "notes": "Parameters not mapped: names unknown."
+      "params": {
+        "PITCH COARSE": { "param": "semitones", "transform": "linear" },
+        "PITCH FINE": { "param": "cents", "transform": "linear" },
+        "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Fine past 50 cents either way is clamped to ours. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Poly Octaver": {
       "kind": "pitch.octaver",

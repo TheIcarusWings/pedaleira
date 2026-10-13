@@ -1,4 +1,4 @@
-// drive.fuzz: a fuzz with three voicings, each a different way a transistor
+// drive.fuzz: a fuzz with four voicings, each a different way a transistor
 // stage goes wrong in a pleasing way.
 //
 //   Silicon    a bright, tight fuzz: a lot of gain into a hard, slightly
@@ -12,6 +12,14 @@
 //              them: a smooth, compressed, very long sustain. Its Tone is a
 //              low-pass and a high-pass mixed (a scoop in the middle when they
 //              are balanced), not a single low-pass.
+//   Scooped    the same two clipping stages, symmetric and fully fed, with the
+//              coupling and input filters moved down to the sub-bass so a low
+//              note stays a square wave, and a classic scooped tone stack
+//              after them: Tone balances a one-pole low-pass (about 460 Hz)
+//              against a one-pole high-pass (about 1.45 kHz). At the middle the
+//              lows and the highs both stand about 5 dB above a mid notch near
+//              1 kHz; the top is rolled off from about 15 kHz. Bias has no
+//              effect here (the stage is always fully fed).
 //
 // The dead zone is a smooth function, v^3 / (v^2 + dz^2), which is v for a
 // large input and falls away as v^3 below dz, so it adds no sharp corner of
@@ -33,15 +41,16 @@ public:
   static constexpr const char* kKindId = "drive.fuzz";
 
   enum Param { kVoicing = 0, kFuzzPercent, kBiasPercent, kTonePercent, kLevelDb };
-  enum Voicing { kSilicon = 0, kGermanium, kSustain };
+  enum Voicing { kSilicon = 0, kGermanium, kSustain, kScooped };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
       BlockParamTable t;
       t.push_back(BlockParamSpec::choiceParam(
-                      "voicing", "Voicing", juce::StringArray{"Silicon", "Germanium", "Sustain"},
+                      "voicing", "Voicing", juce::StringArray{"Silicon", "Germanium", "Sustain", "Scooped"},
                       kSilicon)
-                      .notAutomatable());
+                      .notAutomatable()
+                      .withAffectsTail());
       t.push_back(BlockParamSpec::floatParam("fuzzPercent", "Fuzz", "%", 0.0f, 100.0f, 60.0f));
       t.push_back(BlockParamSpec::floatParam("biasPercent", "Bias", "%", 0.0f, 100.0f, 70.0f));
       t.push_back(BlockParamSpec::floatParam("tonePercent", "Tone", "%", 0.0f, 100.0f, 50.0f));
@@ -57,7 +66,9 @@ public:
   // samples (drive/DriveCommon.h).
   int latencySamples() const noexcept override { return kLatencySamples; }
 
-  double tailSeconds() const noexcept override { return 0.06; }
+  // The Scooped voicing keeps its filters in the sub-bass (a 6 Hz DC blocker),
+  // which rings out for longer.
+  double tailSeconds() const noexcept override { return param(kVoicing) > 2.5f ? 0.2 : 0.06; }
 
 protected:
   void prepareEffect(const EffectSpec& spec) override {
@@ -75,6 +86,9 @@ protected:
       lane.dc.setCutoff(25.0, sampleRate);
       lane.scoopLow.set(600.0, 0.7071, sampleRate);
       lane.scoopHigh.set(1800.0, 0.7071, sampleRate);
+      lane.stackLow.setCutoff(kStackLowHz, sampleRate);
+      lane.stackHigh.setCutoff(kStackHighHz, sampleRate);
+      lane.stackTop.set(kStackTopHz, 0.7071, sampleRate);
     }
     appliedVoicing = -1;
     resetEffect();
@@ -90,6 +104,9 @@ protected:
       lane.toneLow.reset();
       lane.scoopLow.reset();
       lane.scoopHigh.reset();
+      lane.stackLow.reset();
+      lane.stackHigh.reset();
+      lane.stackTop.reset();
       lane.dc.reset();
     }
     tick.reset();
@@ -101,15 +118,19 @@ protected:
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext&) override {
     const int numSamples = buffer.getNumSamples();
     const int numLanes = juce::jmin(buffer.getNumChannels(), kMaxLanes);
-    const int voicing = juce::jlimit(0, 2, static_cast<int>(param(kVoicing) + 0.5f));
+    const int voicing = juce::jlimit(0, 3, static_cast<int>(param(kVoicing) + 0.5f));
     const float fuzz = param(kFuzzPercent) * 0.01f;
     const float starved = 1.0f - param(kBiasPercent) * 0.01f;  // 0 well fed .. 1 starved
 
     const Voicings& v = kVoicings[voicing];
     if (voicing != appliedVoicing) {
       const double osRate = sampleRate * kOversampleFactor;
-      for (Lane& lane : lanes)
+      for (Lane& lane : lanes) {
         lane.rolloff.setCutoff(v.rolloffHz, osRate);
+        lane.input.setCutoff(v.inputHz, osRate);
+        lane.coupling.setCutoff(v.couplingHz, osRate);
+        lane.dc.setCutoff(v.dcHz, sampleRate);
+      }
       appliedVoicing = voicing;
     }
     gain.setTarget(v.minGain * std::pow(v.maxGain / v.minGain, fuzz));
@@ -134,7 +155,7 @@ protected:
           const float gated = driven * driven * driven / (driven * driven + zone * zone + 1.0e-9f);
 
           float y;
-          if (voicing == kSustain) {
+          if (voicing == kSustain || voicing == kScooped) {
             const float first = v.level * hardSat(gated * (1.0f / v.level) + shift) - v.level * shiftOffset;
             const float coupled = lane.coupling.highpass(first);
             y = kSecondLevel * softSat(kSecondGain * coupled * (1.0f / kSecondLevel));
@@ -155,7 +176,7 @@ protected:
     for (int i = 0; i < numSamples; ++i) {
       const float t = tone.next();
       const float g = level.next();
-      if (voicing != kSustain && tick.step())
+      if (voicing <= kGermanium && tick.step())
         for (Lane& lane : lanes)
           lane.toneLow.set(expSweep(kToneLowHz, kToneHighHz, t), 0.7071, sampleRate);
       for (int ch = 0; ch < numLanes; ++ch) {
@@ -164,6 +185,8 @@ protected:
         float x = data[i];
         if (voicing == kSustain)
           x = (1.0f - t) * lane.scoopLow.lowpass(x) + t * lane.scoopHigh.highpass(x);
+        else if (voicing == kScooped)
+          x = lane.stackTop.lowpass((1.0f - t) * lane.stackLow.lowpass(x) + t * lane.stackHigh.highpass(x));
         else
           x = lane.toneLow.lowpass(x);
         data[i] = lane.dc.process(x) * g;
@@ -180,14 +203,19 @@ private:
     float starveShift;       // extra asymmetry at Bias 0
     float rolloffHz;
     float makeup;            // brings the default setting to about unity at guitar level
+    float inputHz;           // input high-pass, at the 4x rate
+    float couplingHz;        // high-pass between the two stages of the sustain chain
+    float dcHz;              // DC blocker after the tone
   };
-  static constexpr Voicings kVoicings[3] = {
+  static constexpr Voicings kVoicings[4] = {
       // Silicon
-      {4.0f, 320.0f, 0.25f, 0.08f, 0.05f, 0.10f, 9000.0f, 0.436f},
+      {4.0f, 320.0f, 0.25f, 0.08f, 0.05f, 0.10f, 9000.0f, 0.436f, 70.0f, 250.0f, 25.0f},
       // Germanium
-      {2.0f, 50.0f, 0.30f, 0.60f, 0.20f, 0.30f, 5000.0f, 0.39f},
+      {2.0f, 50.0f, 0.30f, 0.60f, 0.20f, 0.30f, 5000.0f, 0.39f, 70.0f, 250.0f, 25.0f},
       // Sustain
-      {6.0f, 600.0f, 0.40f, 0.05f, 0.00f, 0.05f, 8000.0f, 0.72f},
+      {6.0f, 600.0f, 0.40f, 0.05f, 0.00f, 0.05f, 8000.0f, 0.72f, 70.0f, 250.0f, 25.0f},
+      // Scooped: no dead zone and no asymmetry, filters down in the sub-bass
+      {6.0f, 600.0f, 0.40f, 0.00f, 0.00f, 0.00f, 27500.0f, 1.30f, 10.0f, 20.0f, 6.0f},
   };
   static constexpr float kSecondGain = 4.0f;
   static constexpr float kSecondLevel = 0.3f;
@@ -195,11 +223,16 @@ private:
   static constexpr float kStarveWiden = 3.0f;
   static constexpr float kToneLowHz = 600.0f;
   static constexpr float kToneHighHz = 9000.0f;
+  // The Scooped tone stack: a low-pass and a high-pass mixed, then a top roll-off.
+  static constexpr float kStackLowHz = 460.0f;
+  static constexpr float kStackHighHz = 1450.0f;
+  static constexpr float kStackTopHz = 15000.0f;
 
   struct Lane {
     fx::OnePole input, coupling, rolloff;
     float starve{0.0f};
-    fx::StateVariableFilter toneLow, scoopLow, scoopHigh;
+    fx::StateVariableFilter toneLow, scoopLow, scoopHigh, stackTop;
+    fx::OnePole stackLow, stackHigh;
     DcBlocker dc;
   };
 

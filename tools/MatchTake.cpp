@@ -143,7 +143,10 @@ Check checkTake(const juce::AudioBuffer<float>& recording, double sampleRate,
   if (check.peakDb < kQuietPeakDb)
     check.problems.push_back("the take is silent or far too quiet (peak " + dbText(check.peakDb) +
                              " dBFS): check the cables, the channels and the input gain");
-  else if (check.markersFound && (check.levelGainDb < kMinLevelGainDb || check.levelGainDb > kMaxLevelGainDb))
+  // The low bound is against what was played; the high bound against the nominal signal, so a
+  // high-gain amp fed a quiet signal (signalGainDb well below 0) may make up the attenuation.
+  else if (check.markersFound && (check.levelGainDb < kMinLevelGainDb ||
+                                  check.levelGainDb + signalGainDb > kMaxLevelGainDb))
     check.problems.push_back("the level is implausible (" + dbText(check.levelGainDb) +
                              " dB at 1 kHz against the signal played): check the gain staging");
 

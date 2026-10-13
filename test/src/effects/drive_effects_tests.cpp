@@ -630,3 +630,326 @@ TEST(DriveEffectsTest, BassDrivePresenceIsAShelf) {
   EXPECT_LT(levelGainDb("drive.bass", down, 8000.0, 0.05f), reference - 5.0);
   EXPECT_NEAR(levelGainDb("drive.bass", up, 100.0, 0.05f), levelGainDb("drive.bass", flat, 100.0, 0.05f), 1.0);
 }
+
+// ---------------------------------------------------------------------------
+// Voicings added to four kinds: Transparent Drive "Smooth", Distortion
+// "Open", Fuzz "Scooped" and Metal Distortion "Resonant". Each one is a
+// choice whose first option is the old behaviour, so a preset made before
+// them sounds the same; the checks below are for our own design targets (the
+// response shape and the distortion at the settings named in each test).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct ShapePoint {
+  double hz;
+  double db;  // relative to 1 kHz
+};
+
+// Gain in dB of a kind on a sine at one frequency (a windowed DFT of the part
+// after the first 0.4 s).
+double toneGainDb(const char* id, const Params& params, double hz, double peakDb) {
+  const std::vector<float> in = sine(1.0, hz, amp(peakDb), kRate);
+  DirectKind kind(id, params);
+  const std::vector<float> out = kind.render(in);
+  const size_t skip = static_cast<size_t>(0.4 * kRate);
+  return db(goertzelPower(out.data() + skip, out.size() - skip, hz, kRate)) -
+         db(goertzelPower(in.data() + skip, in.size() - skip, hz, kRate));
+}
+
+// The response at each point, relative to 1 kHz, against the design curve.
+void expectShape(const char* label, const char* id, const Params& params, double peakDb,
+                 const std::vector<ShapePoint>& design, double toleranceDb) {
+  const double reference = toneGainDb(id, params, 1000.0, peakDb);
+  double worst = 0.0;
+  for (const ShapePoint& p : design) {
+    const double got = toneGainDb(id, params, p.hz, peakDb) - reference;
+    worst = std::max(worst, std::abs(got - p.db));
+    EXPECT_NEAR(got, p.db, toleranceDb) << label << " at " << p.hz << " Hz";
+  }
+  std::cout << "[   SHAPE  ] " << label << ": worst " << juce::String(worst, 2)
+            << " dB off the design curve at " << peakDb << " dBFS" << std::endl;
+}
+
+double thdAtDbfs(const char* id, const Params& params, double hz, double peakDb) {
+  return thdOf(id, params, hz, amp(peakDb));
+}
+
+// The 1 kHz gain at -18 dBFS, in dB.
+double level1k(const char* id, const Params& params) {
+  return toneGainDb(id, params, 1000.0, -18.0);
+}
+
+}  // namespace
+
+TEST(DriveEffectsTest, TheNewVoicingsAreTheLastChoiceAndTheOldOneIsTheDefault) {
+  struct Case {
+    const char* id;
+    int options;
+  };
+  for (const Case& c : {Case{"drive.transparent", 2}, Case{"drive.distortion", 2}, Case{"drive.fuzz", 4},
+                        Case{"drive.metal", 2}}) {
+    SCOPED_TRACE(c.id);
+    const BlockKindInfo* info = BlockKindRegistry::instance().find(c.id);
+    ASSERT_NE(info, nullptr);
+    const BlockParamSpec* voicing = nullptr;
+    for (const BlockParamSpec& spec : info->params)
+      if (spec.id == "voicing")
+        voicing = &spec;
+    ASSERT_NE(voicing, nullptr);
+    EXPECT_EQ(voicing->choices.size(), c.options);
+    EXPECT_EQ(static_cast<int>(voicing->defaultValue), 0);
+  }
+}
+
+TEST(DriveEffectsTest, ChoosingTheFirstVoicingExplicitlyChangesNothing) {
+  const std::vector<float> in = musicalSignal(0.6, kRate, 0.3f);
+  for (const char* id : {"drive.transparent", "drive.distortion", "drive.fuzz", "drive.metal"}) {
+    SCOPED_TRACE(id);
+    DirectKind implicit(id, {}, Layout::Stereo);
+    DirectKind chosen(id, {{"voicing", 0.0}}, Layout::Stereo);
+    const Stereo a = implicit.render(Stereo{in, in});
+    const Stereo b = chosen.render(Stereo{in, in});
+    EXPECT_EQ(std::memcmp(a.left.data(), b.left.data(), in.size() * sizeof(float)), 0);
+    EXPECT_EQ(std::memcmp(a.right.data(), b.right.data(), in.size() * sizeof(float)), 0);
+  }
+}
+
+// --- Transparent Drive: Smooth ---------------------------------------------
+
+TEST(DriveEffectsTest, TransparentSmoothConforms) {
+  ConformanceOptions options;
+  options.params = {{"voicing", 1.0}, {"drivePercent", 70.0}, {"trebleDb", 3.0}, {"levelDb", 1.0}};
+  options.stateParams = {{"voicing", 1.0}, {"drivePercent", 20.0}, {"trebleDb", -6.0}, {"levelDb", -4.0}};
+  options.sweepBound = 16.0f;
+  options.cpuAverageBudgetNs = 50000.0;
+  options.cpuWorstBudgetNs = 500000.0;
+  expectKindConforms("drive.transparent", options);
+}
+
+TEST(DriveEffectsTest, SmoothRollsTheTopOffAsAOnePoleLowPass) {
+  // At Treble 0 dB the corner is about 1.45 kHz and the slope 6 dB per
+  // octave. The roll-off comes after the clipping, so the shape is the same
+  // at -18 dBFS (where the clipped path is working) and at -40 dBFS.
+  const Params p = {{"voicing", 1.0}, {"drivePercent", 70.0}, {"trebleDb", 0.0}, {"levelDb", 4.4}};
+  const std::vector<ShapePoint> design = {
+      {31.5, 0.2},   {63, 1.2},     {100, 0.9},    {160, 0.6},    {250, 1.4},    {500, 1.5},
+      {630, 1.2},    {1600, -1.8},  {2000, -2.8},  {2500, -4.1},  {3150, -5.7},  {4000, -7.5},
+      {5000, -9.2},  {6300, -11.2}, {8000, -13.4}, {10000, -15.4}, {12500, -17.4}, {16000, -19.8}};
+  expectShape("Smooth response", "drive.transparent", p, -18.0, design, 1.5);
+  expectShape("Smooth response", "drive.transparent", p, -40.0, design, 1.5);
+}
+
+TEST(DriveEffectsTest, SmoothTrebleMovesTheCornerOfTheLowPass) {
+  const auto eightK = [&](double trebleDb) {
+    const Params p = {{"voicing", 1.0}, {"drivePercent", 70.0}, {"trebleDb", trebleDb}};
+    return toneGainDb("drive.transparent", p, 8000.0, -50.0) - toneGainDb("drive.transparent", p, 100.0, -50.0);
+  };
+  EXPECT_GT(eightK(12.0), eightK(0.0) + 8.0);
+  EXPECT_LT(eightK(-12.0), eightK(0.0) - 8.0);
+}
+
+TEST(DriveEffectsTest, SmoothIsSofterThanClassicAndHasMoreSmallSignalGain) {
+  const Params classic = {{"drivePercent", 70.0}, {"levelDb", 4.4}};
+  const Params smooth = {{"voicing", 1.0}, {"drivePercent", 70.0}, {"levelDb", 4.4}};
+  // Well under the distortion of Classic at -18 dBFS (9 to 17 % against 25 %).
+  // The roll-off comes after the clipping, so the harmonics of 1 kHz are
+  // rolled off with it and 1 kHz measures about half the distortion of 100 Hz.
+  const double classic1k = thdAtDbfs("drive.transparent", classic, 1000.0, -18.0);
+  const double smooth1k = thdAtDbfs("drive.transparent", smooth, 1000.0, -18.0);
+  const double smooth100 = thdAtDbfs("drive.transparent", smooth, 100.0, -18.0);
+  std::cout << "[   THD    ] Smooth 70 %: " << juce::String(smooth100, 1) << " % at 100 Hz, "
+            << juce::String(smooth1k, 1) << " % at 1 kHz (Classic " << juce::String(classic1k, 1) << " %)"
+            << std::endl;
+  EXPECT_NEAR(smooth100, 12.8, 0.35 * 12.8);
+  EXPECT_NEAR(smooth1k, 13.4, 0.35 * 13.4);
+  EXPECT_LT(smooth1k, 0.5 * classic1k);
+  // More gain for a quiet signal, and a 1 kHz level at -18 dBFS where Classic has it.
+  const double smallSmooth = levelGainDb("drive.transparent", smooth, 1000.0, amp(-60.0));
+  const double smallClassic = levelGainDb("drive.transparent", classic, 1000.0, amp(-60.0));
+  std::cout << "[   LEVEL  ] Smooth: " << juce::String(smallSmooth, 1) << " dB at -60 dBFS, "
+            << juce::String(level1k("drive.transparent", smooth), 1) << " dB at -18 dBFS, "
+            << juce::String(levelGainDb("drive.transparent", smooth, 1000.0, 1.0f), 1) << " dB at 0 dBFS"
+            << " (Classic " << juce::String(smallClassic, 1) << ", "
+            << juce::String(level1k("drive.transparent", classic), 1) << " at -18)" << std::endl;
+  EXPECT_GT(smallSmooth, smallClassic + 2.0);
+  EXPECT_NEAR(level1k("drive.transparent", smooth), level1k("drive.transparent", classic), 2.0);
+}
+
+TEST(DriveEffectsTest, SmoothDistortsMoreWithMoreDrive) {
+  const double little = thdAtDbfs("drive.transparent", {{"voicing", 1.0}, {"drivePercent", 5.0}}, 1000.0, -18.0);
+  const double lots = thdAtDbfs("drive.transparent", {{"voicing", 1.0}, {"drivePercent", 95.0}}, 1000.0, -18.0);
+  EXPECT_GT(lots, little + 5.0);
+}
+
+// --- Distortion: Open ------------------------------------------------------
+
+TEST(DriveEffectsTest, DistortionOpenConforms) {
+  ConformanceOptions options;
+  options.params = {{"voicing", 1.0}, {"distortionPercent", 80.0}, {"filterPercent", 40.0}, {"levelDb", 2.0}};
+  options.stateParams = {{"voicing", 1.0}, {"distortionPercent", 20.0}, {"filterPercent", 90.0}, {"levelDb", -4.0}};
+  options.sweepBound = 16.0f;
+  options.cpuAverageBudgetNs = 55000.0;
+  options.cpuWorstBudgetNs = 500000.0;
+  expectKindConforms("drive.distortion", options);
+}
+
+TEST(DriveEffectsTest, OpenFilterIsAGentleOnePoleSlopeAndDoesNotDependOnDistortion) {
+  // Filter at 50 %: flat in the lows and mids, then about 6 dB per octave.
+  for (const double distortion : {30.0, 70.0}) {
+    const Params p = {{"voicing", 1.0}, {"distortionPercent", distortion}, {"filterPercent", 50.0}, {"levelDb", -15.6}};
+    const std::string label = "Open filter, Distortion " + std::to_string(static_cast<int>(distortion)) + " %";
+    expectShape(label.c_str(), "drive.distortion", p, -18.0,
+                {{4000, -4.75}, {5000, -6.2}, {6300, -7.8}, {8000, -9.7}, {10000, -11.5}, {12500, -13.3}, {16000, -15.5}},
+                1.5);
+    // The lows are not cut as they are by the 90 Hz high-pass of Classic.
+    EXPECT_NEAR(toneGainDb("drive.distortion", p, 31.5, -18.0) - toneGainDb("drive.distortion", p, 1000.0, -18.0), 0.0, 1.5);
+  }
+}
+
+TEST(DriveEffectsTest, OpenKeepsTheClippingAndTheLevelOfClassic) {
+  const Params classic = {{"distortionPercent", 30.0}, {"filterPercent", 50.0}, {"levelDb", -15.6}};
+  const Params open = {{"voicing", 1.0}, {"distortionPercent", 30.0}, {"filterPercent", 50.0}, {"levelDb", -15.6}};
+  const double thdClassic = thdAtDbfs("drive.distortion", classic, 1000.0, -18.0);
+  const double thdOpen = thdAtDbfs("drive.distortion", open, 1000.0, -18.0);
+  std::cout << "[   THD    ] Distortion 1 kHz at -18 dBFS: Classic " << juce::String(thdClassic, 1) << " %, Open "
+            << juce::String(thdOpen, 1) << " %" << std::endl;
+  EXPECT_NEAR(thdOpen, 26.0, 26.0 / 3.0);
+  EXPECT_NEAR(level1k("drive.distortion", open), level1k("drive.distortion", classic), 2.0);
+}
+
+TEST(DriveEffectsTest, OpenFilterStillSweepsFromDarkToOpen) {
+  const auto topDb = [&](double filterPercent) {
+    const Params p = {{"voicing", 1.0}, {"distortionPercent", 50.0}, {"filterPercent", filterPercent}};
+    return toneGainDb("drive.distortion", p, 6000.0, -18.0) - toneGainDb("drive.distortion", p, 500.0, -18.0);
+  };
+  EXPECT_GT(topDb(100.0), topDb(50.0) + 5.0);
+  EXPECT_GT(topDb(50.0), topDb(0.0) + 5.0);
+}
+
+// --- Fuzz: Scooped ---------------------------------------------------------
+
+TEST(DriveEffectsTest, FuzzScoopedConforms) {
+  ConformanceOptions options;
+  options.params = {{"voicing", 3.0}, {"fuzzPercent", 80.0}, {"biasPercent", 40.0}, {"tonePercent", 60.0}};
+  options.stateParams = {{"voicing", 3.0}, {"fuzzPercent", 30.0}, {"biasPercent", 90.0},
+                         {"tonePercent", 20.0}, {"levelDb", -3.0}};
+  options.sweepBound = 16.0f;
+  options.cpuAverageBudgetNs = 90000.0;
+  options.cpuWorstBudgetNs = 500000.0;
+  expectKindConforms("drive.fuzz", options);
+}
+
+TEST(DriveEffectsTest, ScoopedToneStackHasAMidNotchWithTheLowsAndHighsUp) {
+  // Fuzz 60 %, Tone at the middle: the lows and highs stand about 5 dB above a
+  // notch near 1 kHz, and the top rolls off above 12 kHz.
+  const Params p = {{"voicing", 3.0}, {"fuzzPercent", 60.0}, {"tonePercent", 50.0}, {"levelDb", -22.9}};
+  expectShape("Scooped response", "drive.fuzz", p, -18.0,
+              {{31.5, 5.1},  {63, 4.9},    {100, 4.6},   {200, 4.0},   {315, 3.6},   {500, 2.4},
+               {630, 1.4},   {1600, 1.3},  {2000, 2.5},  {2500, 3.7},  {3150, 4.6},  {4000, 5.3},
+               {5000, 5.7},  {6300, 5.9},  {8000, 5.8},  {10000, 5.3}, {12500, 4.0}},
+              1.5);
+  EXPECT_LT(toneGainDb("drive.fuzz", p, 16000.0, -18.0) - toneGainDb("drive.fuzz", p, 1000.0, -18.0), 3.0);
+}
+
+TEST(DriveEffectsTest, ScoopedClipsToASymmetricSquareThatTheStackThenShapes) {
+  const Params p = {{"voicing", 3.0}, {"fuzzPercent", 60.0}, {"tonePercent", 50.0}, {"levelDb", -22.9}};
+  const double at100 = thdAtDbfs("drive.fuzz", p, 100.0, -18.0);
+  const double at1k = thdAtDbfs("drive.fuzz", p, 1000.0, -18.0);
+  std::cout << "[   THD    ] Scooped Fuzz 60 %: " << juce::String(at100, 1) << " % at 100 Hz, "
+            << juce::String(at1k, 1) << " % at 1 kHz" << std::endl;
+  // A symmetric square wave has 48 % of THD; the notch lifts the harmonics of
+  // 1 kHz above its fundamental, so that one is higher.
+  EXPECT_NEAR(at100, 35.9, 35.9 / 3.0);
+  EXPECT_NEAR(at1k, 75.7, 75.7 / 3.0);
+  EXPECT_GT(at1k, at100 + 10.0);
+}
+
+TEST(DriveEffectsTest, ScoopedKeepsTheOneKilohertzLevelOfTheDefaultVoicing) {
+  // The import level offset (-22.9 dB at Fuzz 60 %) was set against the
+  // default voicing, so the new voicing is trimmed to the same 1 kHz level.
+  const Params silicon = {{"voicing", 0.0}, {"fuzzPercent", 60.0}, {"tonePercent", 50.0}, {"levelDb", -22.9}};
+  const Params sustain = {{"voicing", 2.0}, {"fuzzPercent", 60.0}, {"tonePercent", 50.0}, {"levelDb", -22.9}};
+  const Params scooped = {{"voicing", 3.0}, {"fuzzPercent", 60.0}, {"tonePercent", 50.0}, {"levelDb", -22.9}};
+  std::cout << "[   LEVEL  ] Fuzz 1 kHz at -18 dBFS: Silicon " << juce::String(level1k("drive.fuzz", silicon), 2)
+            << " dB, Sustain " << juce::String(level1k("drive.fuzz", sustain), 2) << " dB, Scooped "
+            << juce::String(level1k("drive.fuzz", scooped), 2) << " dB" << std::endl;
+  EXPECT_NEAR(level1k("drive.fuzz", scooped), level1k("drive.fuzz", silicon), 2.0);
+}
+
+TEST(DriveEffectsTest, ScoopedToneGoesFromDarkToBright) {
+  const auto at = [&](double tone, double hz) {
+    const Params p = {{"voicing", 3.0}, {"fuzzPercent", 60.0}, {"tonePercent", tone}};
+    return toneGainDb("drive.fuzz", p, hz, -18.0);
+  };
+  // All the way down it is a low-pass (the highs fall away), all the way up a
+  // high-pass (the lows do).
+  EXPECT_GT(at(0.0, 100.0), at(0.0, 5000.0) + 10.0);
+  EXPECT_GT(at(100.0, 5000.0), at(100.0, 100.0) + 10.0);
+}
+
+TEST(DriveEffectsTest, ScoopedDistortsMoreWithMoreFuzz) {
+  const double little = thdOf("drive.fuzz", {{"voicing", 3.0}, {"fuzzPercent", 5.0}, {"biasPercent", 100.0}}, 1000.0, 0.05f);
+  const double lots = thdOf("drive.fuzz", {{"voicing", 3.0}, {"fuzzPercent", 95.0}, {"biasPercent", 100.0}}, 1000.0, 0.05f);
+  EXPECT_GT(lots, little + 5.0);
+}
+
+// --- Metal Distortion: Resonant ----------------------------------------------
+
+TEST(DriveEffectsTest, MetalResonantConforms) {
+  ConformanceOptions options;
+  options.params = {{"voicing", 1.0}, {"distortionPercent", 85.0}, {"tightHz", 220.0}, {"midDb", -5.0},
+                    {"midHz", 900.0}, {"lowDb", 3.0},              {"gateDb", -60.0}};
+  options.stateParams = {{"voicing", 1.0}, {"distortionPercent", 30.0}, {"tightHz", 90.0}, {"lowDb", -4.0},
+                         {"midDb", 5.0},   {"midHz", 450.0},            {"highDb", 6.0},    {"levelDb", -3.0},
+                         {"gateDb", -45.0}};
+  options.sweepBound = 24.0f;
+  options.cpuAverageBudgetNs = 100000.0;
+  options.cpuWorstBudgetNs = 600000.0;
+  expectKindConforms("drive.metal", options);
+}
+
+TEST(DriveEffectsTest, ResonantHasALowResonanceAndAPresencePeakWithTheEqFlat) {
+  // Distortion 60 %, Low/Middle/High at 0 dB, Mid Freq 1.6 kHz: a peak near
+  // 100 Hz on a low shelf, a presence peak near 5 kHz, a roll-off from about
+  // 11 kHz; measured at -18 dBFS where the stage is clipping.
+  const Params p = {{"voicing", 1.0}, {"distortionPercent", 60.0}, {"midHz", 1600.0}, {"levelDb", -21.5}};
+  expectShape("Resonant response", "drive.metal", p, -18.0,
+              {{31.5, 4.7},  {40, 5.1},    {50, 5.3},    {63, 5.8},    {80, 7.3},    {100, 9.7},   {125, 8.0},
+               {160, 4.9},   {200, 4.1},   {250, 3.3},   {315, 2.9},   {400, 2.3},   {500, 2.0},   {630, 1.3},
+               {3150, 0.8},  {4000, 3.1},  {5000, 3.9},  {6300, 1.9},  {8000, -1.0}, {10000, -3.1}, {12500, -4.8},
+               {16000, -6.8}},
+              1.5);
+}
+
+TEST(DriveEffectsTest, ResonantDistortionBandsFollowFromTheVoice) {
+  const Params p = {{"voicing", 1.0}, {"distortionPercent", 60.0}, {"midHz", 1600.0}, {"levelDb", -21.5}};
+  const double at100 = thdAtDbfs("drive.metal", p, 100.0, -18.0);
+  const double at1k = thdAtDbfs("drive.metal", p, 1000.0, -18.0);
+  std::cout << "[   THD    ] Resonant Metal 60 %: " << juce::String(at100, 1) << " % at 100 Hz, "
+            << juce::String(at1k, 1) << " % at 1 kHz" << std::endl;
+  EXPECT_NEAR(at100, 19.0, 19.0 / 3.0);
+  EXPECT_NEAR(at1k, 50.5, 50.5 / 3.0);
+}
+
+TEST(DriveEffectsTest, ResonantKeepsTheLevelOfStandardAtTheImportSettings) {
+  const Params standard = {{"distortionPercent", 60.0}, {"midHz", 1600.0}, {"levelDb", -21.5}};
+  const Params resonant = {{"voicing", 1.0}, {"distortionPercent", 60.0}, {"midHz", 1600.0}, {"levelDb", -21.5}};
+  std::cout << "[   LEVEL  ] Metal 1 kHz at -18 dBFS: Standard " << juce::String(level1k("drive.metal", standard), 2)
+            << " dB, Resonant " << juce::String(level1k("drive.metal", resonant), 2) << " dB" << std::endl;
+  EXPECT_NEAR(level1k("drive.metal", resonant), level1k("drive.metal", standard), 2.0);
+}
+
+TEST(DriveEffectsTest, ResonantEqKnobsStillCorrectTheVoice) {
+  const Params flat = {{"voicing", 1.0}, {"distortionPercent", 60.0}, {"midHz", 1600.0}};
+  Params bassCut = flat;
+  bassCut.emplace_back("lowDb", -12.0);
+  Params trebleUp = flat;
+  trebleUp.emplace_back("highDb", 12.0);
+  const double lowFlat = toneGainDb("drive.metal", flat, 63.0, -18.0) - toneGainDb("drive.metal", flat, 1000.0, -18.0);
+  const double lowCut = toneGainDb("drive.metal", bassCut, 63.0, -18.0) - toneGainDb("drive.metal", bassCut, 1000.0, -18.0);
+  EXPECT_LT(lowCut, lowFlat - 3.0);
+  const double highFlat = toneGainDb("drive.metal", flat, 8000.0, -18.0) - toneGainDb("drive.metal", flat, 1000.0, -18.0);
+  const double highUp = toneGainDb("drive.metal", trebleUp, 8000.0, -18.0) - toneGainDb("drive.metal", trebleUp, 1000.0, -18.0);
+  EXPECT_GT(highUp, highFlat + 5.0);
+}

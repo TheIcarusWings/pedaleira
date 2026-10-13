@@ -5,6 +5,7 @@ No unit, no pyquadcortex, no network and no PedaleiraMatch / PedaleiraRender bin
 Run:  python3 tools/match/test_qc_match.py
 """
 
+import array
 import ast
 import contextlib
 import datetime
@@ -59,6 +60,9 @@ class FakeSpec:
     def option_to_value(self, option):
         return option / (self.option_count - 1)
 
+    def value_to_option(self, value):
+        return round(value * (self.option_count - 1))
+
 
 def fake_model(model_id, name, category, *specs):
     return NS(id=model_id, name=name, category=category, parameters=tuple(specs), is_factory=True, hidden=False, superseded=False)
@@ -88,9 +92,14 @@ class FakeMessage(NS):
 class FakeUnit:
     """Records every call; has the save methods too, so a refusal is the proxy's doing."""
 
-    def __init__(self, dirty=False, free=(1, 3), occupied_rows=()):
+    def __init__(self, dirty=False, free=(1, 3), occupied_rows=(), current_name="Fake Preset", loaded=None, stubborn=False):
         self.calls = []
         self.dirty = dirty
+        self.current_name = current_name
+        self.loaded = loaded  # position of the preset that is loaded; recalling it again clears nothing
+        self.stubborn = stubborn  # the unsaved-edit flag never clears
+        self.values = {}
+        self.overrides = {}  # (row, column, index) -> what the unit holds instead of what was sent
         self.free = list(free)
         self.catalog = fake_catalog()
         self.cells = {}
@@ -117,7 +126,19 @@ class FakeUnit:
 
     def read_preset(self, setlist, position):
         self._note("read_preset", position=position)
+        if position != self.loaded:
+            self.loaded = position
+            self.current_name = "Brit 2203" if position == 7 else f"Factory {position}"
+            self.cells.clear()
+            self.ports.clear()
+            self.values.clear()
+            if not self.stubborn:
+                self.dirty = False
         return self._preset()
+
+    def list_presets(self, setlist):
+        self._note("list_presets")
+        return [NS(index=i, name="Brit 2203" if i == 7 else f"Factory {i}") for i in range(10)]
 
     def read_current_preset(self):
         self._note("read_current_preset")
@@ -145,6 +166,12 @@ class FakeUnit:
     def set_param(self, row, column, **kw):
         self._note("set_param", row=row, column=column, **{k: v for k, v in kw.items() if k != "model"})
         self.params.append(kw)
+        if "model" not in kw:
+            return
+        spec = next(s for s in kw["model"].parameters if s.name == kw["param"])
+        wire = kw["value"] if "value" in kw else (kw["real"] - spec.minimum) / (spec.maximum - spec.minimum)
+        key = (row, column, spec.index)
+        self.values[key] = self.overrides.get(key, wire)
 
     def close(self):
         self.closed = True
@@ -174,7 +201,7 @@ class FakeUnit:
             chains.append(FakeMessage(**fields))
         blocks = [NS(row=r, column=c, model_id=int(m)) for (r, c), m in self.cells.items()]
         blocks += [NS(row=r, column=0, model_id=1) for r in self.occupied_rows]
-        return NS(name="Fake Preset", chains=chains, blocks=blocks)
+        return NS(name=self.current_name, chains=chains, blocks=blocks, stored=dict(self.values))
 
 
 def fake_kit(unit=None, connect_error=None):
@@ -193,6 +220,7 @@ def fake_kit(unit=None, connect_error=None):
         device_errors=(OSError,),
         refused_errors=(KeyError,),
         lost_errors=(ConnectionError,),
+        param_state=lambda preset, cell, index: NS(scene_mode=False, values=(preset.stored.get((cell.row, cell.column, index)),)),
     )
 
 
@@ -479,7 +507,9 @@ COMPARISON = {
 class ToolMock:
     """Stands in for subprocess.run: PedaleiraMatch and PedaleiraRender write the files they would."""
 
-    def __init__(self, fail_record_once=(), always_fail_record=()):
+    def __init__(self, fail_record_once=(), always_fail_record=(), record_output="", fail_output=""):
+        self.record_output = record_output
+        self.fail_output = fail_output
         self.calls = []
         self.fail_record_once = set(fail_record_once)
         self.always_fail_record = set(always_fail_record)
@@ -497,17 +527,17 @@ class ToolMock:
         if command == "signals":
             out = Path(argv[argv.index("--out") + 1])
             out.mkdir(parents=True, exist_ok=True)
-            (out / qm.DEFAULT_SIGNAL_NAME).write_bytes(b"RIFF")
+            qm.write_float_wav(out / qm.DEFAULT_SIGNAL_NAME, 48000, 1, array.array("f", [0.0, 1.0, -0.5, 0.25]))
             return self.done(argv, 0)
         if command == "record":
             name = argv[argv.index("--name") + 1]
             self.record_attempts[name] = self.record_attempts.get(name, 0) + 1
             if name in self.always_fail_record or (name in self.fail_record_once and self.record_attempts[name] == 1):
-                return self.done(argv, 3, "", "take check failed: no sync marker")
+                return self.done(argv, 3, self.fail_output, "take check failed: no sync marker")
             folder = Path(argv[argv.index("--dir") + 1])
             folder.mkdir(parents=True, exist_ok=True)
             (folder / f"{name}.wav").write_bytes(b"RIFF")
-            return self.done(argv, 0)
+            return self.done(argv, 0, self.record_output)
         if command == "analyse":
             Path(argv[argv.index("--out") + 1]).write_text("{}", encoding="utf-8")
             return self.done(argv, 0)
@@ -580,7 +610,7 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(code, qm.EXIT_DIRTY)
         self.assertIn("unsaved edits", err)
         names = [c[0] for c in unit.calls]
-        self.assertEqual(names, ["version", "preset_dirty"])
+        self.assertEqual(names, ["version", "preset_dirty", "read_current_preset"])  # a preset that is not the scratch
         self.assertEqual(tools.calls, [])
         self.assertTrue(unit.closed)
         self.assertEqual(unit.saved, [])
@@ -744,6 +774,198 @@ class SessionTest(unittest.TestCase):
         code, out, err = self.run_main(self.argv(plan, "--go"), deps)
         self.assertEqual(code, qm.EXIT_TAKES_FAILED)
         self.assertEqual([c[0] for c in unit.calls], ["version", "preset_dirty"])
+
+
+class SignalGainTest(SessionTest):
+    def test_plan_default_and_per_take_gain(self):
+        plan = {"format": qm.FORMAT, "signalGainDb": -6, "takes": [
+            {"name": "a", "model": "Hall"}, {"name": "b", "model": "Hall", "signalGainDb": -12}, {"name": "c", "model": "Hall", "signalGainDb": 0}]}
+        self.assertEqual([t.signal_gain_db for t in qm.parse_plan(plan)], [-6.0, -12.0, 0.0])
+        self.assertEqual(qm.parse_plan([{"name": "a", "model": "Hall"}])[0].signal_gain_db, 0.0)
+
+    def test_gain_must_be_a_number_from_minus_60_to_0(self):
+        for bad in (3, 0.5, -61, "loud", True, float("nan")):
+            with self.subTest(bad=bad):
+                with self.assertRaises(qm.PlanError) as caught:
+                    qm.parse_plan({"takes": [{"name": "a", "model": "Hall", "signalGainDb": bad}]})
+                self.assertIn("signalGainDb", str(caught.exception))
+        with self.assertRaises(qm.PlanError):
+            qm.parse_plan({"signalGainDb": 2, "takes": [{"name": "a", "model": "Hall"}]})
+
+    def test_record_command_carries_the_gain_only_when_set(self):
+        self.assertNotIn("--gain-db", qm.record_cmd("PM", "QC", "5,6", "3,4", "t", "/r"))
+        cmd = qm.record_cmd("PM", "QC", "5,6", "3,4", "t", "/r", gain_db=-6.0)
+        self.assertEqual(cmd[cmd.index("--gain-db") + 1], "-6")
+
+    def test_attenuated_copy_is_scaled_and_never_taken_for_the_signal(self):
+        src = self.root / "pedaleira-test-signal-v1.wav"
+        qm.write_float_wav(src, 48000, 1, array.array("f", [0.0, 1.0, -0.5, 0.25]))
+        copy = Path(qm.attenuated_signal(str(src), -6.0))
+        self.assertEqual(copy.name, "pedaleira-test-signal-v1-atten-6dB.wav")
+        rate, channels, samples = qm.read_float_wav(copy)
+        self.assertEqual((rate, channels), (48000, 1))
+        factor = 10 ** (-6.0 / 20)
+        for got, want in zip(samples, [0.0, 1.0, -0.5, 0.25]):
+            self.assertAlmostEqual(got, want * factor, places=6)
+        self.assertEqual(qm.attenuated_signal(str(src), 0.0), str(src))
+        dirs = qm.SessionDirs.at(self.root)
+        dirs.signal.mkdir(parents=True)
+        for path in (src, copy):
+            (dirs.signal / path.name).write_bytes(path.read_bytes())
+        self.assertEqual(Path(qm.find_signal(dirs)).name, src.name)
+
+    def test_session_plays_and_renders_the_attenuated_signal(self):
+        unit = FakeUnit()
+        takes = [dict(COMP_TAKE, signalGainDb=-6), {"name": "loud", "model": "Hall", "params": {"MIX": 100}}]
+        plan = write_plan(self.root, takes)
+        tools = ToolMock(record_output="wrote x\n  peak -7.2 dBFS, both sync markers found, latency 5.00 ms, level -0.1 dB at 1 kHz\n  check passed\n")
+        code, out, err = self.run_main(self.argv(plan, "--go", "--yes"), fake_deps(fake_kit(unit)), tools)
+        self.assertEqual(code, qm.EXIT_OK, err)
+        records = {c[c.index("--name") + 1]: c for c in tools.names("record")}
+        self.assertEqual(records["comp-r4"][records["comp-r4"].index("--gain-db") + 1], "-6")
+        self.assertNotIn("--gain-db", records["loud"])
+        renders = {c[c.index("--out") + 1].rsplit(os.sep, 1)[-1]: c for c in tools.calls if os.path.basename(c[0]) == "PedaleiraRender"}
+        self.assertTrue(renders["comp-r4.wav"][renders["comp-r4.wav"].index("--in") + 1].endswith("pedaleira-test-signal-v1-atten-6dB.wav"))
+        self.assertTrue(renders["loud.wav"][renders["loud.wav"].index("--in") + 1].endswith("pedaleira-test-signal-v1.wav"))
+        report = (self.root / "session" / "report.md").read_text(encoding="utf-8")
+        self.assertEqual(report.count("Signal level: the test signal was played 6 dB below nominal"), 1)
+        self.assertIn("static-curve step is its nominal level minus 6 dB", report)
+        self.assertIn("Recording check (PedaleiraMatch record): peak -7.2 dBFS", report)
+        self.assertIn("check passed", report)
+
+    def test_dry_run_shows_the_gain(self):
+        plan = write_plan(self.root, [dict(COMP_TAKE, signalGainDb=-6)])
+        code, out, err = self.run_main(self.argv(plan), fake_deps(fake_kit(FakeUnit())))
+        self.assertEqual(code, 0, err)
+        self.assertIn("--gain-db -6", out)
+        self.assertIn("pedaleira-test-signal-v1-atten-6dB.wav", out)
+
+    def test_a_clipped_take_is_reported_with_a_hint(self):
+        plan = write_plan(self.root, [COMP_TAKE, dict(COMP_TAKE, name="quiet", signalGainDb=-6)])
+        problem = "  peak 0.0 dBFS\n  PROBLEM: the take clips (it holds full scale, peak 0.0 dBFS): lower the unit's output level\n  check FAILED\n"
+        tools = ToolMock(always_fail_record={"comp-r4", "quiet"}, fail_output=problem)
+        code, out, err = self.run_main(self.argv(plan, "--go", "--yes"), fake_deps(fake_kit(FakeUnit())), tools)
+        self.assertEqual(code, qm.EXIT_TAKES_FAILED)
+        report = (self.root / "session" / "report.md").read_text(encoding="utf-8")
+        failed = report.split("## Failed takes")[1]
+        self.assertIn("the take clips", failed)
+        row_loud = next(line for line in failed.splitlines() if "comp-r4" in line)
+        row_quiet = next(line for line in failed.splitlines() if "quiet" in line)
+        self.assertIn("signalGainDb", row_loud)
+        self.assertNotIn("hint", row_quiet)
+
+
+class ReadbackTest(SessionTest):
+    def test_report_has_the_table_and_the_read_is_read_only(self):
+        unit = FakeUnit()
+        plan = write_plan(self.root, [DELAY_TAKE, {"name": "bypass", "bypass": True}])
+        code, out, err = self.run_main(self.argv(plan, "--go", "--yes"), fake_deps(fake_kit(unit)))
+        self.assertEqual(code, qm.EXIT_OK, err)
+        self.assertEqual(unit.saved, [])
+        self.assertTrue({c[0] for c in unit.calls} <= qm.ALLOWED_CALLS)
+        report = (self.root / "session" / "report.md").read_text(encoding="utf-8")
+        self.assertIn("Parameters read back from the unit", report)
+        self.assertIn("| Parameter | Asked | Wire sent | Wire read back |", report)
+        self.assertIn("| TIME | 250 ms | 0.12500 | 0.12500 | 250 ms | - | 0 |  |", report)
+        self.assertIn("| FEEDBACK | 35 % | 0.35000 | 0.35000 | 35 % | - | 0 |  |", report)
+        self.assertEqual(report.count("Parameters read back"), 1)  # not for the bypass take
+
+    def test_a_value_the_unit_holds_differently_is_flagged(self):
+        unit = FakeUnit()
+        unit.overrides[(3, 0, 0)] = 0.25  # TIME 250 ms of 2000 sent as 0.125; the unit holds 0.25
+        plan = write_plan(self.root, [DELAY_TAKE])
+        code, out, err = self.run_main(self.argv(plan, "--go", "--yes", "--row", "4"), fake_deps(fake_kit(unit)))
+        self.assertEqual(code, qm.EXIT_OK, err)
+        report = (self.root / "session" / "report.md").read_text(encoding="utf-8")
+        self.assertIn("| TIME | 250 ms | 0.12500 | 0.25000 | 500 ms | - | 250 | the unit holds 0.25000, not the 0.12500 that was sent |", report)
+
+    def test_no_readback_skips_it(self):
+        unit = FakeUnit()
+        plan = write_plan(self.root, [DELAY_TAKE])
+        code, out, err = self.run_main(self.argv(plan, "--go", "--yes", "--no-readback"), fake_deps(fake_kit(unit)))
+        self.assertEqual(code, qm.EXIT_OK, err)
+        report = (self.root / "session" / "report.md").read_text(encoding="utf-8")
+        self.assertNotIn("read back", report)
+        self.assertFalse(qm.options_from(qm.parse_args(["--plan", "p.json", "--no-readback"])).readback)
+        self.assertTrue(qm.options_from(qm.parse_args(["--plan", "p.json"])).readback)
+
+    def test_one_read_of_the_grid_serves_the_setup_check_and_the_readback(self):
+        unit = FakeUnit()
+        plan = write_plan(self.root, [DELAY_TAKE])
+        self.run_main(self.argv(plan, "--go", "--yes"), fake_deps(fake_kit(unit)))
+        self.assertEqual([c[0] for c in unit.calls].count("read_current_preset"), 1)
+
+    def test_curve_and_option_conversion(self):
+        spec = FakeSpec(0, "DELAY TIME", 7.0, 6000.0, "ms")
+        exponent = 5.0 / 3.0
+        setting = qm.plan_setting(spec, 250, exponent)
+        row = qm.readback_row(setting, spec, setting.wire, exponent)
+        self.assertEqual(row.note, "")
+        self.assertEqual(row.curve, "250 ms")
+        self.assertNotEqual(row.linear, row.curve)  # linear conversion would show 7 + 5993 * 0.14614
+        self.assertEqual(row.difference, "0")
+        # The unit holds a value that is not what was sent (a unit that played 500 ms for 300 asked).
+        held = qm.readback_row(qm.plan_setting(spec, 300, exponent), spec, qm.plan_setting(spec, 500, exponent).wire, exponent)
+        self.assertIn("not the", held.note)
+        self.assertEqual(held.difference, "200")
+        options = FakeSpec(3, "TYPE", options=3)
+        listed = qm.readback_row(qm.plan_setting(options, 2), options, 1.0, None)
+        self.assertEqual(listed.linear, "option 2 of 3")
+        self.assertEqual(qm.readback_row(qm.plan_setting(spec, 250), spec, None, None).note, "the unit holds no value for it")
+
+    def test_a_missing_helper_or_block_is_a_note_not_a_failure(self):
+        unit = FakeUnit()
+        kit = fake_kit(unit)._replace(param_state=None)
+        plan = write_plan(self.root, [DELAY_TAKE])
+        code, out, err = self.run_main(self.argv(plan, "--go", "--yes"), fake_deps(kit))
+        self.assertEqual(code, qm.EXIT_OK, err)
+        self.assertIn("param_state", (self.root / "session" / "report.md").read_text(encoding="utf-8"))
+
+
+class ScratchEditsTest(SessionTest):
+    def run_dirty(self, unit, *extra):
+        plan = write_plan(self.root, [COMP_TAKE])
+        return self.run_main(self.argv(plan, "--go", "--yes", *extra), fake_deps(fake_kit(unit)))
+
+    def test_leftover_edits_on_the_scratch_are_cleared_through_another_preset(self):
+        unit = FakeUnit(dirty=True, current_name="Brit 2203", loaded=7)
+        code, out, err = self.run_dirty(unit)
+        self.assertEqual(code, qm.EXIT_OK, err)
+        self.assertEqual(unit.saved, [])
+        recalls = [kw["position"] for name, kw in unit.calls if name == "read_preset"]
+        self.assertEqual(recalls[:2], [0, 7])  # the first factory preset that is not the scratch, then the scratch
+        names = [c[0] for c in unit.calls]
+        self.assertLess(names.index("read_preset"), names.index("set_block"))
+        self.assertGreater(names.count("preset_dirty"), 1)  # re-checked after the detour
+        self.assertIn("leftovers of an earlier session", out)
+        self.assertIn("recall 0 of the", out)
+        report = (self.root / "session" / "report.md").read_text(encoding="utf-8")
+        self.assertIn("Recalls made on the unit", report)
+        self.assertIn("1. recall 0 of", report)
+        self.assertIn("routing matches what the scratch preset stores", report)
+        self.assertIn("the scratch preset again, which drops the session's edits", report)
+
+    def test_another_preset_with_edits_still_refuses(self):
+        unit = FakeUnit(dirty=True, current_name="My Own Preset", loaded=3)
+        code, out, err = self.run_dirty(unit)
+        self.assertEqual(code, qm.EXIT_DIRTY)
+        self.assertIn("unsaved edits", err)
+        self.assertNotIn("read_preset", [c[0] for c in unit.calls])
+        self.assertEqual(unit.saved, [])
+
+    def test_edits_that_stay_after_the_detour_refuse(self):
+        unit = FakeUnit(dirty=True, current_name="Brit 2203", loaded=7, stubborn=True)
+        code, out, err = self.run_dirty(unit)
+        self.assertEqual(code, qm.EXIT_DIRTY)
+        self.assertIn("still reports unsaved edits", err)
+        self.assertNotIn("set_block", [c[0] for c in unit.calls])
+        self.assertEqual(unit.saved, [])
+
+    def test_use_current_never_clears_edits(self):
+        unit = FakeUnit(dirty=True, current_name="Brit 2203", loaded=7)
+        code, out, err = self.run_dirty(unit, "--use-current")
+        self.assertEqual(code, qm.EXIT_DIRTY)
+        self.assertNotIn("read_preset", [c[0] for c in unit.calls])
 
 
 class PrepareTakeTest(unittest.TestCase):

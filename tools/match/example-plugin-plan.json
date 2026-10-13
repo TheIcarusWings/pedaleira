@@ -1,0 +1,19 @@
+{
+  "format": "pedaleira-plugin-match-plan",
+  "version": 1,
+  "plugin": {
+    "path": "/Library/Audio/Plug-Ins/VST3/Some Distortion.vst3",
+    "params": { "Tone": 0.5, "Level": { "text": "0.0 dB" } }
+  },
+  "takes": [
+    { "name": "dist-gain-sweep",
+      "sweep": { "param": "Gain", "values": [0, 0.25, 0.5, 0.75, 1] },
+      "ours": { "kind": "drive.distortion",
+                "params": { "filterPercent": 60, "levelDb": 0 },
+                "sweep": { "param": "distortionPercent", "values": [0, 25, 50, 75, 100] } },
+      "notes": "Gain 0..1 on the plugin against distortionPercent 0..100 on ours, tone and level held." },
+    { "name": "dist-gain-half",
+      "plugin": { "params": { "Gain": 0.5 } },
+      "ours": { "kind": "drive.distortion", "params": { "distortionPercent": 50, "filterPercent": 60 } } }
+  ]
+}

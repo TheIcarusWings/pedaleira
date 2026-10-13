@@ -50,6 +50,10 @@ public:
   // so a state that is loaded and saved again without an edit in between
   // comes back byte for byte whatever the plugin would have written.
   void applyState(const juce::MemoryBlock& chunk);
+  // Hand a VST3 plugin the bytes of a .vstpreset file. False when the plugin
+  // is not a VST3, the file is refused, or this is not the message thread.
+  // The cached chunk is dropped (it is read again from the plugin when asked).
+  bool applyVst3Preset(const juce::MemoryBlock& preset);
   // The chunk as last cached. Safe under the chain lock: it never calls the
   // plugin (see serviceOnMessageThread for where the cache comes from).
   juce::MemoryBlock cachedState() const;
@@ -86,6 +90,13 @@ public:
   ServiceResult serviceOnMessageThread(bool forceStateRefresh, int minCaptureIntervalMs = 0);
 
   juce::String parameterText(int index) const;
+  // What the plugin's own text conversion makes of `text` for parameter row
+  // `index`, as a normalised 0..1 value. False when the row does not exist or
+  // the plugin throws. Message thread only (as parameterText).
+  bool valueForText(int index, const juce::String& text, float& value) const;
+  // The number of steps the plugin reports for parameter row `index`
+  // (0 when the row does not exist). Message thread only.
+  int parameterNumSteps(int index) const;
 
   // The plugin's own editor, or null when it has none, one is already open,
   // or this is not the message thread. Whoever shows it holds this instance

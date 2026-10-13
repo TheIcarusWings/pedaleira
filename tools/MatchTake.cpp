@@ -7,6 +7,7 @@
 #include <memory>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 
 namespace MatchTake {
 
@@ -89,8 +90,20 @@ juce::BigInteger channelMask(const std::vector<int>& channels) {
   return mask;
 }
 
+std::vector<float> attenuatedSamples(const std::vector<float>& samples, double gainDb) {
+  if (!std::isfinite(gainDb) || gainDb > 0.0)
+    throw std::invalid_argument("the signal gain must be 0 dB or less (got " + dbText(gainDb) + ")");
+  std::vector<float> out = samples;
+  if (gainDb == 0.0)
+    return out;
+  const double gain = std::pow(10.0, gainDb / 20.0);
+  for (float& sample : out)
+    sample = static_cast<float>(static_cast<double>(sample) * gain);
+  return out;
+}
+
 Check checkTake(const juce::AudioBuffer<float>& recording, double sampleRate,
-                const EffectMatch::TestSignal& reference) {
+                const EffectMatch::TestSignal& reference, double signalGainDb) {
   Check check;
 
   float peak = 0.0f;
@@ -117,7 +130,7 @@ Check checkTake(const juce::AudioBuffer<float>& recording, double sampleRate,
     check.markersFound = true;
     check.latencyMs = analysis.alignment.latencyMs;
     if (analysis.left.sweepLow)
-      check.levelGainDb = analysis.left.sweepLow->levelGainDb;
+      check.levelGainDb = analysis.left.sweepLow->levelGainDb - signalGainDb;
     else
       check.problems.push_back("the quiet sweep could not be measured, so the level is unknown");
   } catch (const EffectMatch::MatchError& e) {

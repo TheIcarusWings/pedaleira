@@ -36,6 +36,7 @@ target_sources(DspTests PRIVATE
     src/engine_commands_tests.cpp
     src/duplicate_tests.cpp
     src/effect_match_tests.cpp
+    src/match_plugin_tests.cpp
     src/match_recorder_tests.cpp
     src/eq_chain_rate_tests.cpp
     src/eq_post_routing_tests.cpp
@@ -157,7 +158,9 @@ target_compile_definitions(DspTests PRIVATE
 
 # The recording half of PedaleiraMatch (tools/MatchRecorder, tools/MatchTake) is
 # tested without a sound card: match_recorder_tests.cpp drives its callback.
+# MatchPlugin (the plugin reference mode) is tested against PedaleiraTestFx.
 target_sources(DspTests PRIVATE
+    ../tools/MatchPlugin.cpp
     ../tools/MatchRecorder.cpp
     ../tools/MatchTake.cpp
 )

@@ -160,9 +160,13 @@ public:
   }
   void clear() noexcept { line.clear(); }
 
+  /** Scales every coefficient (0 to 1): a diffusion knob. 1 is the design,
+      and multiplying by 1 changes nothing. */
+  void setScale(float newScale) noexcept { scale = newScale; }
+
   float process(float x) noexcept {
     for (int s = 0; s < stages; ++s) {
-      const float k = coeff[static_cast<size_t>(s)];
+      const float k = coeff[static_cast<size_t>(s)] * scale;
       const float delayed = line.read(s, length[static_cast<size_t>(s)]);
       const float v = x - k * delayed;
       line.write(s, v);
@@ -175,6 +179,7 @@ private:
   fx::DelayLine line;
   std::array<int, kMaxStages> length{};
   std::array<float, kMaxStages> coeff{};
+  float scale{1.0f};
   int stages{0};
 };
 
@@ -258,6 +263,105 @@ public:
 private:
   fx::StateVariableFilter lowCut;
   fx::StateVariableFilter highCut;
+};
+
+/** The excursion, in milliseconds, of a modulated line for a depth knob
+    (`depth`, 0 to 1) at an oscillator speed of `rateHz`: at most `maxMs`, and
+    never so much that the line's pitch drifts by more than `maxDrift` (a
+    fraction: 0.008 is 14 cents). A line moved x(t) = a sin(2 pi f t) drifts by
+    2 pi f a at the steepest, so a fast oscillator gets a smaller excursion. */
+inline float modExcursionMs(float depth, double rateHz, double maxMs, double maxDrift) noexcept {
+  const double byDrift =
+      1000.0 * maxDrift / (juce::MathConstants<double>::twoPi * std::max(rateHz, 0.01));
+  return depth * static_cast<float>(std::min(maxMs, byDrift));
+}
+
+/**
+ * The swell of a reverb that builds instead of starting at once. The input
+ * of the late field goes through a sparse filter of 24 taps of mixed sign
+ * whose weights rise with their delay (so the energy it passes climbs with
+ * time), spread over a span that grows with the amount, up to
+ * `maxSeconds`. Behind a bank of allpasses and a feedback network each tap
+ * becomes a dense cloud, and the sum of the clouds is a field whose level
+ * climbs over the span. The share of the direct signal and of the filtered
+ * one follow a quarter circle, cos and sin of the amount, so the energy that
+ * enters the network is the same at every setting. Amount 0 passes the input
+ * as it is, bit for bit, and costs one write.
+ */
+class AttackSmear {
+public:
+  static constexpr int kTaps = 24;
+
+  void prepare(double maxSeconds, double newSampleRate) {
+    sampleRate = newSampleRate;
+    maxSpan = maxSeconds * sampleRate;
+    line.prepare(1, static_cast<int>(std::ceil(maxSpan)) + 4);
+    // Fixed taps, stratified over the span with a little jitter so no two are
+    // evenly spaced, and a sign each: a deterministic sequence, so every run
+    // and every channel sounds the same.
+    std::uint32_t state = 0x9E3779B9u;
+    for (int k = 0; k < kTaps; ++k) {
+      state = state * 1664525u + 1013904223u;
+      const double jitter = static_cast<double>(state >> 8) / 16777216.0;
+      const size_t n = static_cast<size_t>(k);
+      fraction[n] = (static_cast<double>(k) + 0.15 + 0.7 * jitter) / kTaps;
+      sign[n] = ((state >> 20) & 1u) != 0u ? 1.0f : -1.0f;
+    }
+    // Weights in proportion to the delay, so the energy of the taps rises with
+    // the square of it (the swell outclimbs the decay of a long tail). Unit
+    // total energy.
+    double energy = 0.0;
+    for (int k = 0; k < kTaps; ++k)
+      energy += fraction[static_cast<size_t>(k)] * fraction[static_cast<size_t>(k)];
+    for (int k = 0; k < kTaps; ++k) {
+      const size_t n = static_cast<size_t>(k);
+      weight[n] = sign[n] * static_cast<float>(fraction[n] / std::sqrt(energy));
+    }
+    reset();
+  }
+
+  void reset() noexcept {
+    line.clear();
+    direct.snap(1.0f);
+    smeared.snap(0.0f);
+    idleTicks = 2;
+  }
+
+  /** At a control tick. `amount` is 0 to 1. */
+  void control(float amount) noexcept {
+    const float a = juce::jlimit(0.0f, 1.0f, amount);
+    const bool off = a <= 0.001f;
+    const float angle = off ? 0.0f : a * 1.5707963f;
+    direct.aim(std::cos(angle));
+    smeared.aim(std::sin(angle));
+    idleTicks = off ? std::min(idleTicks + 1, 2) : 0;
+    // From 20 ms at the start of the knob to the full span.
+    const double span = 0.02 * sampleRate + a * (maxSpan - 0.02 * sampleRate);
+    for (int k = 0; k < kTaps; ++k)
+      position[static_cast<size_t>(k)] =
+          std::max(1, static_cast<int>(std::lround(fraction[static_cast<size_t>(k)] * span)));
+  }
+
+  float process(float x) noexcept {
+    line.write(0, x);
+    if (idleTicks >= 2)
+      return x;
+    float sum = 0.0f;
+    for (int k = 0; k < kTaps; ++k)
+      sum += weight[static_cast<size_t>(k)] * line.read(0, position[static_cast<size_t>(k)]);
+    return direct.step() * x + smeared.step() * sum;
+  }
+
+private:
+  fx::DelayLine line;
+  double sampleRate{48000.0};
+  double maxSpan{1.0};
+  std::array<double, kTaps> fraction{};
+  std::array<float, kTaps> sign{};
+  std::array<float, kTaps> weight{};
+  std::array<int, kTaps> position{};
+  Ramped direct, smeared;
+  int idleTicks{2};
 };
 
 /** The first-order shelf that follows a delay in a decaying loop: unity at

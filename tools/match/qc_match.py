@@ -29,6 +29,7 @@ is really talked to.
 """
 
 import argparse
+import array
 import datetime
 import difflib
 import json
@@ -37,6 +38,7 @@ import os
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -446,20 +448,38 @@ class Take:
     ours_kind: Optional[str] = None
     ours_params: Dict[str, float] = field(default_factory=dict)
     notes: str = ""
+    # dB below nominal the test signal is played and rendered at (0 or less).
+    signal_gain_db: float = 0.0
+
+
+MIN_SIGNAL_GAIN_DB = -60.0
+
+
+def parse_signal_gain(value: Any, where: str, problems: List[str]) -> Optional[float]:
+    """A `signalGainDb` of the plan: a number from -60 to 0, else a problem is recorded."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) \
+            or not MIN_SIGNAL_GAIN_DB <= float(value) <= 0.0:
+        problems.append(f"{where}: signalGainDb must be a number from {MIN_SIGNAL_GAIN_DB:g} to 0 (dB below the nominal signal)")
+        return None
+    return float(value) + 0.0  # no negative zero
 
 
 def parse_plan(document: Any) -> List[Take]:
     """The takes of a plan: {"format": ..., "takes": [...]} or a bare list of takes."""
+    problems: List[str] = []
+    default_gain = 0.0
     if isinstance(document, dict):
         if document.get("format") not in (None, FORMAT):
             raise PlanError(f"the plan's format must be {FORMAT!r}")
         raw_takes = document.get("takes")
+        default_gain = parse_signal_gain(document.get("signalGainDb"), "the plan", problems) or 0.0
     else:
         raw_takes = document
     if not isinstance(raw_takes, list) or not raw_takes:
         raise PlanError("the plan needs a non-empty list of takes")
 
-    problems: List[str] = []
     takes: List[Take] = []
     seen: Dict[str, int] = {}
     for number, raw in enumerate(raw_takes, 1):
@@ -529,6 +549,7 @@ def parse_plan(document: Any) -> List[Take]:
                         ours_params[ident] = float(value)
                     else:
                         problems.append(f"{where}: ours setting {ident!r} must be a number")
+        take_gain = parse_signal_gain(raw.get("signalGainDb"), where, problems)
         takes.append(
             Take(
                 name=name,
@@ -538,6 +559,7 @@ def parse_plan(document: Any) -> List[Take]:
                 ours_kind=ours_kind,
                 ours_params=ours_params,
                 notes=str(raw.get("notes", "")),
+                signal_gain_db=default_gain if take_gain is None else take_gain,
             )
         )
     if problems:
@@ -625,14 +647,20 @@ def record_cmd(
     rate: int = DEFAULT_RATE,
     signal_type: Optional[str] = None,
     buffer: Optional[int] = None,
+    gain_db: float = 0.0,
 ) -> List[str]:
-    """PedaleiraMatch record: plays the test signal on out_ch and records in_ch into out_dir/name.wav."""
+    """PedaleiraMatch record: plays the test signal on out_ch and records in_ch into out_dir/name.wav.
+
+    `gain_db` (0 or less) plays the signal that many dB below nominal (record --gain-db); at 0 the
+    option is left out, so the command is the one older builds know."""
     cmd = [match_tool, "record", "--device", device, "--out-ch", out_ch, "--in-ch", in_ch, "--name", name, "--dir", out_dir]
     if signal_type:
         cmd += ["--type", signal_type]
     cmd += ["--rate", str(rate)]
     if buffer:
         cmd += ["--buffer", str(buffer)]
+    if gain_db:
+        cmd += ["--gain-db", f"{gain_db:g}"]
     return cmd
 
 
@@ -652,6 +680,79 @@ def render_cmd(
     if out_channels:
         cmd += ["--out-channels", str(out_channels)]
     return cmd
+
+
+# ####################
+# THE ATTENUATED SIGNAL (pure, plus file I/O)
+# ####################
+
+SIGNAL_FILE_RE = re.compile(r"^pedaleira-test-signal-v\d+\.wav$")
+
+
+def gain_factor(gain_db: float) -> float:
+    return 10.0 ** (gain_db / 20.0)
+
+
+def attenuated_name(signal_name: str, gain_db: float) -> str:
+    """File name of the copy of a signal WAV played `gain_db` below nominal: ...-v1-atten-6dB.wav."""
+    stem, dot, extension = signal_name.rpartition(".")
+    return f"{stem}-atten-{abs(gain_db):g}dB{dot}{extension}"
+
+
+def read_float_wav(path: Path) -> Tuple[int, int, "array.array"]:
+    """(sample rate, channels, samples) of a 32-bit float WAV, the format `PedaleiraMatch signals` writes."""
+    data = Path(path).read_bytes()
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        raise PlanError(f"{path} is not a WAV file")
+    rate = channels = 0
+    samples: Optional[array.array] = None
+    at = 12
+    while at + 8 <= len(data):
+        chunk_id, size = data[at : at + 4], struct.unpack("<I", data[at + 4 : at + 8])[0]
+        body = data[at + 8 : at + 8 + size]
+        if chunk_id == b"fmt " and len(body) >= 16:
+            tag, channels, rate, _, _, bits = struct.unpack("<HHIIHH", body[:16])
+            if tag == 0xFFFE and len(body) >= 26:
+                tag = struct.unpack("<H", body[24:26])[0]
+            if tag != 3 or bits != 32:
+                raise PlanError(f"{path} is not a 32-bit float WAV (format {tag}, {bits} bits)")
+        elif chunk_id == b"data":
+            samples = array.array("f")
+            samples.frombytes(body[: len(body) - len(body) % 4])
+            if sys.byteorder == "big":
+                samples.byteswap()
+        at += 8 + size + (size & 1)
+    if samples is None or not rate or not channels:
+        raise PlanError(f"{path} has no fmt or data chunk")
+    return rate, channels, samples
+
+
+def write_float_wav(path: Path, rate: int, channels: int, samples: "array.array") -> None:
+    body = array.array("f", samples)
+    if sys.byteorder == "big":
+        body.byteswap()
+    raw = body.tobytes()
+    fmt_chunk = struct.pack("<HHIIHH", 3, channels, rate, rate * channels * 4, channels * 4, 32)
+    header = b"RIFF" + struct.pack("<I", 4 + 8 + len(fmt_chunk) + 8 + len(raw)) + b"WAVE"
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as handle:
+        handle.write(header + b"fmt " + struct.pack("<I", len(fmt_chunk)) + fmt_chunk + b"data" + struct.pack("<I", len(raw)) + raw)
+
+
+def attenuated_signal(signal: str, gain_db: float) -> str:
+    """The signal WAV scaled by `gain_db`, written next to it once per session (a copy that is
+    newer than the signal is kept). Returns `signal` itself at 0 dB. PedaleiraRender renders
+    ours from this copy, and `record --gain-db` plays the same scaling, so both sides see the
+    same levels."""
+    if not gain_db:
+        return signal
+    target = Path(signal).with_name(attenuated_name(Path(signal).name, gain_db))
+    if target.is_file() and target.stat().st_mtime >= Path(signal).stat().st_mtime:
+        return str(target)
+    rate, channels, samples = read_float_wav(Path(signal))
+    factor = gain_factor(gain_db)
+    write_float_wav(target, rate, channels, array.array("f", (value * factor for value in samples)))
+    return str(target)
 
 
 def analyse_cmd(match_tool: str, wav: str, out_json: str, rate: int = DEFAULT_RATE) -> List[str]:
@@ -773,6 +874,9 @@ class Toolkit(NamedTuple):
     device_errors: Tuple[type, ...]  # the device cannot be opened
     refused_errors: Tuple[type, ...]  # the block was refused (no DSP room)
     lost_errors: Tuple[type, ...]  # the link died
+    # (preset, cell, parameter index) -> .scene_mode, .values: what a read preset stores for one
+    # parameter (pyquadcortex.param_state). None: the parameter readback is not available.
+    param_state: Optional[Callable[[Any, Any, int], Any]] = None
 
 
 def pyquadcortex_toolkit() -> Toolkit:
@@ -794,6 +898,7 @@ def pyquadcortex_toolkit() -> Toolkit:
         device_errors=(pyquadcortex.DeviceNotFoundError,),
         refused_errors=(pyquadcortex.BlockRefused,),
         lost_errors=(pyquadcortex.DeviceLostError,),
+        param_state=lambda preset, cell, index: pyquadcortex.param_state(preset, cell.row, cell.column, index),
     )
 
 
@@ -818,22 +923,89 @@ def open_unit(kit: Toolkit) -> GuardedClient:
     return GuardedClient(raw)
 
 
-def ensure_clean(qc: GuardedClient, sleep: Callable[[float], None]) -> None:
-    """Stops when the grid holds unsaved edits. The first request after connecting is sometimes dropped."""
+def read_dirty(qc: GuardedClient, sleep: Callable[[float], None]) -> bool:
+    """Whether the grid holds unsaved edits. The first request after connecting is sometimes dropped."""
     for attempt in range(3):
         try:
-            dirty = qc.preset_dirty()
-            break
+            return bool(qc.preset_dirty())
         except TimeoutError:
             sleep(0.5)
-    else:
-        raise UnitRefused(
-            "The unit did not say whether the preset on the grid has unsaved edits (three tries). "
-            "Nothing was touched, because a session never works on an unknown state. Run this again.",
-            EXIT_DIRTY,
-        )
-    if dirty:
+    raise UnitRefused(
+        "The unit did not say whether the preset on the grid has unsaved edits (three tries). "
+        "Nothing was touched, because a session never works on an unknown state. Run this again.",
+        EXIT_DIRTY,
+    )
+
+
+def ensure_clean(qc: GuardedClient, sleep: Callable[[float], None]) -> None:
+    """Stops when the grid holds unsaved edits."""
+    if read_dirty(qc, sleep):
         raise UnitRefused(DIRTY_MESSAGE, EXIT_DIRTY)
+
+
+def scratch_setlist_of(kit: "Toolkit", opts: "Options") -> Any:
+    return kit.setlists.FACTORY if opts.scratch_setlist == "factory" else kit.setlists.USER
+
+
+def recall(qc: GuardedClient, setlist: Any, position: Any, why: str, log: List[str]) -> Any:
+    """Recalls a stored preset on the unit (the audio cuts, nothing is written), and logs it on the console
+    and in the report."""
+    entry = f"recall {position!r} of the {getattr(setlist, 'name', setlist)} setlist: {why}"
+    log.append(entry)
+    print(f"  {entry}")
+    return qc.read_preset(setlist, position)
+
+
+def clear_scratch_edits(qc: GuardedClient, kit: "Toolkit", opts: "Options", sleep: Callable[[float], None], log: List[str]) -> bool:
+    """The grid holds unsaved edits. When the preset loaded is the scratch preset they can only be left over
+    from an earlier session, so they are cleared: another preset (the first factory preset that is not the
+    scratch) is recalled and then the scratch again, because recalling the loaded preset does not reload it.
+    Returns False when the loaded preset is not the scratch (nothing was done). Raises UnitRefused when the
+    edits are still there afterwards. Nothing is ever saved."""
+    if opts.use_current:
+        return False
+    try:
+        current_name = str(getattr(qc.read_current_preset(), "name", "") or "")
+    except (TimeoutError, OSError, ValueError):
+        return False
+    setlist = scratch_setlist_of(kit, opts)
+    try:
+        if opts.scratch_slot:
+            position = opts.scratch_slot
+            names = [e.name for e in qc.list_presets(setlist) if str(e.index).upper() == str(position).upper()
+                     or str(getattr(e, "slot", "")).upper() == str(position).upper()]
+            scratch_name = names[0] if names else ""
+        else:
+            scratch_name = opts.scratch_preset
+            position = None
+        if not scratch_name or norm(current_name) != norm(scratch_name):
+            return False
+        if position is None:
+            position = qc.find_preset(scratch_name, setlist).index
+    except (LookupError, ValueError, AttributeError, TimeoutError):
+        return False
+
+    print(f"The loaded preset {current_name!r} is the scratch preset and has unsaved edits: they are leftovers of "
+          "an earlier session, so they are cleared by recalling another preset and then the scratch again.")
+    others = [e for e in qc.list_presets(kit.setlists.FACTORY) if norm(e.name) != norm(scratch_name)
+              and not (setlist == kit.setlists.FACTORY and str(e.index) == str(position))]
+    if not others:
+        raise UnitRefused("No other factory preset was found to recall first, so the scratch preset's edits could not be cleared.", EXIT_DIRTY)
+    detour = min(others, key=lambda e: e.index)
+    recall(qc, kit.setlists.FACTORY, detour.index, f"a harmless preset ({detour.name!r}), so the scratch preset is reloaded", log)
+    sleep(0.5)
+    stored = recall(qc, setlist, position, f"the scratch preset {scratch_name!r}, without its leftover edits", log)
+    sleep(0.5)
+    if read_dirty(qc, sleep):
+        raise UnitRefused(DIRTY_MESSAGE + " (The scratch preset was recalled again through another preset and still reports unsaved edits.)", EXIT_DIRTY)
+    live = qc.read_current_preset()
+    for row in range(4):
+        if chain_ports(live, row) != chain_ports(stored, row):
+            raise UnitRefused(f"After clearing the scratch preset's edits, row {row + 1} routing differs from what the preset stores. "
+                              "Nothing was saved; recall the preset on the unit and run this again.", EXIT_DIRTY)
+    print("The unsaved-edit flag is gone and the routing is the one the scratch preset stores.")
+    log.append("check: the unsaved-edit flag is gone and the routing matches what the scratch preset stores")
+    return True
 
 
 def _present(message: Any, name: str) -> bool:
@@ -903,6 +1075,7 @@ class UnitSetting:
     unit: str  # the unit's units
     kwargs: Dict[str, Any]  # real=..., or value=... (a wire 0..1)
     note: str = ""
+    wire: Optional[float] = None  # the 0..1 value that goes over the wire
 
 
 def load_curves(path: Path = CURVES_PATH) -> Dict[str, Dict[str, float]]:
@@ -924,16 +1097,26 @@ def curve_exponent(curves: Dict[str, Dict[str, float]], model_name: str, param_n
     return curves.get(model_key(model_name), {}).get(norm(param_name))
 
 
+def linear_wire(spec: Any, real: float) -> float:
+    """The wire value pyquadcortex's `real=` sends: the line between the catalogue's minimum and maximum."""
+    convert = getattr(spec, "to_normalized", None)
+    if convert is not None:
+        return float(convert(real))
+    low, high = float(spec.minimum), float(spec.maximum)
+    return min(1.0, max(0.0, (real - low) / (high - low))) if high > low else 0.0
+
+
 def plan_setting(spec: Any, shown: Any, exponent: Optional[float] = None) -> UnitSetting:
     units = getattr(spec, "units", "") or ""
     if isinstance(shown, dict):
-        return UnitSetting(spec.name, shown["wire"], "wire 0..1", {"value": float(shown["wire"])})
+        return UnitSetting(spec.name, shown["wire"], "wire 0..1", {"value": float(shown["wire"])}, wire=float(shown["wire"]))
     count = getattr(spec, "option_count", None)
     if count:
         index = int(shown)
         if index != shown or not 0 <= index < count:
             raise PlanError(f"{spec.name!r} is a list of {count} options; give an index from 0 to {count - 1}")
-        return UnitSetting(spec.name, index, f"option {index} of {count}", {"value": float(spec.option_to_value(index))})
+        wire = float(spec.option_to_value(index))
+        return UnitSetting(spec.name, index, f"option {index} of {count}", {"value": wire}, wire=wire)
     if getattr(spec, "range_is_placeholder", False):
         raise PlanError(
             f"{spec.name!r} publishes the placeholder range 0..1 ({units}); give it as "
@@ -949,8 +1132,8 @@ def plan_setting(spec: Any, shown: Any, exponent: Optional[float] = None) -> Uni
         fraction = min(1.0, max(0.0, (float(shown) - low) / (high - low)))
         wire = fraction ** (1.0 / exponent)
         curve = f"on the unit's curve (exponent {fmt(round(exponent, 4))}): wire {wire:.5f}"
-        return UnitSetting(spec.name, shown, units, {"value": wire}, f"{note}; {curve}" if note else curve)
-    return UnitSetting(spec.name, shown, units, {"real": float(shown)}, note)
+        return UnitSetting(spec.name, shown, units, {"value": wire}, f"{note}; {curve}" if note else curve, wire=wire)
+    return UnitSetting(spec.name, shown, units, {"real": float(shown)}, note, wire=linear_wire(spec, float(shown)))
 
 
 @dataclass
@@ -1014,8 +1197,9 @@ def setup_take(
             qc.set_param(row=row, column=0, param=setting.name, model=prepared.model, **setting.kwargs)
 
 
-def confirm_setup(qc: GuardedClient, kit: Toolkit, prepared: PreparedTake, row: int, in_port: Any, out_port: Any) -> None:
-    """Reads the live grid back (no side effects) and checks the block and the routing landed."""
+def confirm_setup(qc: GuardedClient, kit: Toolkit, prepared: PreparedTake, row: int, in_port: Any, out_port: Any) -> Any:
+    """Reads the live grid back (no side effects) and checks the block and the routing landed.
+    Returns the live preset it read, which the parameter readback uses (one read serves both)."""
     live = qc.read_current_preset()
     found = [(b.row, b.column, b.model_id) for b in kit.blocks(live) if b.row == row]
     if prepared.take.bypass:
@@ -1030,6 +1214,98 @@ def confirm_setup(qc: GuardedClient, kit: Toolkit, prepared: PreparedTake, row: 
         raise UnitRefused(f"row {row + 1} input reads back as {read_in}, not {int(in_port)}")
     if read_out is not None and read_out != int(out_port):
         raise UnitRefused(f"row {row + 1} output reads back as {read_out}, not {int(out_port)}")
+    return live
+
+
+# ####################
+# PARAMETER READBACK (read only)
+# ####################
+
+
+@dataclass
+class ReadbackRow:
+    """One parameter of a take: what was asked, what went over the wire, what the unit holds."""
+
+    name: str
+    asked: str  # the plan's value, in the plan's units
+    sent: Optional[float]  # wire value sent (0..1)
+    read: Any = None  # wire value the unit reports (a float, a string, or None when it is not there)
+    linear: str = ""  # the read value in the parameter's units, pyquadcortex's linear conversion
+    curve: str = ""  # the same on the unit's measured curve, when the curves table has one
+    difference: str = ""  # converted value minus the value asked (numbers only)
+    note: str = ""
+
+
+def _read_value(state: Any) -> Any:
+    """The value a parameter holds: the first slot (a parameter that follows scenes keeps one per scene; a
+    fresh block does not, and this session never switches scene)."""
+    values = list(state.values)
+    return values[0] if values else None
+
+
+def readback_row(setting: UnitSetting, spec: Any, stored: Any, exponent: Optional[float]) -> ReadbackRow:
+    """The table row for one parameter from the value the unit holds. Pure."""
+    units = getattr(spec, "units", "") or ""
+    row = ReadbackRow(name=setting.name, asked=fmt(setting.shown) + (f" {units}" if units and not isinstance(setting.shown, dict) else ""),
+                      sent=setting.wire)
+    if stored is None:
+        row.note = "the unit holds no value for it"
+        return row
+    if isinstance(stored, str):
+        row.read = stored
+        row.linear = stored
+        return row
+    if not isinstance(stored, (int, float)) or not math.isfinite(float(stored)):
+        row.read = stored
+        row.note = "the unit holds a value that cannot be converted"
+        return row
+    wire = float(stored)
+    row.read = wire
+    if setting.wire is not None and abs(wire - setting.wire) > 1.0e-4:
+        row.note = f"the unit holds {wire:.5f}, not the {setting.wire:.5f} that was sent"
+    count = getattr(spec, "option_count", None)
+    if count:
+        index = int(spec.value_to_option(wire))
+        options = tuple(getattr(spec, "options", ()) or ())
+        row.linear = str(options[index]) if 0 <= index < len(options) else f"option {index} of {count}"
+        if isinstance(setting.shown, (int, float)) and not isinstance(setting.shown, bool):
+            row.difference = fmt(index - setting.shown)
+        return row
+    if isinstance(setting.shown, dict) or getattr(spec, "range_is_placeholder", False):
+        row.linear = "(no conversion: the range is the wire's own 0..1)"
+        return row
+    low, high = float(spec.minimum), float(spec.maximum)
+    clamped = min(1.0, max(0.0, wire))
+    linear = low + clamped * (high - low)
+    row.linear = f"{fmt(clean_number(linear))} {units}".strip()
+    best = linear
+    if exponent and high > low:
+        best = low + (high - low) * clamped**exponent
+        row.curve = f"{fmt(clean_number(best))} {units}".strip()
+    if isinstance(setting.shown, (int, float)) and not isinstance(setting.shown, bool):
+        row.difference = fmt(round(best - float(setting.shown), 4) + 0.0)
+    return row
+
+
+def read_back(kit: Toolkit, live: Any, prepared: PreparedTake, row: int) -> Tuple[List[ReadbackRow], str]:
+    """(rows, note) for the parameters this take set, from the live grid already read. Never raises:
+    a parameter that cannot be read is a row with a note. Touches only the preset in memory."""
+    if kit.param_state is None:
+        return [], "the library helper for reading a parameter (param_state) is not available"
+    cell = next((b for b in kit.blocks(live) if b.row == row and b.column == 0), None)
+    if cell is None:
+        return [], "the block was not found on the grid, so nothing could be read back"
+    rows: List[ReadbackRow] = []
+    for setting in prepared.settings:
+        spec = find_parameter(prepared.model, setting.name)
+        exponent = curve_exponent(CURVES, prepared.model.name, setting.name)
+        try:
+            stored = _read_value(kit.param_state(live, cell, int(spec.index)))
+        except (IndexError, ValueError, KeyError, AttributeError, TypeError) as error:
+            rows.append(ReadbackRow(setting.name, fmt(setting.shown), setting.wire, note=f"could not be read ({type(error).__name__})"))
+            continue
+        rows.append(readback_row(setting, spec, stored, exponent))
+    return rows, ""
 
 
 # ####################
@@ -1065,6 +1341,7 @@ class Options:
     render_tool: str = str(default_tool("PedaleiraRender"))
     yes: bool = False
     overwrite: bool = False
+    readback: bool = True  # read the block's parameters back from the live grid (--no-readback skips it)
 
 
 @dataclass
@@ -1076,6 +1353,9 @@ class TakeResult:
     message: str = ""
     summary: Optional[Dict[str, Any]] = None
     attempts: int = 0
+    record_check: List[str] = field(default_factory=list)  # the recorder's peak / PROBLEM / check lines
+    readback: Optional[List["ReadbackRow"]] = None  # None: not read back
+    readback_note: str = ""
 
 
 @dataclass
@@ -1085,6 +1365,7 @@ class SessionInfo:
     scratch: str = ""
     row: int = 0
     aborted: str = ""
+    recalls: List[str] = field(default_factory=list)  # every recall the session made, in order
 
 
 def scratch_description(opts: Options) -> str:
@@ -1113,6 +1394,10 @@ def plan_lines(opts: Options, prepared: List[PreparedTake], dirs: SessionDirs, c
     ]
     signal = str(dirs.signal / DEFAULT_SIGNAL_NAME)
     lines.append("Before the takes: " + shown(signals_cmd(opts.match_tool, str(dirs.signal), opts.rate)))
+    gains = sorted({it.take.signal_gain_db for it in prepared if it.take.signal_gain_db and not it.error})
+    for gain in gains:
+        lines.append(f"Signal copy {fmt(-gain)} dB below nominal: {Path(signal).with_name(attenuated_name(DEFAULT_SIGNAL_NAME, gain)).name} "
+                     "(written next to the signal; ours is rendered from it)")
     for number, item in enumerate(prepared, 1):
         take = item.take
         files = TakeFiles.for_take(dirs, take.name)
@@ -1134,9 +1419,13 @@ def plan_lines(opts: Options, prepared: List[PreparedTake], dirs: SessionDirs, c
             else:
                 for name, value in take.params.items():
                     lines.append(f"    set_param   {name} = {fmt(value)}  (units checked against the unit's catalogue when it runs)")
+        if take.signal_gain_db:
+            lines.append(f"  test signal played and rendered {fmt(-take.signal_gain_db)} dB below nominal (signalGainDb {fmt(take.signal_gain_db)})")
+        if opts.readback and not take.bypass:
+            lines.append("  read back the block's parameters from the live grid (read only), for the report")
         lines.append(f"  wait {opts.settle:g} s, then record:")
         lines.append("    " + shown(record_cmd(opts.match_tool, opts.device, opts.out_ch, opts.in_ch, take.name,
-                                               str(dirs.ref), opts.rate, opts.signal_type, opts.buffer)))
+                                               str(dirs.ref), opts.rate, opts.signal_type, opts.buffer, take.signal_gain_db)))
         ours = item.ours
         if ours.kind is None and not take.bypass:
             lines.append("  ours: no kind, so only the recording is made and analysed")
@@ -1145,7 +1434,9 @@ def plan_lines(opts: Options, prepared: List[PreparedTake], dirs: SessionDirs, c
             for p in ours.params + ours.common:
                 origin = f"from {p.qc_name} ({p.transform})" if p.source == "mapping" else "from the plan"
                 lines.append(f"    {p.ident} = {fmt(p.value)}   {origin}")
-            lines.append("    " + shown(render_cmd(opts.render_tool, files.preset, signal, files.ours_wav, opts.tail,
+            lines.append("    " + shown(render_cmd(opts.render_tool, files.preset,
+                                                  str(Path(signal).with_name(attenuated_name(DEFAULT_SIGNAL_NAME, take.signal_gain_db)))
+                                                  if take.signal_gain_db else signal, files.ours_wav, opts.tail,
                                                   files.script if ours.common else None, opts.out_channels)))
         for line in mapping_statements(ours, str(take.model)):
             lines.append(f"  note: {line}")
@@ -1184,8 +1475,9 @@ def run_pipeline(opts: Options, item: PreparedTake, files: TakeFiles, dirs: Sess
     for attempt in (1, 2):
         result.attempts = attempt
         try:
-            run_tool("record", record_cmd(opts.match_tool, opts.device, opts.out_ch, opts.in_ch, name, str(dirs.ref),
-                                          opts.rate, opts.signal_type, opts.buffer), timeout=900)
+            output = run_tool("record", record_cmd(opts.match_tool, opts.device, opts.out_ch, opts.in_ch, name, str(dirs.ref),
+                                                   opts.rate, opts.signal_type, opts.buffer, item.take.signal_gain_db), timeout=900)
+            result.record_check = record_check_lines(output)
             break
         except ToolFailed as failure:
             print(f"  record attempt {attempt} failed: {failure}")
@@ -1199,6 +1491,10 @@ def run_pipeline(opts: Options, item: PreparedTake, files: TakeFiles, dirs: Sess
     if ours.kind is None and not item.take.bypass:
         result.status = "recorded"
         return
+    try:
+        signal = attenuated_signal(signal, item.take.signal_gain_db)
+    except (PlanError, OSError) as error:
+        raise ToolFailed("signal gain", [], 1, f"cannot make the {fmt(item.take.signal_gain_db)} dB copy of the test signal: {error}")
     write_json(Path(files.preset), build_preset(name, ours.kind, ours.kind_values()))
     script = None
     if ours.common:
@@ -1213,6 +1509,12 @@ def run_pipeline(opts: Options, item: PreparedTake, files: TakeFiles, dirs: Sess
     result.status = "ok"
 
 
+def record_check_lines(output: str) -> List[str]:
+    """The lines of `PedaleiraMatch record` that report the take's check: peak, problems, verdict."""
+    return [line.strip() for line in output.splitlines()
+            if line.strip().startswith(("peak ", "PROBLEM", "check ", "test signal played"))]
+
+
 def write_json(path: Path, document: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
@@ -1221,7 +1523,7 @@ def write_json(path: Path, document: Any) -> None:
 
 
 def find_signal(dirs: SessionDirs) -> str:
-    found = sorted(dirs.signal.glob("pedaleira-test-signal-v*.wav"))
+    found = sorted(p for p in dirs.signal.glob("pedaleira-test-signal-v*.wav") if SIGNAL_FILE_RE.match(p.name))
     if not found:
         raise ToolFailed("signals", [], 1, f"no pedaleira-test-signal-v*.wav in {dirs.signal}")
     return str(found[-1])
@@ -1259,7 +1561,9 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
             info.firmware = ""
         print(f"Connected to the Quad Cortex{' (firmware ' + info.firmware + ')' if info.firmware else ''}.")
 
-        ensure_clean(qc, deps.sleep)
+        if read_dirty(qc, deps.sleep):
+            if not clear_scratch_edits(qc, kit, opts, deps.sleep, info.recalls):
+                raise UnitRefused(DIRTY_MESSAGE, EXIT_DIRTY)
         catalog = qc.catalog
         prepared = [prepare_take(take, catalog, mapping) for take in takes]
 
@@ -1273,9 +1577,9 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
         if opts.use_current:
             preset = qc.read_current_preset()
         else:
-            setlist = kit.setlists.FACTORY if opts.scratch_setlist == "factory" else kit.setlists.USER
+            setlist = scratch_setlist_of(kit, opts)
             position = opts.scratch_slot or qc.find_preset(opts.scratch_preset, setlist).index
-            preset = qc.read_preset(setlist, position)
+            preset = recall(qc, setlist, position, "the scratch preset, to work on one free row of it", info.recalls)
             recalled = (setlist, position)
         info.scratch = f"{getattr(preset, 'name', '') or info.scratch} ({scratch_description(opts)})"
 
@@ -1313,11 +1617,16 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
             try:
                 setup_take(qc, kit, item, row, in_port, out_port, occupied, deps.sleep)
                 occupied = not item.take.bypass
-                confirm_setup(qc, kit, item, row, in_port, out_port)
+                live = confirm_setup(qc, kit, item, row, in_port, out_port)
+                if opts.readback and not item.take.bypass and item.settings:
+                    result.readback, result.readback_note = read_back(kit, live, item, row)
                 deps.sleep(opts.settle)
                 run_pipeline(opts, item, files, dirs, signal, result)
             except ToolFailed as failure:
                 result.status, result.stage, result.message = "failed", failure.stage, str(failure)
+                if failure.stage == "record" and "clips" in str(failure) and not item.take.signal_gain_db:
+                    result.message += (" (hint: play the test signal lower with signalGainDb in the plan, "
+                                       "for instance -6; ours is then rendered at the same level)")
             except kit.refused_errors as refused:
                 occupied = False
                 result.status, result.stage, result.message = "failed", "unit", f"the unit refused the block: {refused}"
@@ -1360,8 +1669,8 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
             setlist, position = recalled
             other = 0 if position != 0 else 1
             try:
-                qc.read_preset(setlist, other)
-                qc.read_preset(setlist, position)
+                recall(qc, setlist, other, "another preset of the setlist, so the scratch preset reloads", info.recalls)
+                recall(qc, setlist, position, "the scratch preset again, which drops the session's edits", info.recalls)
                 print("\nThe scratch preset was recalled again: the session's edits are gone from the grid.")
             except Exception as error:
                 print(f"\nCould not recall the scratch preset again ({error}); recall any preset on the unit to clear the session's edits.",
@@ -1392,6 +1701,33 @@ def table(header: Sequence[str], rows: Sequence[Sequence[Any]]) -> List[str]:
     return lines
 
 
+def signal_gain_statement(gain_db: float) -> List[str]:
+    """What the report says about a take whose test signal was played below nominal."""
+    down = fmt(-gain_db)
+    return [
+        f"Signal level: the test signal was played {down} dB below nominal (signalGainDb {fmt(gain_db)}), and ours was rendered "
+        "from a copy of the signal scaled by the same amount, so the comparison is like for like. The recorder's clip check "
+        "looks at the recording itself and is unchanged. The analysis measures against the nominal signal: on both sides the "
+        f"sweep level gain reads {down} dB lower than the block's true gain, and the input level of each static-curve step is "
+        f"its nominal level minus {down} dB (the output levels are the true ones).",
+        "",
+    ]
+
+
+def readback_lines(rows: List[ReadbackRow], note: str) -> List[str]:
+    """The per-take table of what the unit holds for each parameter that was set."""
+    lines = ["Parameters read back from the unit after the edits (read only, from the live grid):", ""]
+    if not rows:
+        return lines + [f"Not available: {note or 'no parameters were set'}.", ""]
+    body = [[x.name, x.asked, "" if x.sent is None else f"{x.sent:.5f}", "" if x.read is None else (f"{x.read:.5f}" if isinstance(x.read, float) else x.read),
+             x.linear, x.curve or "-", x.difference, x.note] for x in rows]
+    lines += table(["Parameter", "Asked", "Wire sent", "Wire read back", "Converted (linear)", "Converted (unit's curve)", "Converted minus asked", "Note"], body)
+    lines += ["", "\"Converted (linear)\" is the library's conversion between the catalogue minimum and maximum; \"unit's curve\" "
+              "applies the exponent of resources/import/quad-cortex-curves.json where one is measured. The difference uses the "
+              "curve when there is one.", ""]
+    return lines
+
+
 def render_report(opts: Options, info: SessionInfo, results: List[TakeResult]) -> str:
     ok = [r for r in results if r.status == "ok"]
     failed = [r for r in results if r.status == "failed"]
@@ -1404,6 +1740,9 @@ def render_report(opts: Options, info: SessionInfo, results: List[TakeResult]) -
     lines.append(f"**{NOTHING_SAVED}**")
     if info.aborted:
         lines += ["", f"**The session stopped early:** {info.aborted}"]
+    if info.recalls:
+        lines += ["", "Recalls made on the unit (each cuts the audio for a moment; nothing was written):", ""]
+        lines += [f"{number}. {text}" for number, text in enumerate(info.recalls, 1)]
     lines += ["", f"{len(results)} take(s): {len(ok)} compared, "
               f"{len([r for r in results if r.status == 'recorded'])} recorded only, {len(failed)} failed.", ""]
 
@@ -1443,6 +1782,12 @@ def render_report(opts: Options, info: SessionInfo, results: List[TakeResult]) -
         lines += [f"- {line}" for line in mapping_statements(ours, label)]
         lines += [f"- {line}" for line in p.unit_notes]
         lines.append("")
+        if p.take.signal_gain_db:
+            lines += signal_gain_statement(p.take.signal_gain_db)
+        if r.readback is not None:
+            lines += readback_lines(r.readback, r.readback_note)
+        if r.record_check:
+            lines += ["Recording check (PedaleiraMatch record): " + "; ".join(r.record_check), ""]
         if r.status == "failed":
             lines += [f"**Failed at {r.stage}:** {r.message}", ""]
         elif r.status == "recorded":
@@ -1739,6 +2084,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--render-tool", default=str(default_tool("PedaleiraRender")), help="path of PedaleiraRender")
     parser.add_argument("--yes", action="store_true", help="do not ask before recalling the scratch preset")
     parser.add_argument("--overwrite", action="store_true", help="replace recordings that exist already (default: the take fails)")
+    parser.add_argument("--no-readback", action="store_true",
+                        help="do not read the parameters back from the unit after the edits (default: read them and put a table per take in the report)")
     return parser.parse_args(argv)
 
 
@@ -1770,6 +2117,7 @@ def options_from(args: argparse.Namespace) -> Options:
         render_tool=args.render_tool,
         yes=args.yes,
         overwrite=args.overwrite,
+        readback=not args.no_readback,
     )
 
 

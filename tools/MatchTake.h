@@ -67,9 +67,16 @@ constexpr double kMinLevelGainDb = -30.0;
 constexpr double kMaxLevelGainDb = 20.0;
 
 // Both sync markers found, no clipping, latency found, level plausible. Never
-// throws: an unanalysable recording is reported as a problem.
+// throws: an unanalysable recording is reported as a problem. `reference` is the
+// nominal test signal; when the take was played `signalGainDb` (0 or less) below
+// it, the level gain is reported against what was played, not against nominal.
+// The clip check always looks at the recording itself.
 Check checkTake(const juce::AudioBuffer<float>& recording, double sampleRate,
-                const EffectMatch::TestSignal& reference);
+                const EffectMatch::TestSignal& reference, double signalGainDb = 0.0);
+
+// The test signal's samples scaled by `gainDb` (0 or less, finite), as played
+// for a take with --gain-db. Throws std::invalid_argument for any other value.
+std::vector<float> attenuatedSamples(const std::vector<float>& samples, double gainDb);
 
 // Writes a 32-bit float WAV, 1 or 2 channels. Throws std::runtime_error.
 void writeTakeWav(const juce::File& file, const juce::AudioBuffer<float>& recording,

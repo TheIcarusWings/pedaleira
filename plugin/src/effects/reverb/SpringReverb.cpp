@@ -22,6 +22,8 @@
 #include <cmath>
 
 #include "effects/EffectDsp.h"
+#include "effects/dsp/Ducker.h"
+#include "effects/reverb/ReverbDuck.h"
 #include "effects/reverb/ReverbParts.h"
 
 namespace {
@@ -232,7 +234,8 @@ class SpringReverbProcessor final : public ParameterisedBlockProcessor {
 public:
   static constexpr const char* kKindId = "reverb.spring";
 
-  enum Param { kDecayS = 0, kTone, kDwell, kSpringsChoice, kSpillover };
+  enum Param { kDecayS = 0, kTone, kDwell, kSpringsChoice, kDuckDb, kDuckReleaseMs,
+         kSpillover };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -245,6 +248,7 @@ public:
       // The third spring is faded in and out, so the switch is click-free.
       t.push_back(BlockParamSpec::choiceParam("springs", "Springs",
                                               juce::StringArray{"2 springs", "3 springs"}, 1));
+      fx::appendDuckParams(t);
       t.push_back(spilloverParam());
       return t;
     }();
@@ -278,6 +282,7 @@ protected:
     toneHz.prepare(smootherRate, 0.03);
     drive.prepare(smootherRate, 0.03);
     thirdSpring.prepare(smootherRate, 0.05);
+    ducking.prepare(sampleRate);
     resetEffect();
   }
 
@@ -291,9 +296,16 @@ protected:
     untilControl = 0;
     lastCores = 0;
     thirdRunning = true;
+    ducking.reset();
   }
 
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext& ctx) override {
+    const bool stereo = blockHasStereoImage(buffer.getNumChannels(), ctx);
+    ducking.run(buffer, stereo, param(kDuckDb), param(kDuckReleaseMs),
+                [&](juce::AudioBuffer<float>& wet) { processWet(wet, stereo); });
+  }
+
+  void processWet(juce::AudioBuffer<float>& buffer, bool stereo) {
     const int numSamples = buffer.getNumSamples();
     const int numChannels = juce::jmin(buffer.getNumChannels(), kMaxChannels);
     if (numChannels <= 0)
@@ -301,7 +313,6 @@ protected:
     // True stereo: one tank fed the sum of both inputs, its springs spread
     // over the two sides with opposite signs. Otherwise one whole mono tank
     // per channel and nothing crossing.
-    const bool stereo = blockHasStereoImage(buffer.getNumChannels(), ctx);
     const int activeCores = stereo ? 1 : numChannels;
     if (activeCores > lastCores && lastCores != 0)
       cores[1].reset();
@@ -445,6 +456,7 @@ private:
   }
 
   std::array<Core, kMaxChannels> cores;
+  fx::reverb::WetDucking ducking;
   fx::reverb::ControlSmoother rt60, toneHz, drive, thirdSpring;
   double sampleRate{48000.0};
   int untilControl{0};

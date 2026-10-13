@@ -5,7 +5,9 @@
 #include <cmath>
 
 #include "effects/EffectDsp.h"
+#include "effects/dsp/Ducker.h"
 #include "effects/reverb/FdnReverbEngine.h"
+#include "effects/reverb/ReverbDuck.h"
 
 namespace {
 
@@ -15,7 +17,8 @@ class RoomReverbProcessor final : public ParameterisedBlockProcessor {
 public:
   static constexpr const char* kKindId = "reverb.room";
 
-  enum Param { kDecayS = 0, kSize, kPreDelayMs, kDamping, kLowCutHz, kHighCutHz, kSpillover };
+  enum Param { kDecayS = 0, kSize, kPreDelayMs, kDamping, kLowCutHz, kHighCutHz, kDuckDb, kDuckReleaseMs,
+         kSpillover };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -33,6 +36,7 @@ public:
                       .withSkew(0.4f));
       t.push_back(BlockParamSpec::floatParam("highCutHz", "High cut", "Hz", 1000.0f, 20000.0f, 9000.0f)
                       .withSkew(0.4f));
+      fx::appendDuckParams(t);
       t.push_back(spilloverParam());
       return t;
     }();
@@ -75,13 +79,23 @@ protected:
     d.earlyEnergy = 0.08;
     d.maxPreDelaySeconds = 0.2;
     engine.prepare(d, spec.sampleRate);
+    ducking.prepare(spec.sampleRate);
     resetEffect();
   }
 
-  void resetEffect() noexcept override { engine.reset(); }
+  void resetEffect() noexcept override {
+    engine.reset();
+    ducking.reset();
+  }
 
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext& ctx) override {
-    engine.process(buffer, blockHasStereoImage(buffer.getNumChannels(), ctx), [this] {
+    const bool stereo = blockHasStereoImage(buffer.getNumChannels(), ctx);
+    ducking.run(buffer, stereo, param(kDuckDb), param(kDuckReleaseMs),
+                [&](juce::AudioBuffer<float>& wet) { processWet(wet, stereo); });
+  }
+
+  void processWet(juce::AudioBuffer<float>& buffer, bool stereo) {
+    engine.process(buffer, stereo, [this] {
       FdnReverbEngine::Controls c;
       c.rt60 = param(kDecayS);
       c.highRatio = fx::reverb::dampingToHighRatio(param(kDamping));
@@ -100,6 +114,7 @@ private:
   static constexpr double kStructureSeconds = 0.11;
 
   FdnReverbEngine engine;
+  fx::reverb::WetDucking ducking;
 };
 
 }  // namespace

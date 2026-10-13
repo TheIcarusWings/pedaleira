@@ -21,6 +21,8 @@ struct Options {
   double rate = 48000.0;
   int bufferSize = 256;
   bool overwrite = false;
+  // The test signal is played this many dB below nominal (0 or less).
+  double signalGainDb = 0.0;
 };
 
 // Exit codes: 0 everything recorded and checked, 3 a take failed its check.

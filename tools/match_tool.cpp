@@ -12,10 +12,15 @@
 //   PedaleiraMatch devices
 //   PedaleiraMatch record --device <name> [--type <device type>] --out-ch <a[,b]>
 //                         --in-ch <c[,d]> --name <file stem> [--dir match/ref]
-//                         [--rate 48000] [--buffer 256]
+//                         [--rate 48000] [--buffer 256] [--gain-db -6]
 //   PedaleiraMatch session --plan <plan.txt> --device <name> [--type <device type>]
 //                          --out-ch <a[,b]> --in-ch <c[,d]> [--dir match/ref]
-//                          [--rate 48000] [--buffer 256] [--overwrite]
+//                          [--rate 48000] [--buffer 256] [--gain-db -6] [--overwrite]
+//   PedaleiraMatch plugin-params --plugin <file> [--state <file>] [--json]
+//   PedaleiraMatch plugin-render --plugin <file> --out <reference.wav> [--in <signal.wav>]
+//                          [--state <file>] [--set NAME=VALUE]... [--set-text NAME=TEXT]...
+//                          [--set-index N=VALUE]... [--block 512] [--tail 4]
+//                          [--channels 1|2]
 //
 // signals writes pedaleira-test-signal-v<N>.wav (mono, 32-bit float) and
 // pedaleira-test-signal-v<N>.json (the manifest of its segments) into the
@@ -37,12 +42,23 @@
 // for every line of a plan file, prompting the player between takes. Both work
 // at 48 kHz only (match_record.cpp, MatchRecorder.h).
 //
+// plugin-params lists the parameters of a plugin you own (VST3 bundle, or an
+// Audio Unit identifier on macOS): row index, name, current text, steps. It is
+// what a plan for plugin-render is written from. plugin-render hosts the same
+// plugin offline at 48 kHz, restores --state (a .vstpreset or a raw state
+// chunk) first, sets the parameters (a normalised 0 to 1 value by name, a text
+// the plugin converts, or a row index), runs the test signal (or --in) through
+// it with the plugin's latency compensated, and writes the reference WAV and
+// a JSON beside it. It never writes inside the repository checkout. See
+// docs/matching.md, "Matching against a plugin".
+//
 // Diagnostics go to stderr. Exit code 0 on success, 1 with a one-line error
 // otherwise; with --strict, compare exits 2 when any judged metric is out of
 // tolerance; record and session exit 3 when a take failed its check.
 //
 // Build: cmake --build build --target PedaleiraMatch
 #include "EffectMatch.h"
+#include "MatchPlugin.h"
 #include "match_record.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -75,10 +91,11 @@ constexpr const char* kUsage =
     "       PedaleiraMatch devices\n"
     "       PedaleiraMatch record --device <name> [--type <device type>] --out-ch <a[,b]>\n"
     "                             --in-ch <c[,d]> --name <file stem> [--dir match/ref]\n"
-    "                             [--rate 48000] [--buffer 256]\n"
+    "                             [--rate 48000] [--buffer 256] [--gain-db -6]\n"
     "       PedaleiraMatch session --plan <plan.txt> --device <name> [--type <device type>]\n"
     "                              --out-ch <a[,b]> --in-ch <c[,d]> [--dir match/ref]\n"
-    "                              [--rate 48000] [--buffer 256] [--overwrite]\n"
+    "                              [--rate 48000] [--buffer 256] [--gain-db -6]\n"
+    "                              [--overwrite]\n"
     "  signals write the test signal (WAV) and its manifest (JSON) into <dir>\n"
     "  analyse  measure a recording of the test signal; JSON on stdout or in --out\n"
     "  compare  compare two analyses (or recordings, analysed first); JSON on stdout\n"
@@ -87,8 +104,19 @@ constexpr const char* kUsage =
     "  devices list audio devices, their channels and sample rates\n"
     "  record   play the test signal and record one take (48 kHz) into <dir>/<name>.wav\n"
     "  session  record the takes of a plan file, one prompt per take\n"
+    "  --gain-db  play the test signal this many dB below nominal (0 to -60); the clip check\n"
+    "             is unchanged and the level printed is against what was played\n"
     "  --out-ch, --in-ch  1-based channel numbers; the same signal plays on each --out-ch,\n"
-    "                     one or two --in-ch make a mono or stereo take";
+    "                     one or two --in-ch make a mono or stereo take\n"
+    "       PedaleiraMatch plugin-params --plugin <file> [--state <file>] [--json]\n"
+    "       PedaleiraMatch plugin-render --plugin <file> --out <reference.wav> [--in <signal.wav>]\n"
+    "                              [--state <file>] [--set NAME=VALUE]... [--set-text NAME=TEXT]...\n"
+    "                              [--set-index N=VALUE]... [--block 512] [--tail 4] [--channels 1|2]\n"
+    "  plugin-params  list a plugin's parameters (row, name, text, steps)\n"
+    "  plugin-render  render the test signal through a hosted plugin (48 kHz, latency\n"
+    "                 compensated) into a reference WAV and a JSON beside it; --set takes a\n"
+    "                 normalised 0..1 value, --set-text a value the plugin converts, --set-index\n"
+    "                 a row of plugin-params; settings apply in order, after --state";
 
 struct Options {
   std::string command;
@@ -96,6 +124,7 @@ struct Options {
   double rate = 0.0;
   bool strict = false;
   MatchRecord::Options record;
+  MatchPlugin::Options plugin;
 };
 
 Options parseOptions(int argc, char** argv) {
@@ -152,8 +181,46 @@ Options parseOptions(int argc, char** argv) {
           text.getIntValue() > 16384)
         throw UsageError("bad value for --buffer: " + text.toStdString() + " (16 to 16384 samples)");
       opts.record.bufferSize = text.getIntValue();
+    } else if (flag == "--gain-db") {
+      const juce::String text = value(i);
+      if (text.isEmpty() || !text.containsOnly("0123456789.-") || text.getDoubleValue() > 0.0 ||
+          text.getDoubleValue() < -60.0)
+        throw UsageError("bad value for --gain-db: " + text.toStdString() + " (0 to -60 dB)");
+      opts.record.signalGainDb = text.getDoubleValue();
     } else if (flag == "--overwrite") {
       opts.record.overwrite = true;
+    } else if (flag == "--plugin") {
+      opts.plugin.plugin = value(i);
+    } else if (flag == "--state") {
+      opts.plugin.state = absolute(value(i));
+    } else if (flag == "--json") {
+      opts.plugin.json = true;
+    } else if (flag == "--set" || flag == "--set-text" || flag == "--set-index") {
+      using MatchPlugin::Setting;
+      const juce::String argument = value(i);
+      try {
+        opts.plugin.settings.push_back(MatchPlugin::parseSetting(
+            flag == "--set-index" ? Setting::Target::index : Setting::Target::name,
+            flag == "--set-text" ? Setting::Kind::text : Setting::Kind::value, argument));
+      } catch (const MatchPlugin::PluginError& e) {
+        throw UsageError(e.what());
+      }
+    } else if (flag == "--block") {
+      const juce::String text = value(i);
+      if (text.isEmpty() || !text.containsOnly("0123456789") || text.getIntValue() < 16 ||
+          text.getIntValue() > 16384)
+        throw UsageError("bad value for --block: " + text.toStdString() + " (16 to 16384 samples)");
+      opts.plugin.block = text.getIntValue();
+    } else if (flag == "--tail") {
+      const juce::String text = value(i);
+      if (text.isEmpty() || !text.containsOnly("0123456789.") || text.getDoubleValue() > 60.0)
+        throw UsageError("bad value for --tail: " + text.toStdString() + " (0 to 60 seconds)");
+      opts.plugin.tailSeconds = text.getDoubleValue();
+    } else if (flag == "--channels") {
+      const juce::String text = value(i);
+      if (text != "1" && text != "2")
+        throw UsageError("bad value for --channels: " + text.toStdString() + " (1 or 2)");
+      opts.plugin.laneChannels = text.getIntValue();
     } else {
       throw UsageError("unknown option: " + flag);
     }
@@ -162,6 +229,8 @@ Options parseOptions(int argc, char** argv) {
     opts.record.rate = opts.rate;
   if (opts.record.dir == juce::File())
     opts.record.dir = absolute("match/ref");
+  opts.plugin.input = opts.input;
+  opts.plugin.output = opts.output;
   return opts;
 }
 
@@ -320,6 +389,20 @@ int run(int argc, char** argv) {
       return MatchRecord::runSession(opts.record);
     } catch (const std::invalid_argument& e) {
       throw UsageError(e.what());
+    }
+  }
+  if (opts.command == "plugin-params" || opts.command == "plugin-render") {
+    // Plugins are created and destroyed on the message thread, which is this
+    // one: the message manager is made here and no window ever opens.
+#if JUCE_MAC
+    juce::Process::setDockIconVisible(false);
+#endif
+    const juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    try {
+      return opts.command == "plugin-params" ? MatchPlugin::runParams(opts.plugin)
+                                             : MatchPlugin::runRender(opts.plugin);
+    } catch (const MatchPlugin::PluginError& e) {
+      throw MatchToolError(e.what());
     }
   }
   throw UsageError("unknown command: " + opts.command);

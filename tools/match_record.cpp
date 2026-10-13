@@ -240,9 +240,14 @@ class Taker {
   explicit Taker(const Options& options)
       : route_{MatchTake::parseChannelList(options.outChannels, 8, "--out-ch"),
                MatchTake::parseChannelList(options.inChannels, 2, "--in-ch")},
-        signal_(EffectMatch::makeTestSignal(kRate)) {
+        signal_(EffectMatch::makeTestSignal(kRate)),
+        gainDb_(options.signalGainDb) {
+    // Played attenuated; the nominal signal stays the reference of the checks.
+    const std::vector<float> played = MatchTake::attenuatedSamples(signal_.samples, gainDb_);
     device_ = std::make_unique<OpenDevice>(options, route_);
-    recorder_.prepare(signal_.samples, device_->outputs(), device_->inputs(),
+    if (gainDb_ != 0.0)
+      std::cout << "test signal played " << juce::String(-gainDb_, 1) << " dB below nominal\n";
+    recorder_.prepare(played, device_->outputs(), device_->inputs(),
                       static_cast<int>(kTailSeconds * kRate));
     device_->manager().addAudioCallback(&recorder_);
     juce::Thread::sleep(kSettleMs);
@@ -263,7 +268,7 @@ class Taker {
                                "callbacks");
 
     MatchTake::writeTakeWav(file, recorder_.recording(), kRate);
-    MatchTake::Check check = MatchTake::checkTake(recorder_.recording(), kRate, signal_);
+    MatchTake::Check check = MatchTake::checkTake(recorder_.recording(), kRate, signal_, gainDb_);
     const int xruns = device_->xruns() - xrunsBefore;
     if (xruns > 0 && xrunsBefore >= 0) {
       check.problems.push_back(std::to_string(xruns) +
@@ -303,6 +308,7 @@ class Taker {
 
   Route route_;
   EffectMatch::TestSignal signal_;
+  double gainDb_ = 0.0;
   MatchRecorder recorder_;
   std::unique_ptr<OpenDevice> device_;
 };

@@ -346,6 +346,8 @@ AppShell::AppShell(EngineClient& client) : engine(client), top(client) {
       return std::array<float, 2>{static_cast<float>(pair[0]), static_cast<float>(pair[1])};
     };
     nav.setMasterLevels(pairOf(meters["input"]), pairOf(meters["output"]));
+    if (onMeters)
+      onMeters(meters);
   };
   top.onGigView = [this] { showGigView(true); };
   top.onTuner = [this] {

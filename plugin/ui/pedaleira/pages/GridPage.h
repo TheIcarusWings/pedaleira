@@ -265,7 +265,7 @@ private:
   bool armed = false;
 };
 
-class GridPage : public juce::Component, private juce::Timer {
+class GridPage : public juce::Component {
 public:
   explicit GridPage(EngineClient& engine);
 
@@ -274,6 +274,9 @@ public:
   // Starts an empty preset (chain.reset), asking first when the current one
   // has unsaved changes.
   void newPreset(bool askFirst);
+  // The row meters, from the shell's one meters.get reading per tick (each
+  // reading takes the engine's lock, so the pages share it).
+  void showMeters(const juce::var& meters);
   void selectBlock(const juce::String& blockId);
   void selectPoint(GridPoint point);
   // The block library over the page, adding to that slot.
@@ -347,8 +350,7 @@ private:
 
   // Runs a routing command; a refusal is shown with the engine's reason.
   void runRouting(const char* command, const juce::var& args, const juce::String& what);
-  // The row meters, read about twenty times a second while the grid shows.
-  void timerCallback() override;
+
 };
 
 }  // namespace pedaleira::ui

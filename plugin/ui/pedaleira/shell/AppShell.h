@@ -111,6 +111,8 @@ public:
   // The header's Tuner button opened the Live page (after onPageShown): the
   // page can put its Tuner tab up.
   std::function<void()> onTunerRequested;
+  // Each meters.get reading (ten a second), for a page that meters too.
+  std::function<void(const juce::var& meters)> onMeters;
 
   Header& header() { return top; }
   NavRail& rail() { return nav; }

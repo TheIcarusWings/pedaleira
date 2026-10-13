@@ -191,9 +191,9 @@ void GridView::setLevels(const std::array<RowLevels, 4>& now) {
   const juce::uint32 time = juce::Time::getMillisecondCounter();
   for (size_t r = 0; r < 4; ++r) {
     for (size_t c = 0; c < 2; ++c) {
-      // The peak holds fall about 12 dB a second at twenty readings a second.
-      holds[r].in[c] = juce::jmax(now[r].in[c], holds[r].in[c] - 0.6f);
-      holds[r].out[c] = juce::jmax(now[r].out[c], holds[r].out[c] - 0.6f);
+      // The peak holds fall about 12 dB a second at ten readings a second.
+      holds[r].in[c] = juce::jmax(now[r].in[c], holds[r].in[c] - 1.2f);
+      holds[r].out[c] = juce::jmax(now[r].out[c], holds[r].out[c] - 1.2f);
       // A level at full scale shows as a clip for two seconds.
       if (now[r].in[c] >= -0.5f)
         clipUntil[r][0] = time + 2000;
@@ -1307,7 +1307,6 @@ GridPage::GridPage(EngineClient& client)
     engine.run("row.setMix", juce::var(args.get()));
     rigChanged();
   };
-  startTimerHz(20);
   library.onClose = [this] { library.setVisible(false); };
   library.onAdded = [this](const juce::String& blockId) {
     library.setVisible(false);
@@ -1410,11 +1409,11 @@ void GridPage::runRouting(const char* command, const juce::var& args, const juce
   prompt.show(options, [](bool, const juce::String&) {});
 }
 
-void GridPage::timerCallback() {
+void GridPage::showMeters(const juce::var& meters) {
   if (!grid.isShowing())
     return;
   std::array<GridView::RowLevels, 4> levels;
-  if (const auto* rows = engine.read("meters.get")["rows"].getArray())
+  if (const auto* rows = meters["rows"].getArray())
     for (const auto& row : *rows) {
       const int index = row["row"];
       if (index < 0 || index >= 4)

@@ -64,11 +64,25 @@ public:
 
   void paint(juce::Graphics& g) override;
   void resized() override;
+  void mouseMove(const juce::MouseEvent& event) override;
+  void mouseExit(const juce::MouseEvent& event) override;
+  void mouseUp(const juce::MouseEvent& event) override;
 
 private:
+  // Click the preset name to rename it in place: a saved preset is renamed
+  // at once (preset.rename); a new one keeps the name for its first Save.
+  void startRename();
+  void commitRename();
+  juce::Rectangle<int> nameArea() const;
+
   EngineClient& engine;
   juce::String setlistLine;
   juce::String presetName;
+  juce::String presetId;
+  // The name a preset not saved yet will be saved under.
+  juce::String pendingName;
+  juce::TextEditor nameEditor;
+  bool nameHovered = false;
   bool unsaved = false;
   bool saveIsPrimary = true;
   double cpu = 0.0;

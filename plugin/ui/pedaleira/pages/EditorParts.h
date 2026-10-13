@@ -8,6 +8,7 @@
 #include "../Tokens.h"
 #include "../widgets/Controls.h"
 #include "../widgets/Knob.h"
+#include "GridModel.h"
 #include "ParamKnobs.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -33,11 +34,18 @@ struct BlockContext {
   juce::StringArray expressionParams;
 };
 
+// Reads a block of the grid model into a BlockContext (its entry in state.get
+// included); false when the block is not there.
+bool readBlockContext(EngineClient& engine, const GridModel& model, const juce::String& blockId, BlockContext& out);
+
 // A section of an editor: the ground box with its line border and the label
 // in caps. Returns the area under the label for the content; the optional
 // note sits after the label, muted.
+// With an accent (a block's category colour) the label takes it and a rule of
+// it runs under the label; the padding is the inset of the content.
 juce::Rectangle<int> paintSection(juce::Graphics& g, juce::Rectangle<int> box, const juce::String& title,
-                                  const juce::String& note = {});
+                                  const juce::String& note = {},
+                                  juce::Colour accent = juce::Colours::transparentBlack, int padding = 16);
 
 // The footswitch menu of a block (the header's Assign footswitch).
 void showFootswitchMenu(EngineClient& engine, const juce::String& blockId, juce::Component& target,

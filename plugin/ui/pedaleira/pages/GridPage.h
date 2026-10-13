@@ -1,7 +1,7 @@
 // The grid editor (the boards "Grid editor" and "Add a split"): the scenes
 // strip, the rows with their inputs, slots, cables, split and mix points
 // and outputs, and below them the panel of what is selected: a block with
-// its knobs and per-scene values, or a splitter or mixer with its own.
+// all its settings (BlockSettingsPanel), or a splitter or mixer with its own.
 // Everything it shows comes from GridModel; everything it changes goes
 // through the engine's commands.
 #pragma once
@@ -13,6 +13,7 @@
 #include "../widgets/Tile.h"
 #include "BlockEditorPage.h"
 #include "BlockPicker.h"
+#include "BlockSettingsPanel.h"
 #include "GridModel.h"
 #include "ParamKnobs.h"
 #include "ScenePanel.h"
@@ -100,8 +101,11 @@ public:
   // fields of row.setInputStage and row.setMix.
   std::function<void(int row, double trimDb)> onRowTrim;
   std::function<void(int row, const juce::var& mix)> onRowMix;
-  // A tile double-clicked: open its editor.
+  // A tile double-clicked: select it and bring its settings into view.
   std::function<void(const juce::String& blockId)> onOpenBlock;
+  // The arrow keys (one step left or right, up or down) and Escape.
+  std::function<void(int dx, int dy)> onMoveSelection;
+  std::function<void()> onClearSelection;
 
   void paint(juce::Graphics& g) override;
   void paintOverChildren(juce::Graphics& g) override;
@@ -122,6 +126,9 @@ public:
   static constexpr int kSlotPitch = 124;
   static constexpr int kSlotWidth = 96;
   static constexpr int kSlotHeight = 76;
+  // The height that shows this many rows (1 to 4) and, under them, the Add a
+  // row line while there is room for another; the settings panel gets the rest.
+  static constexpr int heightForRows(int rows) { return rows >= 4 ? 452 : kRowTop + rows * kRowPitch + 72; }
   static constexpr int kOutputWidth = 200;
 
 private:
@@ -203,41 +210,6 @@ private:
   std::vector<std::unique_ptr<TileMouse>> tileMice;
 };
 
-class BlockPanel : public juce::Component {
-public:
-  explicit BlockPanel(EngineClient& engine);
-
-  // Reads the block's parameters again (after a selection or a change).
-  void showBlock(const GridModel& model, const juce::String& blockId);
-
-  std::function<void(const juce::String& blockId)> onOpenEditor;
-  std::function<void(const juce::String& blockId)> onReplace;
-  std::function<void()> onChanged;
-
-  void paint(juce::Graphics& g) override;
-  void resized() override;
-
-private:
-  void showSceneValues(int paramIndex);
-  void openKnobMenu(int paramIndex);
-
-  EngineClient& engine;
-  juce::String blockId;
-  juce::String title, subtitle, activeScene;
-  Category category = Category::utility;
-  bool hasBlock = false;
-  std::vector<KnobParam> params;
-  std::vector<std::unique_ptr<Knob>> knobs;
-  int sceneParam = -1;
-  std::vector<std::pair<juce::String, double>> sceneValues;
-
-  Toggle enabled{"Block on"};
-  PushButton assignFootswitch{"Assign footswitch"};
-  PushButton replace{"Replace"};
-  PushButton openEditor{"Open editor"};
-  juce::Rectangle<int> sceneBox;
-};
-
 // The splitter or the mixer of a split (the boards "Splitter selected" and
 // "Mixer selected").
 class SplitPanel : public juce::Component {
@@ -299,6 +271,16 @@ public:
   // reading takes the engine's lock, so the pages share it).
   void showMeters(const juce::var& meters);
   void selectBlock(const juce::String& blockId);
+  // The selected block ("" for none), the arrow keys and Escape.
+  const juce::String& selectedBlock() const { return selected; }
+  void moveSelection(int dx, int dy);
+  void clearSelection();
+  // The settings panel under the grid. Collapsed it is a slim bar; the choice
+  // is kept for the session and, until the player makes one, follows the room
+  // the window leaves (a small window starts collapsed).
+  BlockSettingsPanel& settingsPanel() { return blockPanel; }
+  void setSettingsCollapsed(bool collapsed);
+  bool settingsCollapsed() const { return blockPanel.isCollapsed(); }
   void selectPoint(GridPoint point);
   // The block library over the page, adding to that slot.
   void openPicker(int row, int slot);
@@ -357,7 +339,7 @@ private:
   std::optional<GridPoint> point;
   ScenesStrip scenes;
   GridView grid;
-  BlockPanel blockPanel;
+  BlockSettingsPanel blockPanel;
   SplitPanel splitPanel;
   ScenePanel scenePanel;
   StompPanel stompPanel;
@@ -368,6 +350,9 @@ private:
   RemoveDock removeDock;
   Dialog prompt;
   bool editorShown = false;
+  // Escape cleared the selection: a rig change does not pick a block again.
+  bool selectionCleared = false;
+  int shownRows = 4;
 
   // Runs a routing command; a refusal is shown with the engine's reason.
   void runRouting(const char* command, const juce::var& args, const juce::String& what);

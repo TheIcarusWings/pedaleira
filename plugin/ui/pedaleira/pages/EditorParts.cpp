@@ -5,24 +5,61 @@
 
 namespace pedaleira::ui {
 
+bool readBlockContext(EngineClient& engine, const GridModel& model, const juce::String& id, BlockContext& out) {
+  int row = 0, slot = 0;
+  const GridSlot* found = model.find(id, &row, &slot);
+  if (found == nullptr || found->empty)
+    return false;
+  const juce::var state = engine.read("state.get");
+  juce::var entry;
+  if (const auto* blocks = state["chain"]["grid"]["rows"][row]["blocks"].getArray())
+    for (const auto& candidate : *blocks)
+      if (candidate["blockId"].toString() == id)
+        entry = candidate;
+  if (entry.isVoid())
+    return false;
+  out = {};
+  out.blockId = id;
+  out.name = found->name;
+  out.kindId = found->kindId;
+  out.category = found->category;
+  out.row = row;
+  out.slot = slot;
+  out.enabled = found->enabled;
+  out.activeScene = model.activeScene;
+  out.block = entry;
+  if (const auto* params = entry["sceneParams"].getArray())
+    for (const auto& param : *params)
+      out.sceneParams.add(param.toString());
+  if (const auto* params = entry["expressionParams"].getArray())
+    for (const auto& param : *params)
+      out.expressionParams.add(param.toString());
+  return true;
+}
+
 const char* const kLaterBuild = "Comes in a later build";
 
 juce::Rectangle<int> paintSection(juce::Graphics& g, juce::Rectangle<int> box, const juce::String& title,
-                                  const juce::String& note) {
+                                  const juce::String& note, juce::Colour accent, int padding) {
   g.setColour(colour::ground);
   g.fillRoundedRectangle(box.toFloat(), size::panelRadius);
   g.setColour(colour::line);
   g.drawRoundedRectangle(box.toFloat().reduced(0.5f), size::panelRadius, 1.0f);
-  auto inner = box.reduced(16);
+  auto inner = box.reduced(padding);
   auto heading = inner.removeFromTop(16);
-  paint::label(g, title, heading);
+  const bool accented = !accent.isTransparent();
+  paint::label(g, title, heading, juce::Justification::centredLeft, accented ? accent : colour::muted);
+  if (accented) {
+    g.setColour(accent.withAlpha(0.35f));
+    g.fillRect(heading.getX(), heading.getBottom() + 3, box.getWidth() - 2 * padding, 1);
+  }
   if (note.isNotEmpty()) {
     const int labelWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(type::label(), title.toUpperCase()));
     g.setFont(type::sans(12.0f));
     g.setColour(colour::muted);
     g.drawText(note, heading.withTrimmedLeft(labelWidth + 12), juce::Justification::centredLeft, true);
   }
-  inner.removeFromTop(12);
+  inner.removeFromTop(accented ? 10 : 12);
   return inner;
 }
 

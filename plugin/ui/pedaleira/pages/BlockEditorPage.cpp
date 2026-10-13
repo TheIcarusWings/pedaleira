@@ -268,35 +268,7 @@ BlockEditorPage::BlockEditorPage(EngineClient& client)
 BlockEditorPage::~BlockEditorPage() { stopTimer(); }
 
 bool BlockEditorPage::read(const GridModel& model, juce::String id) {
-  int row = 0, slot = 0;
-  const GridSlot* found = model.find(id, &row, &slot);
-  if (found == nullptr || found->empty)
-    return false;
-  const juce::var state = engine.read("state.get");
-  juce::var entry;
-  if (const auto* blocks = state["chain"]["grid"]["rows"][row]["blocks"].getArray())
-    for (const auto& candidate : *blocks)
-      if (candidate["blockId"].toString() == id)
-        entry = candidate;
-  if (entry.isVoid())
-    return false;
-  block = {};
-  block.blockId = id;
-  block.name = found->name;
-  block.kindId = found->kindId;
-  block.category = found->category;
-  block.row = row;
-  block.slot = slot;
-  block.enabled = found->enabled;
-  block.activeScene = model.activeScene;
-  block.block = entry;
-  if (const auto* params = entry["sceneParams"].getArray())
-    for (const auto& param : *params)
-      block.sceneParams.add(param.toString());
-  if (const auto* params = entry["expressionParams"].getArray())
-    for (const auto& param : *params)
-      block.expressionParams.add(param.toString());
-  return true;
+  return readBlockContext(engine, model, id, block);
 }
 
 void BlockEditorPage::makeBody() {

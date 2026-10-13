@@ -1,5 +1,7 @@
 #include "GridModel.h"
 
+#include <cstdlib>
+
 namespace pedaleira::ui {
 
 namespace {
@@ -40,6 +42,44 @@ std::vector<int> GridModel::visibleRows() const {
   if (shown.empty())
     shown.push_back(0);
   return shown;
+}
+
+juce::String GridModel::firstBlock() const {
+  for (const int r : visibleRows())
+    for (const auto& slot : rows[static_cast<size_t>(r)].slots)
+      if (!slot.empty)
+        return slot.blockId;
+  return {};
+}
+
+juce::String GridModel::neighbour(const juce::String& from, int dx, int dy) const {
+  int row = 0, slot = 0;
+  if (find(from, &row, &slot) == nullptr)
+    return firstBlock();
+  const auto& cells = rows[static_cast<size_t>(row)].slots;
+  if (dx != 0) {
+    for (int s = slot + (dx > 0 ? 1 : -1); s >= 0 && s < 8; s += (dx > 0 ? 1 : -1))
+      if (!cells[static_cast<size_t>(s)].empty)
+        return cells[static_cast<size_t>(s)].blockId;
+    return from;
+  }
+  if (dy != 0) {
+    const std::vector<int> shown = visibleRows();
+    int at = -1;
+    for (size_t i = 0; i < shown.size(); ++i)
+      if (shown[i] == row)
+        at = static_cast<int>(i);
+    for (int i = at + (dy > 0 ? 1 : -1); at >= 0 && i >= 0 && i < static_cast<int>(shown.size()); i += (dy > 0 ? 1 : -1)) {
+      const auto& other = rows[static_cast<size_t>(shown[static_cast<size_t>(i)])].slots;
+      int best = -1;
+      for (int s = 0; s < 8; ++s)
+        if (!other[static_cast<size_t>(s)].empty && (best < 0 || std::abs(s - slot) < std::abs(best - slot)))
+          best = s;
+      if (best >= 0)
+        return other[static_cast<size_t>(best)].blockId;
+    }
+  }
+  return from;
 }
 
 const GridSplit* GridModel::splitOf(int row) const {

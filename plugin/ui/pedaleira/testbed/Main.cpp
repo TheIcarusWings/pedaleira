@@ -18,7 +18,9 @@
 #include "FakeDevice.h"
 #include "widgets/Motion.h"
 #include "Gallery.h"
+#include "pages/BlockStyle.h"
 #include "pages/CapturePage.h"
+#include "pages/GridModel.h"
 #include "pages/ComingSoon.h"
 #include "pages/FootswitchModesPage.h"
 #include "pages/GigView.h"
@@ -29,6 +31,7 @@
 #include "pages/SettingsPage.h"
 #include "shell/AppShell.h"
 
+#include <cmath>
 #include <deque>
 #include <iostream>
 #include <memory>
@@ -104,6 +107,12 @@ struct Scenario {
   // The capture wizard, steps separated by ";" (CaptureScenes.h): the engine is
   // brought into a state with commands, a simulated device and a stand-in trainer.
   const char* capture = "";
+  // Keys pressed on the grid page, several with ";": "left", "right", "up",
+  // "down", "escape", and "expand" or "collapse" (the settings panel's chevron).
+  const char* keys = "";
+  // The window, when it is not the default size (0 for the default).
+  int width = 0;
+  int height = 0;
 };
 
 // Joins command scripts (JSON arrays) into one.
@@ -308,6 +317,74 @@ const char* kLiveTempoRig = joined({kStageRig, R"([{"command":"footswitch.setMod
     {"command":"block.setParam","args":{"blockId":"$slot:0:6","param":"sync","value":1}},
     {"command":"block.setParam","args":{"blockId":"$slot:0:6","param":"division","value":9}}])"});
 
+// A row of one block of every family, and a second row with more: the rig the
+// settings panel's scenarios select from.
+const char* kFamiliesRig = R"([{"command":"grid.convert","args":{"to":"grid"}},
+    {"command":"chain.addBlock","args":{"kind":"drive.overdrive","row":0,"slot":0}},
+    {"command":"chain.addBlock","args":{"kind":"amp.highgain","row":0,"slot":1}},
+    {"command":"chain.addBlock","args":{"kind":"dynamics.compressor","row":0,"slot":2}},
+    {"command":"chain.addBlock","args":{"kind":"eq.parametric8","row":0,"slot":3}},
+    {"command":"chain.addBlock","args":{"kind":"eq.graphic10","row":0,"slot":4}},
+    {"command":"chain.addBlock","args":{"kind":"delay.tape","row":0,"slot":5}},
+    {"command":"chain.addBlock","args":{"kind":"reverb.plate","row":0,"slot":6}},
+    {"command":"chain.addBlock","args":{"kind":"modulation.chorus","row":0,"slot":7}},
+    {"command":"row.setInput","args":{"row":1,"source":"device","channel":2}},
+    {"command":"row.setOutput","args":{"row":1,"target":"device","pair":2}},
+    {"command":"chain.addBlock","args":{"kind":"pitch.shifter","row":1,"slot":0}},
+    {"command":"chain.addBlock","args":{"kind":"filter.wah","row":1,"slot":1}},
+    {"command":"chain.addBlock","args":{"kind":"utility.volume","row":1,"slot":2}},
+    {"command":"chain.addBlock","args":{"kind":"modulation.tremolo","row":1,"slot":3}},
+    {"command":"chain.addBlock","args":{"kind":"eq.parametric3","row":1,"slot":4}},
+    {"command":"chain.addBlock","args":{"kind":"delay.pingpong","row":1,"slot":5}},
+    {"command":"chain.addBlock","args":{"kind":"dynamics.gate","row":1,"slot":6}},
+    {"command":"chain.addBlock","args":{"kind":"delay.multitap","row":1,"slot":7}},
+    {"command":"state.waitUntilLoaded","args":{}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:0","param":"drivePercent","value":70}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:0","param":"tonePercent","value":62}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:1","param":"gain","value":72}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:1","param":"treble","value":64}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:2","param":"thresholdDb","value":-28}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:2","param":"ratio","value":6}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:2","param":"kneeDb","value":8}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b1Type","value":2}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b1Freq","value":80}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b3Freq","value":400}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b3Gain","value":-3.5}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b4Freq","value":1200}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b4Gain","value":4.5}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b4Q","value":1.6}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b6Freq","value":3200}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b6Gain","value":3}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b8Type","value":1}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b8Freq","value":9000}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:3","param":"b8Gain","value":-4}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:4","param":"band63","value":4}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:4","param":"band250","value":-3}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:4","param":"band1k","value":5.5}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:4","param":"band4k","value":-6}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:4","param":"band16k","value":2}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:5","param":"feedback","value":55}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:6","param":"decayS","value":3.2}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:6","param":"preDelayMs","value":40}},
+    {"command":"block.setParam","args":{"blockId":"$slot:0:6","param":"damping","value":55}},
+    {"command":"block.setParam","args":{"blockId":"$slot:1:0","param":"semitones","value":7}},
+    {"command":"block.setParam","args":{"blockId":"$slot:1:1","param":"positionPct","value":68}},
+    {"command":"block.setParam","args":{"blockId":"$slot:1:5","param":"feedback","value":50}},
+    {"command":"block.setParam","args":{"blockId":"$slot:1:6","param":"thresholdDb","value":-45}}])";
+
+// A scenario of the settings panel: a block of the families rig selected,
+// keys pressed on the grid, and a window size.
+Scenario settingsScenario(const char* name, const char* description, const char* script, const char* select,
+                          const char* keys = "", bool audio = false, int width = 0, int height = 0) {
+  Scenario scenario{name, description, Page::grid, script};
+  scenario.select = select;
+  scenario.keys = keys;
+  scenario.audio = audio;
+  scenario.width = width;
+  scenario.height = height;
+  return scenario;
+}
+
 const std::vector<Scenario>& scenarios() {
   static const std::vector<Scenario> list = {
       {"gallery", "Every widget in every state, beside the board Design system", Page::grid, "[]", true},
@@ -376,6 +453,37 @@ const std::vector<Scenario>& scenarios() {
       {"editor-ir", "An IR's editor: file, its folder's IRs, levels", Page::grid, kEditorRig, false, "", "",
        "editor:$slot:0:3"},
       {"grid-threeway", "Three amps in parallel: row 1 splits into row 2, row 2 into row 3", Page::grid, kFullRig},
+      settingsScenario("settings-drive", "Settings panel: an overdrive selected, saturation curve and tone tilt", kFamiliesRig,
+                       "$slot:0:0"),
+      settingsScenario("settings-eq8", "Settings panel: the 8-band parametric EQ, its response and a section per band",
+                       kFamiliesRig, "$slot:0:3"),
+      settingsScenario("settings-geq", "Settings panel: the graphic EQ, its band sliders over the curve", kFamiliesRig,
+                       "$slot:0:4"),
+      settingsScenario("settings-none", "Settings panel: nothing selected (Escape), the quiet hint", kFamiliesRig,
+                       "$slot:0:0", "escape"),
+      settingsScenario("settings-min", "Settings panel at the minimum window size: a slim bar with a chevron",
+                       kFamiliesRig, "$slot:0:0", "", false, 1120, 700),
+      settingsScenario("settings-min-open", "Settings panel at the minimum window size, expanded over the grid",
+                       kFamiliesRig, "$slot:0:0", "expand", false, 1120, 700),
+      settingsScenario("settings-amp", "Settings panel: the amp, its knobs drawn as a face", kFamiliesRig, "$slot:0:1", "",
+                       true),
+      settingsScenario("settings-comp", "Settings panel: a compressor, transfer curve with live gain reduction",
+                       kFamiliesRig, "$slot:0:2", "", true),
+      settingsScenario("settings-delay", "Settings panel: a tape echo, the echoes on a time axis", kFamiliesRig, "$slot:0:5"),
+      settingsScenario("settings-reverb", "Settings panel: a plate reverb, its decay", kFamiliesRig, "$slot:0:6"),
+      settingsScenario("settings-mod", "Settings panel: a chorus, its wave and rate", kFamiliesRig, "$slot:0:7"),
+      settingsScenario("settings-pitch", "Settings panel: a pitch shifter, the interval on a keyboard", kFamiliesRig,
+                       "$slot:1:0"),
+      settingsScenario("settings-filter", "Settings panel: a wah, its sweep", kFamiliesRig, "$slot:1:1"),
+      settingsScenario("settings-utility", "Settings panel: a volume pedal, the level glyph", kFamiliesRig, "$slot:1:2", "",
+                       true),
+      settingsScenario("settings-pingpong", "Settings panel: a ping-pong delay, echoes on two sides", kFamiliesRig,
+                       "$slot:1:5"),
+      settingsScenario("settings-gate", "Settings panel: a noise gate, its transfer curve", kFamiliesRig, "$slot:1:6"),
+      settingsScenario("settings-keys", "Settings panel after the arrow keys: right, right, down", kFamiliesRig,
+                       "$slot:0:0", "right;right;down"),
+      settingsScenario("settings-nam", "Settings panel: a NAM capture, the capture editor scrolls inside", kEditorRig,
+                       "$slot:0:2", "", true),
       {"grid-splitter", "The splitter of row 1 selected", Page::grid, kFullRig, false, "", "split:0"},
       {"grid-mixer", "The mixer of row 2 selected", Page::grid, kFullRig, false, "", "mix:1"},
       {"scene-panel", "Scenes: scene C active, its name and buttons, values per scene, bypass states", Page::grid,
@@ -1005,6 +1113,118 @@ void driveLive(pedaleira::ui::LivePage& page, const juce::String& drive) {
   }
 }
 
+// Checks of the grid page's logic that need no picture: the keyboard
+// selection, the panel following the rig, the collapse rule and the curves.
+int selfTest() {
+  using namespace pedaleira::ui;
+  int failures = 0, total = 0;
+  const auto check = [&](bool ok, const char* what) {
+    ++total;
+    if (!ok) {
+      ++failures;
+      std::cerr << "FAIL  " << what << "\n";
+    }
+  };
+  ScratchEngine engine;
+  juce::String error;
+  if (!runScript(*engine.client, kFamiliesRig, error)) {
+    std::cerr << "rig: " << error << "\n";
+    return 1;
+  }
+  const auto id = [&](const char* slot) { return resolve(*engine.client, juce::var(slot)).toString(); };
+
+  // Keyboard navigation over the model.
+  GridModel model = GridModel::read(*engine.client);
+  check(model.neighbour(id("$slot:0:0"), 1, 0) == id("$slot:0:1"), "right moves to the next block of the row");
+  check(model.neighbour(id("$slot:0:1"), -1, 0) == id("$slot:0:0"), "left moves back");
+  check(model.neighbour(id("$slot:0:0"), -1, 0) == id("$slot:0:0"), "left at the first block stays");
+  check(model.neighbour(id("$slot:0:7"), 1, 0) == id("$slot:0:7"), "right at the last block stays");
+  check(model.neighbour(id("$slot:0:3"), 0, 1) == id("$slot:1:3"), "down goes to the row below, same slot");
+  check(model.neighbour(id("$slot:1:3"), 0, -1) == id("$slot:0:3"), "up goes back");
+  check(model.neighbour(id("$slot:0:3"), 0, -1) == id("$slot:0:3"), "up at the first row stays");
+  check(model.neighbour(id("$slot:1:3"), 0, 1) == id("$slot:1:3"), "down at the last shown row stays");
+  check(model.neighbour("no-such-block", 1, 0) == id("$slot:0:0"), "an unknown block starts at the first");
+  engine.client->run("chain.removeBlock", object({{"blockId", id("$slot:1:2")}}));
+  model = GridModel::read(*engine.client);
+  check(model.neighbour(id("$slot:0:2"), 0, 1) == id("$slot:1:1"), "down to the nearest block, the lower on a tie");
+  engine.client->run("chain.undo");
+
+  // The page: selection, Escape, the panel following the rig.
+  GridPage page(*engine.client);
+  page.setSize(1368, 836);
+  check(page.selectedBlock() == id("$slot:0:0"), "the page opens on the first block");
+  check(page.settingsPanel().hasBlock() && page.settingsPanel().blockId() == id("$slot:0:0"), "the panel shows it");
+  page.moveSelection(1, 0);
+  check(page.selectedBlock() == id("$slot:0:1"), "an arrow key moves the selection");
+  check(page.settingsPanel().blockId() == id("$slot:0:1"), "and the panel follows");
+  page.clearSelection();
+  check(page.selectedBlock().isEmpty() && !page.settingsPanel().hasBlock(), "Escape clears the selection and the panel");
+  page.rigChanged();
+  check(page.selectedBlock().isEmpty(), "a rig change does not pick a block again");
+  page.moveSelection(1, 0);
+  check(page.selectedBlock() == id("$slot:0:0"), "an arrow key after Escape starts at the first block");
+
+  page.selectBlock(id("$slot:0:0"));
+  const auto drive = [&] { return page.settingsPanel().shownValue("drivePercent").value_or(-1.0); };
+  check(std::abs(drive() - 70.0) < 0.01, "the panel shows the block's parameter");
+  engine.client->run("block.setParam", object({{"blockId", id("$slot:0:0")}, {"param", "drivePercent"}, {"value", 20.0}}));
+  page.rigChanged();
+  check(std::abs(drive() - 20.0) < 0.01, "an outside change shows in the panel");
+  engine.client->run("block.setParam", object({{"blockId", id("$slot:0:0")}, {"param", "drivePercent"}, {"value", 33.0}}));
+  engine.client->run("chain.undo");
+  page.rigChanged();
+  check(std::abs(drive() - 33.0) > 0.01, "an undo shows in the panel");
+  engine.client->run("block.setParam", object({{"blockId", id("$slot:0:0")}, {"param", "drivePercent"}, {"value", 20.0}}));
+  engine.client->run("scene.assignParam", object({{"blockId", id("$slot:0:0")}, {"param", "drivePercent"}}));
+  engine.client->run("scene.add");
+  engine.client->run("scene.select", object({{"scene", "B"}}));
+  engine.client->run("block.setParam", object({{"blockId", id("$slot:0:0")}, {"param", "drivePercent"}, {"value", 90.0}}));
+  page.rigChanged();
+  check(std::abs(drive() - 90.0) < 0.01, "scene B shows its own value");
+  engine.client->run("scene.select", object({{"scene", "A"}}));
+  page.rigChanged();
+  check(std::abs(drive() - 20.0) < 0.01, "a scene switch shows scene A's value");
+
+  // Collapse: a small window starts collapsed, the player's choice is kept.
+  page.setSize(1048, 636);
+  check(page.settingsCollapsed() && page.settingsPanel().getHeight() == BlockSettingsPanel::kBarHeight,
+        "a small window collapses the panel to its bar");
+  page.setSize(1368, 836);
+  check(!page.settingsCollapsed() && page.settingsPanel().getHeight() >= BlockSettingsPanel::kExpandedHeight,
+        "the default window docks the panel at full height");
+  check(page.settingsPanel().getY() == 56 + GridView::heightForRows(2), "the grid takes only the room its two rows need");
+  page.setSize(1048, 636);
+  page.setSettingsCollapsed(false);
+  check(!page.settingsCollapsed() && page.settingsPanel().getHeight() == BlockSettingsPanel::kExpandedHeight,
+        "the player can expand it in a small window, over the grid");
+  page.setSize(1368, 836);
+  check(!page.settingsCollapsed(), "and the choice is kept");
+  page.setSettingsCollapsed(true);
+  check(page.settingsCollapsed(), "collapsing in a large window is kept too");
+
+  // The curves and the grouping.
+  check(std::abs(blockmath::peakDb(1000.0, 1000.0, 6.0, 1.0) - 6.0) < 0.1, "a peak band reaches its gain at its centre");
+  check(std::abs(blockmath::lowShelfDb(30.0, 300.0, 6.0) - 6.0) < 0.4, "a low shelf reaches its gain below its corner");
+  check(std::abs(blockmath::highShelfDb(20000.0, 4000.0, -6.0) + 6.0) < 0.6, "a high shelf reaches its gain above its corner");
+  check(std::abs(blockmath::highPassDb(100.0, 100.0, 2) + 3.01) < 0.05, "a cut is 3 dB down at its corner");
+  check(std::abs(blockmath::compressorOut(-10.0, -20.0, 4.0, 0.0) + 17.5) < 1.0e-6, "a compressor's slope above the threshold");
+  check(blockmath::compressorOut(-30.0, -20.0, 4.0, 0.0) == -30.0, "and none below it");
+  const auto group = [](Category c, const char* paramId) {
+    KnobParam p;
+    p.id = paramId;
+    return paramGroup(c, p);
+  };
+  check(group(Category::delay, "feedback") == "Feedback", "a delay's feedback is grouped as Feedback");
+  check(group(Category::drive, "tonePercent") == "Tone", "a drive's tone is grouped as Tone");
+  check(group(Category::eq, "b3Gain") == "Band 3", "an EQ band is its own section");
+  check(group(Category::utility, "levelDb") == "Output", "a level is output in any category");
+  check(group(Category::utility, "somethingNew") == "Parameters", "an unknown parameter of an unknown kind is Parameters");
+  check(group(Category::pitch, "dampingNew") == "Tone", "the keyword fallback groups a new parameter");
+
+  std::cout << (total - failures) << " of " << total << " checks passed\n";
+  return failures == 0 ? 0 : 1;
+}
+
 int capture(const juce::File& folder, float scale, const juce::StringArray& only) {
   if (!folder.createDirectory()) {
     std::cerr << "cannot make " << folder.getFullPathName() << "\n";
@@ -1096,7 +1316,8 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
     pedaleira::ui::GigView gig(*engine.client);
     shell.setModesView(&modes);
     shell.setGigView(&gig);
-    shell.setSize(pedaleira::ui::size::windowWidth, pedaleira::ui::size::windowHeight);
+    shell.setSize(scenario.width > 0 ? scenario.width : pedaleira::ui::size::windowWidth,
+                  scenario.height > 0 ? scenario.height : pedaleira::ui::size::windowHeight);
     if (const juce::String view(scenario.view); view == "modes") {
       modes.refresh();
       shell.showModesView(true);
@@ -1128,6 +1349,28 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
       driveSettings(*engine.client, static_cast<pedaleira::ui::SettingsPage&>(*pages[5]), scenario.settings);
     if (!juce::String(scenario.live).isEmpty())
       driveLive(static_cast<pedaleira::ui::LivePage&>(*pages[4]), scenario.live);
+    if (!scenario.gallery && juce::String(scenario.keys).isNotEmpty()) {
+      auto& grid = static_cast<pedaleira::ui::GridPage&>(*pages[0]);
+      for (const auto& key : juce::StringArray::fromTokens(scenario.keys, ";", "")) {
+        if (key == "escape")
+          grid.clearSelection();
+        else if (key == "left")
+          grid.moveSelection(-1, 0);
+        else if (key == "right")
+          grid.moveSelection(1, 0);
+        else if (key == "up")
+          grid.moveSelection(0, -1);
+        else if (key == "down")
+          grid.moveSelection(0, 1);
+        else if (key == "expand")
+          grid.setSettingsCollapsed(false);
+        else if (key == "collapse")
+          grid.setSettingsCollapsed(true);
+      }
+    }
+    // The live levels and readings the shell would hand the page.
+    if (scenario.audio && !scenario.gallery && scenario.page == Page::grid)
+      static_cast<pedaleira::ui::GridPage&>(*pages[0]).settingsPanel().showMeters(engine.client->read("meters.get"));
     shell.header().refresh();
     const juce::Image image = shell.createComponentSnapshot(shell.getLocalBounds(), true, scale);
     const juce::File out = folder.getChildFile(juce::String(scenario.name) + ".png");
@@ -1159,9 +1402,12 @@ int main(int argc, char** argv) {
       std::cout << scenario.name << "  " << scenario.description << "\n";
     return 0;
   }
+  if (arguments.contains("--selftest"))
+    return selfTest();
   const int at = arguments.indexOf("--capture");
   if (at < 0 || at + 1 >= arguments.size()) {
     std::cerr << "usage: PedaleiraUiTestbed --capture <folder> [--scale 1|2] [scenario...]\n"
+                 "       PedaleiraUiTestbed --selftest\n"
                  "       PedaleiraUiTestbed --list\n";
     return 2;
   }

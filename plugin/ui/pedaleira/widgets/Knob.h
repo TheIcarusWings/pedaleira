@@ -32,6 +32,9 @@ public:
   void setTag(const juce::String& text, juce::Colour tint = colour::iris);
   // The cap's diameter; the arc sits around it. 64 by default.
   void setDiameter(int diameter);
+  // The arc's colour when nothing is assigned (a block's category colour in
+  // its settings); white by default.
+  void setAccent(juce::Colour colour);
 
   std::function<void(double)> onChange;
   // A right click (or control click): the knob's menu, such as assigning
@@ -58,6 +61,7 @@ private:
   juce::Colour tagColour;
   Assignment assignment = Assignment::none;
   bool bypassed = false;
+  juce::Colour accent = colour::text;
   int diameter = 64;
   // The mouse over the knob (a halo and a brighter track), and a turn in
   // progress (the value lights up and the cap grows a little).

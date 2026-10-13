@@ -2,8 +2,10 @@
 
 #include "../Paint.h"
 #include "../Type.h"
+#include "BlockStyle.h"
 #include "TempoNotes.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace pedaleira::ui {
@@ -28,6 +30,7 @@ constexpr int kTimeWidth = 500;
 // The time knob reads a synced note and its time under it: a wider cell.
 constexpr int kTimeKnobCell = 152;
 constexpr int kTimeHeight = 250;
+constexpr int kTimeHeightCompact = 196;
 constexpr int kSectionPadding = 16;
 // The label row and the gap under it, inside a section.
 constexpr int kSectionHead = 28;
@@ -128,7 +131,31 @@ EffectEditor::EffectEditor(EngineClient& client) : BlockEditorBody(client) {
 
 EffectEditor::~EffectEditor() = default;
 
+void EffectEditor::setStyle(const Style& newStyle) {
+  style = newStyle;
+  saveAs.setVisible(!style.compact);
+  signature.clear();
+  resized();
+  repaint();
+}
+
+int EffectEditor::sectionPadding() const { return style.compact ? 12 : kSectionPadding; }
+int EffectEditor::sectionHead() const { return style.compact ? 26 : kSectionHead; }
+int EffectEditor::gapPx() const { return style.compact ? 10 : kGap; }
+int EffectEditor::knobDiameter() const { return style.compact ? (denseKnobs ? 52 : 60) : kKnobDiameter; }
+
+// Keeps the cached value of a parameter in step with what the player did and
+// tells the owner (the panel's picture follows).
+void EffectEditor::noteValue(const juce::String& id, double value) {
+  for (auto& spec : lastSpecs)
+    if (spec.id == id)
+      spec.value = value;
+  if (onParamsChanged)
+    onParamsChanged(lastSpecs);
+}
+
 void EffectEditor::setParam(const juce::String& id, double value) {
+  noteValue(id, value);
   engine.run("block.setParam", object({{"blockId", context.blockId}, {"param", id}, {"value", value}}));
 }
 
@@ -147,6 +174,9 @@ ParamKnob* EffectEditor::makeKnob(const KnobParam& spec, int diameter) {
       onChanged();
   };
   knob->setBypassed(!context.enabled);
+  if (!style.accent.isTransparent())
+    knob->setAccent(style.accent);
+  knob->onValueChanged = [this](const KnobParam& p) { noteValue(p.id, p.value); };
   addAndMakeVisible(*knob);
   ParamKnob* raw = knob.get();
   knobsById[spec.id] = raw;
@@ -174,12 +204,20 @@ void EffectEditor::showBlock(const BlockContext& block) {
       specs.push_back(p);
     }
   readTempo();
+  lastSpecs = specs;
+  int floats = 0;
+  for (const auto& spec : specs)
+    if (!spec.common && spec.type == "float")
+      ++floats;
+  denseKnobs = floats > 12;
   if (!sameBlock || ids != signature) {
     signature = ids;
     rebuild(specs);
   } else {
     updateValues(specs);
   }
+  if (onParamsChanged)
+    onParamsChanged(lastSpecs);
 }
 
 void EffectEditor::rebuild(const std::vector<KnobParam>& specs) {
@@ -218,7 +256,10 @@ void EffectEditor::rebuild(const std::vector<KnobParam>& specs) {
     };
     // Turning the time while it follows the tempo means the player wants a
     // time of their own: the sync switches off.
+    if (!style.accent.isTransparent())
+      group->knob->setAccent(style.accent);
     group->knob->onValueChanged = [this, raw](const KnobParam& p) {
+      noteValue(p.id, p.value);
       raw->time.value = p.value;
       if (raw->sync.value >= 0.5) {
         raw->sync.value = 0.0;
@@ -273,7 +314,7 @@ void EffectEditor::rebuild(const std::vector<KnobParam>& specs) {
   // The graphic equaliser: its bands as sliders over the curve they make.
   if (context.kindId == "eq.graphic10") {
     graphicEq = std::make_unique<GraphicEqView>();
-    graphicEq->setSize(640, 260);
+    graphicEq->setSize(640, style.compact ? 190 : 260);
     graphicEq->onChange = [this](int band, double db) { setParam(graphicEqBandId(band), db); };
     addAndMakeVisible(*graphicEq);
     Section bands;
@@ -285,11 +326,22 @@ void EffectEditor::rebuild(const std::vector<KnobParam>& specs) {
       consumed.add(graphicEqBandId(b));
   }
 
-  // The other parameters of the kind: knobs, then the choices, then the
-  // switches that are not the tail's.
-  Section params;
-  params.title = "Parameters";
-  std::vector<const KnobParam*> choices, switches;
+  // The other parameters of the kind, in the sections its category groups
+  // them in (BlockStyle): in each, the knobs, then the choices, then the
+  // switches. The output section also takes the common output and mix knobs
+  // and the tail switch.
+  struct Pending {
+    juce::String title;
+    std::vector<const KnobParam*> knobs, choices, switches;
+  };
+  std::vector<Pending> pending;
+  const auto groupNamed = [&pending](const juce::String& title) -> Pending& {
+    for (auto& group : pending)
+      if (group.title == title)
+        return group;
+    pending.push_back({title, {}, {}, {}});
+    return pending.back();
+  };
   const KnobParam* spillover = nullptr;
   bool anyKnob = false;
   for (const auto& spec : specs) {
@@ -297,28 +349,34 @@ void EffectEditor::rebuild(const std::vector<KnobParam>& specs) {
       continue;
     if (spec.id == kSpilloverId) {
       spillover = &spec;
-    } else if (spec.type == "float") {
+      continue;
+    }
+    Pending& group = groupNamed(paramGroup(context.category, spec));
+    if (spec.type == "float") {
       anyKnob = true;
-      addItem(params, makeKnob(spec, kKnobDiameter));
+      group.knobs.push_back(&spec);
     } else if (spec.type == "choice") {
-      choices.push_back(&spec);
+      group.choices.push_back(&spec);
     } else if (spec.type == "boolean") {
-      switches.push_back(&spec);
+      group.switches.push_back(&spec);
     }
   }
   if (!anyKnob)
     if (const KnobParam* input = findSpec(specs, "inputGain"))
-      addItem(params, makeKnob(*input, kKnobDiameter));
-  bool first = true;
-  for (const KnobParam* spec : choices) {
-    auto cell = std::make_unique<ChoiceCell>(*spec, [this, id = spec->id](int index) { setParam(id, index); });
-    addAndMakeVisible(*cell);
-    choicesById[spec->id] = cell.get();
-    addItem(params, cell.get(), first);
-    first = false;
-    owned.push_back(std::move(cell));
-  }
-  first = true;
+      groupNamed("Parameters").knobs.push_back(input);
+  Pending& outputGroup = groupNamed("Output");
+  for (const char* id : {"outputGain", "mix"})
+    if (const KnobParam* spec = findSpec(specs, id))
+      outputGroup.knobs.push_back(spec);
+
+  // In a section named after what it belongs to ("Band 3"), the parameters
+  // do not repeat it: "Frequency", not "Band 3 frequency".
+  const auto shortName = [](const juce::String& title, const juce::String& name) {
+    if (!name.startsWithIgnoreCase(title + " "))
+      return name;
+    const juce::String rest = name.substring(title.length() + 1);
+    return rest.substring(0, 1).toUpperCase() + rest.substring(1);
+  };
   const auto makeSwitch = [this](const KnobParam& spec, const juce::String& label) {
     auto row = std::make_unique<SwitchRow>(label);
     row->setState(spec.value >= 0.5);
@@ -330,23 +388,44 @@ void EffectEditor::rebuild(const std::vector<KnobParam>& specs) {
     owned.push_back(std::move(row));
     return raw;
   };
-  for (const KnobParam* spec : switches) {
-    addItem(params, makeSwitch(*spec, spec->name), first);
-    first = false;
+  std::stable_sort(pending.begin(), pending.end(),
+                   [](const Pending& x, const Pending& y) { return groupRank(x.title) < groupRank(y.title); });
+  for (auto& group : pending) {
+    Section section;
+    section.title = group.title;
+    for (const KnobParam* spec : group.knobs) {
+      KnobParam named = *spec;
+      named.name = shortName(group.title, named.name);
+      addItem(section, makeKnob(named, knobDiameter()));
+    }
+    bool first = true;
+    for (const KnobParam* spec : group.choices) {
+      KnobParam named = *spec;
+      named.name = shortName(group.title, named.name);
+      auto cell = std::make_unique<ChoiceCell>(named, [this, id = spec->id](int index) { setParam(id, index); });
+      addAndMakeVisible(*cell);
+      choicesById[spec->id] = cell.get();
+      addItem(section, cell.get(), first && !group.knobs.empty());
+      first = false;
+      owned.push_back(std::move(cell));
+    }
+    first = true;
+    for (const KnobParam* spec : group.switches) {
+      addItem(section, makeSwitch(*spec, shortName(group.title, spec->name)), first && (!group.knobs.empty() || !group.choices.empty()));
+      first = false;
+    }
+    if (group.title == "Output" && spillover != nullptr)
+      addItem(section, makeSwitch(*spillover, "Tails spill over on bypass"), true);
+    if (!section.items.empty())
+      built.push_back(std::move(section));
   }
-  if (!params.items.empty())
-    built.push_back(std::move(params));
-
-  // The output: the gain and the mix, and the tail switch.
-  Section output;
-  output.title = "Output";
-  for (const char* id : {"outputGain", "mix"})
-    if (const KnobParam* spec = findSpec(specs, id))
-      addItem(output, makeKnob(*spec, kKnobDiameter));
-  if (spillover != nullptr)
-    addItem(output, makeSwitch(*spillover, "Tails spill over on bypass"), true);
-  if (!output.items.empty())
-    built.push_back(std::move(output));
+  // A tail switch with no output section to sit in.
+  if (spillover != nullptr && switchesById.find(spillover->id) == switchesById.end()) {
+    Section section;
+    section.title = "Output";
+    addItem(section, makeSwitch(*spillover, "Tails spill over on bypass"));
+    built.push_back(std::move(section));
+  }
 
   sections = std::move(built);
   updateValues(specs);
@@ -413,30 +492,38 @@ void EffectEditor::updateTime(TimeGroup& group) {
 // ####################
 int EffectEditor::sectionHeight(const Section& section, int width) const {
   if (section.time != nullptr)
-    return kTimeHeight;
-  const int inner = width - 2 * kSectionPadding;
+    return style.compact ? kTimeHeightCompact : kTimeHeight;
+  const int inner = width - 2 * sectionPadding();
   int total = 0, line = 0, lineHeight = 0;
   for (size_t i = 0; i < section.items.size(); ++i) {
     const int w = section.items[i]->getWidth(), h = section.items[i]->getHeight();
-    if (line > 0 && (section.breaks[i] || line + kGap + w > inner)) {
-      total += lineHeight + kGap;
+    if (line > 0 && (section.breaks[i] || line + gapPx() + w > inner)) {
+      total += lineHeight + gapPx();
       line = 0;
       lineHeight = 0;
     }
-    line += (line > 0 ? kGap : 0) + w;
+    line += (line > 0 ? gapPx() : 0) + w;
     lineHeight = juce::jmax(lineHeight, h);
   }
-  return 2 * kSectionPadding + kSectionHead + total + lineHeight;
+  return 2 * sectionPadding() + sectionHead() + total + lineHeight;
 }
 
 void EffectEditor::placeItems(Section& section) {
-  auto area = section.bounds.reduced(kSectionPadding);
-  area.removeFromTop(kSectionHead);
+  auto area = section.bounds.reduced(sectionPadding());
+  area.removeFromTop(sectionHead());
   if (section.time != nullptr) {
     TimeGroup& group = *section.time;
-    group.knob->setTopLeftPosition(area.getX(), area.getY() + 8);
+    group.knob->setTopLeftPosition(area.getX(), area.getY() + (style.compact ? 0 : 8));
     const int x = area.getX() + kTimeKnobCell + 20;
     int y = area.getY();
+    if (style.compact) {
+      group.syncRow->setBounds(x, y, group.syncRow->idealWidth(), 28);
+      group.tap->setBounds(x + group.syncRow->idealWidth() + 16, y - 1, 72, 30);
+      y += 28 + 10 + 18;
+      group.note->setBounds(x, y, group.note->idealWidth(), 36);
+      group.variant->setBounds(group.note->getRight() + 12, y, group.variant->idealWidth(), 36);
+      return;
+    }
     group.syncRow->setBounds(x, y, group.syncRow->idealWidth(), 28);
     y += 28 + 14 + 16 + 6;
     group.note->setBounds(x, y, group.note->idealWidth(), 36);
@@ -450,13 +537,13 @@ void EffectEditor::placeItems(Section& section) {
   int x = 0, y = 0, lineHeight = 0;
   for (size_t i = 0; i < section.items.size(); ++i) {
     juce::Component* item = section.items[i];
-    if (x > 0 && (section.breaks[i] || x + kGap + item->getWidth() > inner)) {
-      y += lineHeight + kGap;
+    if (x > 0 && (section.breaks[i] || x + gapPx() + item->getWidth() > inner)) {
+      y += lineHeight + gapPx();
       x = 0;
       lineHeight = 0;
     }
     if (x > 0)
-      x += kGap;
+      x += gapPx();
     item->setTopLeftPosition(area.getX() + x, area.getY() + y);
     x += item->getWidth();
     lineHeight = juce::jmax(lineHeight, item->getHeight());
@@ -464,8 +551,11 @@ void EffectEditor::placeItems(Section& section) {
 }
 
 int EffectEditor::naturalWidth(const Section& section) const {
-  if (section.time != nullptr)
+  if (section.time != nullptr) {
+    if (style.compact)
+      return 2 * sectionPadding() + kTimeKnobCell + 20 + section.time->note->idealWidth() + 12 + section.time->variant->idealWidth();
     return kTimeWidth;
+  }
   // As wide as the first line of items (up to the first forced break).
   int widest = 0, firstLine = 0;
   bool inFirstLine = true;
@@ -474,13 +564,13 @@ int EffectEditor::naturalWidth(const Section& section) const {
     if (i > 0 && section.breaks[i])
       inFirstLine = false;
     if (inFirstLine)
-      firstLine += section.items[i]->getWidth() + (firstLine > 0 ? kGap : 0);
+      firstLine += section.items[i]->getWidth() + (firstLine > 0 ? gapPx() : 0);
   }
-  return 2 * kSectionPadding + juce::jmax(widest, firstLine);
+  return 2 * sectionPadding() + juce::jmax(widest, firstLine);
 }
 
 void EffectEditor::layoutSections() {
-  const int total = getWidth() - kPresetsWidth - kPresetsGap;
+  const int total = getWidth() - (style.compact ? 0 : kPresetsWidth + kPresetsGap);
   std::vector<Section*> pending;
   for (auto& section : sections)
     pending.push_back(&section);
@@ -501,40 +591,47 @@ void EffectEditor::layoutSections() {
       section.bounds = {x, y, width, sectionHeight(section, width)};
       lineHeight = juce::jmax(lineHeight, section.bounds.getHeight());
       line.push_back(&section);
-      x += width + kGap;
+      x += width + gapPx();
       at = pending.erase(at);
     }
     for (Section* section : line)
       section->bounds.setHeight(lineHeight);
-    y += lineHeight + kGap;
+    y += lineHeight + gapPx();
   }
+  contentHeight = juce::jmax(0, y - gapPx());
   for (auto& section : sections)
     placeItems(section);
 }
 
 void EffectEditor::resized() {
-  const int total = getWidth() - kPresetsWidth - kPresetsGap;
-  presetsBounds = {total + kPresetsGap, 0, kPresetsWidth, getHeight()};
-  noteBounds = {0, getHeight() - 20, total, 20};
-  saveAs.setBounds(presetsBounds.getX() + 16, presetsBounds.getBottom() - 16 - 36, presetsBounds.getWidth() - 32, 36);
+  const int total = getWidth() - (style.compact ? 0 : kPresetsWidth + kPresetsGap);
+  if (style.compact) {
+    presetsBounds = noteBounds = {};
+  } else {
+    presetsBounds = {total + kPresetsGap, 0, kPresetsWidth, getHeight()};
+    noteBounds = {0, getHeight() - 20, total, 20};
+    saveAs.setBounds(presetsBounds.getX() + 16, presetsBounds.getBottom() - 16 - 36, presetsBounds.getWidth() - 32, 36);
+  }
   layoutSections();
 }
 
 void EffectEditor::paint(juce::Graphics& g) {
   for (const auto& section : sections) {
-    paintSection(g, section.bounds, section.title);
+    paintSection(g, section.bounds, section.title, {}, style.accent, sectionPadding());
     if (section.time == nullptr)
       continue;
     const TimeGroup& group = *section.time;
     const int x = group.note->getX();
     g.setFont(type::sans(12.0f));
     g.setColour(colour::muted);
-    g.drawText("Note value", x, group.note->getY() - 22, 200, 16, juce::Justification::centredLeft, false);
+    g.drawText("Note value", x, group.note->getY() - (style.compact ? 18 : 22), 200, 16, juce::Justification::centredLeft, false);
     g.drawText("Taps set the rig tempo.", group.tap->getRight() + 12, group.tap->getY(),
                section.bounds.getRight() - 16 - group.tap->getRight() - 12, group.tap->getHeight(),
                juce::Justification::centredLeft, true);
   }
 
+  if (style.compact)
+    return;
   // The effect presets column.
   const auto inner = paintSection(g, presetsBounds, "Effect presets");
   g.setFont(type::sans(12.0f));

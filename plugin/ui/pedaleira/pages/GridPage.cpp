@@ -11,7 +11,15 @@ namespace pedaleira::ui {
 namespace {
 
 constexpr int kScenesHeight = 56;
-constexpr int kGridHeight = 452;
+// Under this much room the settings panel starts collapsed to its bar.
+constexpr int kRoomForSettings = BlockSettingsPanel::kExpandedHeight - 28;
+
+// Whether the player collapsed (true) or expanded (false) the settings panel
+// in this session; unset until they do.
+std::optional<bool>& sessionCollapsed() {
+  static std::optional<bool> collapsed;
+  return collapsed;
+}
 const juce::Colour kCable = colour::faint;
 
 // How far from a point or a cable the mouse may be and still take it.
@@ -855,11 +863,33 @@ void GridView::mouseUp(const juce::MouseEvent& event) {
 }
 
 bool GridView::keyPressed(const juce::KeyPress& key) {
-  if (key == juce::KeyPress::escapeKey && (draggingPoint || draggingTile)) {
-    cancelDrags();
-    return true;
+  if (key == juce::KeyPress::escapeKey) {
+    if (draggingPoint || draggingTile) {
+      cancelDrags();
+      return true;
+    }
+    if (onClearSelection) {
+      onClearSelection();
+      return true;
+    }
+    return false;
   }
-  return false;
+  if (key.getModifiers().isAnyModifierKeyDown() && !key.getModifiers().isShiftDown())
+    return false;
+  int dx = 0, dy = 0;
+  if (key == juce::KeyPress::leftKey)
+    dx = -1;
+  else if (key == juce::KeyPress::rightKey)
+    dx = 1;
+  else if (key == juce::KeyPress::upKey)
+    dy = -1;
+  else if (key == juce::KeyPress::downKey)
+    dy = 1;
+  else
+    return false;
+  if (onMoveSelection)
+    onMoveSelection(dx, dy);
+  return true;
 }
 
 void GridView::cancelDrags() {
@@ -942,243 +972,6 @@ void GridView::tileMouseUp(int, int, const juce::MouseEvent& event) {
     return;
   if (onMoveBlock)
     onMoveBlock(moving.blockId, target->first, target->second);
-}
-
-// ####################
-// BLOCK PANEL
-// ####################
-BlockPanel::BlockPanel(EngineClient& client) : engine(client) {
-  setTitle("Selected block");
-  enabled.onClick = [this] {
-    engine.run("block.setEnabled", object({{"blockId", blockId}, {"enabled", enabled.getToggleState()}}));
-    if (onChanged)
-      onChanged();
-  };
-  replace.onClick = [this] {
-    if (onReplace)
-      onReplace(blockId);
-  };
-  openEditor.onClick = [this] {
-    if (onOpenEditor)
-      onOpenEditor(blockId);
-  };
-  assignFootswitch.onClick = [this] {
-    juce::PopupMenu menu;
-    for (const char* letter : {"A", "B", "C", "D", "E", "F", "G", "H"})
-      menu.addItem(juce::String("Footswitch ") + letter, [this, letter] {
-        engine.run("stomp.assign", object({{"switch", letter}, {"blockIds", juce::Array<juce::var>{blockId}}}));
-        if (onChanged)
-          onChanged();
-      });
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&assignFootswitch));
-  };
-  for (juce::Component* c : std::initializer_list<juce::Component*>{&enabled, &assignFootswitch, &replace, &openEditor})
-    addChildComponent(c);
-}
-
-void BlockPanel::showBlock(const GridModel& model, const juce::String& id) {
-  blockId = id;
-  int row = 0, slot = 0;
-  const GridSlot* block = model.find(id, &row, &slot);
-  hasBlock = block != nullptr;
-  activeScene = model.activeScene;
-  knobs.clear();
-  params.clear();
-  sceneParam = -1;
-  sceneValues.clear();
-  for (juce::Component* c : std::initializer_list<juce::Component*>{&enabled, &assignFootswitch, &replace, &openEditor})
-    c->setVisible(hasBlock);
-  if (!hasBlock) {
-    repaint();
-    return;
-  }
-
-  title = block->name;
-  category = block->category;
-  const juce::String what = block->kindId == "nam" ? juce::String("NAM capture")
-                            : block->kindId == "ir" ? juce::String("Impulse response")
-                                                    : juce::String("Built-in");
-  subtitle = categoryName(category) + " " + type::dot() + " " + what + " " + type::dot() + " Row " +
-             juce::String(row + 1) + ", slot " + juce::String(slot + 1);
-  enabled.setToggleState(block->enabled, juce::dontSendNotification);
-
-  // The knobs: the model blocks' input, up to four of the kind's own
-  // parameters, then output and mix (the board shows six).
-  const juce::var listed = engine.read("block.listParams", object({{"blockId", id}}));
-  std::vector<KnobParam> common, kind;
-  if (const auto* list = listed["params"].getArray())
-    for (const auto& item : *list) {
-      if (item["type"].toString() != "float")
-        continue;
-      KnobParam p = KnobParam::fromVar(item);
-      p.sceneAssigned = block->sceneParams.contains(p.id);
-      (p.common ? common : kind).push_back(p);
-    }
-  const auto commonParam = [&common](const char* wanted) -> std::optional<KnobParam> {
-    for (const auto& p : common)
-      if (p.id == wanted)
-        return p;
-    return std::nullopt;
-  };
-  if (kind.empty())
-    if (auto input = commonParam("inputGain"))
-      params.push_back(*input);
-  for (size_t i = 0; i < kind.size() && i < 4; ++i)
-    params.push_back(kind[i]);
-  for (const char* last : {"outputGain", "mix"})
-    if (auto p = commonParam(last))
-      params.push_back(*p);
-
-  for (size_t i = 0; i < params.size(); ++i) {
-    const KnobParam& p = params[i];
-    auto knob = std::make_unique<Knob>(p.name);
-    knob->setPosition(p.toPosition(p.value));
-    knob->setDefaultPosition(p.toPosition(p.defaultValue));
-    knob->setValueText(p.text(p.value));
-    knob->setAssignment(p.sceneAssigned ? Knob::Assignment::scene : Knob::Assignment::none);
-    knob->setBypassed(!block->enabled);
-    Knob* raw = knob.get();
-    const int index = static_cast<int>(i);
-    knob->onChange = [this, raw, index](double position) {
-      KnobParam& param = params[static_cast<size_t>(index)];
-      param.value = param.fromPosition(position);
-      raw->setValueText(param.text(param.value));
-      engine.run("block.setParam", object({{"blockId", blockId}, {"param", param.id}, {"value", param.value}}));
-      if (param.sceneAssigned)
-        showSceneValues(index);
-    };
-    knob->onContextMenu = [this, index] { openKnobMenu(index); };
-    addAndMakeVisible(*knob);
-    knobs.push_back(std::move(knob));
-    if (p.sceneAssigned && sceneParam < 0)
-      showSceneValues(index);
-  }
-  resized();
-  repaint();
-}
-
-void BlockPanel::showSceneValues(int paramIndex) {
-  sceneParam = paramIndex;
-  sceneValues.clear();
-  const KnobParam& param = params[static_cast<size_t>(paramIndex)];
-  const juce::var scenes = engine.read("scene.get");
-  if (const auto* list = scenes["scenes"].getArray())
-    for (const auto& scene : *list) {
-      // Only the scenes the preset uses.
-      if (!scene["inUse"].isVoid() && !static_cast<bool>(scene["inUse"]))
-        continue;
-      double value = param.value;
-      if (const auto* values = scene["values"].getArray())
-        for (const auto& entry : *values)
-          if (entry["blockId"].toString() == blockId && entry["param"].toString() == param.id)
-            value = entry["value"];
-      sceneValues.emplace_back(scene["id"].toString(), value);
-    }
-  repaint(sceneBox);
-}
-
-void BlockPanel::openKnobMenu(int paramIndex) {
-  const KnobParam& param = params[static_cast<size_t>(paramIndex)];
-  juce::PopupMenu menu;
-  menu.addItem(param.sceneAssigned ? "Same value in every scene" : "Value per scene", [this, paramIndex] {
-    const KnobParam& p = params[static_cast<size_t>(paramIndex)];
-    engine.run(p.sceneAssigned ? "scene.unassignParam" : "scene.assignParam",
-               object({{"blockId", blockId}, {"param", p.id}}));
-    if (onChanged)
-      onChanged();
-  });
-  menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(knobs[static_cast<size_t>(paramIndex)].get()));
-}
-
-void BlockPanel::paint(juce::Graphics& g) {
-  g.fillAll(colour::surface);
-  auto area = getLocalBounds().reduced(24, 20);
-  if (!hasBlock) {
-    g.setFont(type::body());
-    g.setColour(colour::muted);
-    g.drawText("Select a block to edit it, or click an empty slot to add one.", area.removeFromTop(40),
-               juce::Justification::centredLeft, false);
-    return;
-  }
-  auto head = area.removeFromTop(40);
-  const auto icon = head.removeFromLeft(40).toFloat();
-  g.setColour(categoryTint(category));
-  g.fillRoundedRectangle(icon, size::panelRadius);
-  icons::draw(g, icons::path(category), icon.reduced(9.0f), categoryColour(category));
-  head.removeFromLeft(12);
-  g.setFont(type::heading());
-  g.setColour(colour::text);
-  g.drawText(title, head.removeFromTop(26), juce::Justification::centredLeft, true);
-  g.setFont(type::sans(12.0f));
-  g.setColour(colour::muted);
-  g.drawText(subtitle, head, juce::Justification::centredLeft, true);
-
-  // "On in scene B", beside the switch.
-  g.setFont(type::compact());
-  g.setColour(colour::text);
-  const auto toggleArea = enabled.getBounds();
-  g.drawText((enabled.getToggleState() ? "On in scene " : "Off in scene ") + activeScene,
-             toggleArea.getRight() + 8, toggleArea.getY(), 110, toggleArea.getHeight(),
-             juce::Justification::centredLeft, false);
-
-  // The per-scene values of the knob that has them.
-  if (sceneBox.isEmpty())
-    return;
-  const auto box = sceneBox.toFloat();
-  g.setColour(colour::ground);
-  g.fillRoundedRectangle(box, size::panelRadius);
-  g.setColour(colour::line);
-  g.drawRoundedRectangle(box.reduced(0.5f), size::panelRadius, 1.0f);
-  auto inner = sceneBox.reduced(16, 14);
-  auto heading = inner.removeFromTop(18);
-  if (sceneParam < 0) {
-    paint::label(g, "Per scene", heading, juce::Justification::centredLeft, colour::iris);
-    g.setFont(type::sans(12.0f));
-    g.setColour(colour::muted);
-    g.drawFittedText("Add a scene and the knobs you turn keep a value in each scene.", inner.withTrimmedTop(8),
-                     juce::Justification::topLeft, 2);
-    return;
-  }
-  const KnobParam& param = params[static_cast<size_t>(sceneParam)];
-  paint::label(g, param.name + " " + type::dot() + " per scene", heading, juce::Justification::centredLeft, colour::iris);
-  g.setFont(type::sans(12.0f));
-  g.setColour(colour::muted);
-  g.drawText("Right-click a knob to assign", heading, juce::Justification::centredRight, false);
-  inner.removeFromTop(10);
-  auto cells = inner.removeFromTop(32);
-  // Four to a line at most; more scenes share the line in narrower cells.
-  const int perLine = juce::jmax(4, static_cast<int>(sceneValues.size()));
-  const int cellWidth = (cells.getWidth() - (perLine - 1) * 8) / perLine;
-  for (size_t i = 0; i < sceneValues.size(); ++i) {
-    const auto cell = cells.removeFromLeft(cellWidth).toFloat();
-    cells.removeFromLeft(8);
-    const bool active = sceneValues[i].first == activeScene;
-    g.setColour(active ? colour::iris : colour::raised);
-    g.fillRoundedRectangle(cell, size::buttonRadius);
-    g.setFont(type::mono(12.0f));
-    g.setColour(active ? colour::ground : colour::text);
-    g.drawFittedText(sceneValues[i].first + " " + param.text(sceneValues[i].second),
-                     cell.reduced(6.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.8f);
-  }
-}
-
-void BlockPanel::resized() {
-  auto area = getLocalBounds().reduced(24, 20);
-  auto head = area.removeFromTop(40);
-  int right = head.getRight();
-  for (PushButton* button : {&openEditor, &replace, &assignFootswitch}) {
-    const int width = button->idealWidth();
-    button->setBounds(right - width, head.getCentreY() - 16, width, 32);
-    right = button->getX() - 12;
-  }
-  enabled.setBounds(right - 130, head.getCentreY() - 14, 44, 28);
-  area.removeFromTop(20);
-  sceneBox = area.removeFromRight(380).withHeight(juce::jmin(area.getHeight(), 130));
-  int x = area.getX();
-  for (auto& knob : knobs) {
-    knob->setBounds(x, area.getY(), 84, 110);
-    x += 104;
-  }
 }
 
 // ####################
@@ -1445,6 +1238,8 @@ GridPage::GridPage(EngineClient& client)
   };
   stompPanel.onOpenModes = scenePanel.onOpenModes;
   grid.onSelectBlock = [this](const juce::String& blockId) { selectBlock(blockId); };
+  grid.onMoveSelection = [this](int dx, int dy) { moveSelection(dx, dy); };
+  grid.onClearSelection = [this] { clearSelection(); };
   grid.onSelectPoint = [this](GridPoint p) { selectPoint(p); };
   grid.onEmptySlot = [this](int row, int slot) { openPicker(row, slot); };
   grid.onInsertHere = [this](int row, int slot) { openPicker(row, slot); };
@@ -1530,8 +1325,20 @@ GridPage::GridPage(EngineClient& client)
     }
     rigChanged();
   };
-  grid.onOpenBlock = [this](const juce::String& blockId) { requestEditor(blockId); };
+  // Double-click: the settings are already on the page, so it selects and
+  // makes sure they are showing. A hosted plugin has its own window.
+  grid.onOpenBlock = [this](const juce::String& blockId) {
+    const GridSlot* block = model.find(blockId);
+    if (block != nullptr && block->kindId == "plugin" && onOpenPluginWindow) {
+      requestEditor(blockId);
+      return;
+    }
+    selectBlock(blockId);
+    if (blockPanel.isCollapsed())
+      setSettingsCollapsed(false);
+  };
   blockPanel.onOpenEditor = [this](const juce::String& blockId) { requestEditor(blockId); };
+  blockPanel.onCollapsedChanged = [this](bool collapsed) { setSettingsCollapsed(collapsed); };
   blockPanel.onReplace = [this](const juce::String& blockId) {
     int row = 0, slot = 0;
     if (model.find(blockId, &row, &slot) != nullptr)
@@ -1576,6 +1383,7 @@ void GridPage::runRouting(const char* command, const juce::var& args, const juce
 void GridPage::showMeters(const juce::var& meters) {
   if (!grid.isShowing())
     return;
+  blockPanel.showMeters(meters);
   std::array<GridView::RowLevels, 4> levels;
   if (const auto* rows = meters["rows"].getArray())
     for (const auto& row : *rows) {
@@ -1806,11 +1614,9 @@ void GridPage::rigChanged() {
   if (editorShown && model.find(editor.blockId()) == nullptr)
     setEditorShown(false);
   if (model.find(selected) == nullptr) {
-    selected.clear();
-    for (const int r : model.visibleRows())
-      for (const auto& slot : model.rows[static_cast<size_t>(r)].slots)
-        if (selected.isEmpty() && !slot.empty)
-          selected = slot.blockId;
+    // The page opens on the first block; after Escape it stays empty until
+    // the player picks one.
+    selected = selectionCleared ? juce::String() : model.firstBlock();
   }
   scenes.setScenes(model.scenes);
   // A change of footswitch mode brings its panel: Scene mode the scene, Stomp
@@ -1826,6 +1632,9 @@ void GridPage::rigChanged() {
 }
 
 void GridPage::refreshViews() {
+  // A row added or removed changes how much of the page the grid takes.
+  if (juce::jlimit(1, 4, static_cast<int>(model.visibleRows().size())) != shownRows)
+    resized();
   if (editorShown) {
     grid.setModel(model, selected, point);
     editor.refresh(model);
@@ -1903,13 +1712,34 @@ void GridPage::setEditorShown(bool shown) {
 
 void GridPage::selectBlock(const juce::String& blockId) {
   // Another block: its panel fades in over the last one's.
-  const bool other = blockId != selected || panel != Panel::selection;
   selected = blockId;
+  selectionCleared = false;
   point.reset();
   panel = Panel::selection;
   refreshViews();
-  if (other)
-    motion::fadeIn(blockPanel, motion::selectMs);
+}
+
+void GridPage::moveSelection(int dx, int dy) {
+  if (editorShown || panel != Panel::selection)
+    return;
+  const juce::String next = model.neighbour(point ? juce::String() : selected, dx, dy);
+  if (next.isNotEmpty() && (next != selected || point))
+    selectBlock(next);
+}
+
+void GridPage::clearSelection() {
+  if (editorShown)
+    return;
+  selected.clear();
+  point.reset();
+  selectionCleared = true;
+  panel = Panel::selection;
+  refreshViews();
+}
+
+void GridPage::setSettingsCollapsed(bool collapsed) {
+  sessionCollapsed() = collapsed;
+  resized();
 }
 
 void GridPage::openPicker(int row, int slot) {
@@ -1931,8 +1761,22 @@ void GridPage::paint(juce::Graphics& g) { g.fillAll(colour::ground); }
 void GridPage::resized() {
   auto area = getLocalBounds();
   scenes.setBounds(area.removeFromTop(kScenesHeight));
-  grid.setBounds(area.removeFromTop(kGridHeight));
-  blockPanel.setBounds(area);
+  shownRows = juce::jlimit(1, 4, static_cast<int>(model.visibleRows().size()));
+  grid.setBounds(area.removeFromTop(GridView::heightForRows(shownRows)));
+  // The settings: docked in the room under the grid, a slim bar when there is
+  // little room (or the player collapsed it), or over the bottom of the grid
+  // when they expanded it in a small window.
+  const bool tight = area.getHeight() < kRoomForSettings;
+  const bool collapsed = sessionCollapsed().value_or(tight);
+  blockPanel.setCollapsed(collapsed);
+  if (collapsed) {
+    blockPanel.setBounds(area.withHeight(BlockSettingsPanel::kBarHeight));
+  } else if (tight) {
+    blockPanel.setBounds(getLocalBounds().removeFromBottom(BlockSettingsPanel::kExpandedHeight));
+    blockPanel.toFront(false);
+  } else {
+    blockPanel.setBounds(area);
+  }
   splitPanel.setBounds(area);
   scenePanel.setBounds(area);
   stompPanel.setBounds(area);

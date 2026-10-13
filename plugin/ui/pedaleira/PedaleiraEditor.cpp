@@ -23,6 +23,11 @@ bool PedaleiraEditor::wanted(const juce::AudioProcessor& processor) {
 
 PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
     : juce::AudioProcessorEditor(processor), pluginWindows(processor) {
+  // Menus shown without a target component take the default look, so the
+  // app's look is the default while this editor is up.
+  previousDefaultLook = &juce::LookAndFeel::getDefaultLookAndFeel();
+  juce::LookAndFeel::setDefaultLookAndFeel(&lookAndFeel);
+  setLookAndFeel(&lookAndFeel);
   client = std::make_unique<LocalEngineClient>(processor.commandLayer().agents());
   shell = std::make_unique<AppShell>(*client);
   grid = std::make_unique<GridPage>(*client);
@@ -104,6 +109,7 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
     grid->rigChanged();
   };
   importer->onOpenGrid = [this] { shell->showPage(Page::grid); };
+  library->onOpenGrid = [this] { shell->showPage(Page::grid); };
   importer->onPickCapture = [this](int row, int slot) {
     shell->showPage(Page::grid);
     grid->openPicker(row, slot);
@@ -135,6 +141,7 @@ PedaleiraEditor::~PedaleiraEditor() {
   importer->onChanged = nullptr;
   capturePage->onChanged = nullptr;
   importer->onOpenGrid = nullptr;
+  library->onOpenGrid = nullptr;
   importer->onPickCapture = nullptr;
   grid->onOpenPluginWindow = nullptr;
   grid->onOpenModes = nullptr;
@@ -155,6 +162,8 @@ PedaleiraEditor::~PedaleiraEditor() {
   grid.reset();
   comingSoon.clear();
   shell.reset();
+  setLookAndFeel(nullptr);
+  juce::LookAndFeel::setDefaultLookAndFeel(previousDefaultLook);
 }
 
 bool PedaleiraEditor::showPluginWindow(const juce::String& blockId, const juce::String& title) {

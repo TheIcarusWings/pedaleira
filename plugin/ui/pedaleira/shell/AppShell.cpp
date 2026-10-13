@@ -64,13 +64,21 @@ struct NavRail::Item final : juce::Button {
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
   }
 
-  void paintButton(juce::Graphics& g, bool highlighted, bool) override {
+  void buttonStateChanged() override { hover.setTarget(isOver() ? 1.0f : 0.0f); }
+
+  void paintButton(juce::Graphics& g, bool, bool down) override {
     const auto area = getLocalBounds().toFloat();
-    if (current || highlighted) {
-      g.setColour(current ? colour::control : colour::raised);
+    const float lit = hover.value();
+    if (current) {
+      g.setColour(colour::control);
+      g.fillRoundedRectangle(area, 10.0f);
+    } else if (lit > 0.0f) {
+      g.setColour(colour::raised.withAlpha(lit));
       g.fillRoundedRectangle(area, 10.0f);
     }
-    const juce::Colour fg = current ? colour::text : colour::muted;
+    const juce::Colour fg = current ? colour::text : colour::muted.interpolatedWith(colour::text, lit);
+    if (down)
+      g.addTransform(juce::AffineTransform::translation(0.0f, 1.0f));
     icons::draw(g, icons::path(iconOf(page)), area.withHeight(34.0f).withTrimmedTop(10.0f), fg);
     g.setFont(type::sans(11.0f, type::Weight::semibold));
     g.setColour(fg);
@@ -83,6 +91,7 @@ struct NavRail::Item final : juce::Button {
 
   Page page;
   bool current = false;
+  Tween hover{*this};
 };
 
 NavRail::NavRail() {
@@ -214,6 +223,71 @@ Header::Header(EngineClient& client) : engine(client) {
   };
   for (juce::Component* c : std::initializer_list<juce::Component*>{&save, &newPreset, &mode, &tempo, &tuner, &gigView})
     addAndMakeVisible(c);
+
+  nameEditor.setTitle("Preset name");
+  nameEditor.setFont(type::sans(20.0f, type::Weight::medium));
+  nameEditor.setColour(juce::TextEditor::backgroundColourId, colour::raised);
+  nameEditor.setColour(juce::TextEditor::textColourId, colour::text);
+  nameEditor.setColour(juce::TextEditor::outlineColourId, colour::line);
+  nameEditor.setColour(juce::TextEditor::focusedOutlineColourId, colour::iris);
+  nameEditor.setColour(juce::TextEditor::highlightColourId, colour::iris.withAlpha(0.35f));
+  nameEditor.setColour(juce::CaretComponent::caretColourId, colour::iris);
+  nameEditor.setIndents(8, 3);
+  nameEditor.onReturnKey = [this] { commitRename(); };
+  nameEditor.onFocusLost = [this] { commitRename(); };
+  nameEditor.onEscapeKey = [this] {
+    nameEditor.setVisible(false);
+    repaint();
+  };
+  addChildComponent(nameEditor);
+}
+
+juce::Rectangle<int> Header::nameArea() const { return titleArea.withTrimmedTop(26).withHeight(26); }
+
+void Header::startRename() {
+  nameEditor.setBounds(nameArea().withWidth(juce::jmax(220, nameArea().getWidth() + 40)).expanded(0, 3).translated(-8, 0));
+  nameEditor.setText(presetName == "New preset" && pendingName.isEmpty() ? juce::String() : presetName, false);
+  nameEditor.setTextToShowWhenEmpty("Preset name", colour::faint);
+  nameEditor.setVisible(true);
+  nameEditor.grabKeyboardFocus();
+  nameEditor.selectAll();
+  repaint();
+}
+
+void Header::commitRename() {
+  if (!nameEditor.isVisible())
+    return;
+  nameEditor.setVisible(false);
+  const juce::String name = nameEditor.getText().trim();
+  if (name.isNotEmpty() && name != presetName) {
+    if (presetId.isNotEmpty())
+      engine.run("preset.rename", object({{"id", presetId}, {"name", name}}));
+    else
+      pendingName = name;
+  }
+  refresh();
+}
+
+void Header::mouseMove(const juce::MouseEvent& event) {
+  const bool over = !nameEditor.isVisible() && nameArea().contains(event.getPosition());
+  if (over != nameHovered) {
+    nameHovered = over;
+    setMouseCursor(over ? juce::MouseCursor::IBeamCursor : juce::MouseCursor::NormalCursor);
+    repaint(nameArea().expanded(8, 4));
+  }
+}
+
+void Header::mouseExit(const juce::MouseEvent&) {
+  if (nameHovered) {
+    nameHovered = false;
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+    repaint(nameArea().expanded(8, 4));
+  }
+}
+
+void Header::mouseUp(const juce::MouseEvent& event) {
+  if (event.mouseWasClicked() && nameArea().contains(event.getPosition()))
+    startRename();
 }
 
 void Header::setSaveIsPrimary(bool primary) {
@@ -225,7 +299,10 @@ void Header::refresh() {
   const juce::var library = engine.read("library.get");
   const juce::String setlistId = library["current"]["setlist"].toString();
   const int slot = library["current"]["slot"];
-  const juce::String presetId = library["current"]["presetId"].toString();
+  const juce::String currentId = library["current"]["presetId"].toString();
+  if (currentId != presetId)
+    pendingName.clear();
+  presetId = currentId;
   unsaved = static_cast<bool>(library["unsaved"]);
 
   juce::String setlistName;
@@ -247,7 +324,7 @@ void Header::refresh() {
           presetName = preset["name"].toString();
   }
   if (presetName.isEmpty())
-    presetName = "New preset";
+    presetName = pendingName.isNotEmpty() ? pendingName : juce::String("New preset");
 
   const juce::var footswitches = engine.read("footswitch.getState");
   mode.setSelected(juce::jmax(0, modeIds().indexOf(footswitches["mode"].toString())));
@@ -277,9 +354,16 @@ void Header::paint(juce::Graphics& g) {
   g.fillRect(0, getHeight() - 1, getWidth(), 1);
 
   paint::label(g, setlistLine, titleArea.withHeight(16).translated(0, 10));
-  g.setFont(type::sans(20.0f, type::Weight::medium, unsaved));
-  g.setColour(colour::text);
-  g.drawText(presetName, titleArea.withTrimmedTop(26).withHeight(26), juce::Justification::centredLeft, true);
+  if (!nameEditor.isVisible()) {
+    // Under the mouse the name shows it can be edited: a soft field and a pencil hint.
+    if (nameHovered) {
+      g.setColour(colour::raised);
+      g.fillRoundedRectangle(nameArea().toFloat().expanded(6.0f, 2.0f), 6.0f);
+    }
+    g.setFont(type::sans(20.0f, type::Weight::medium, unsaved));
+    g.setColour(colour::text);
+    g.drawText(presetName, nameArea(), juce::Justification::centredLeft, true);
+  }
   if (unsaved) {
     g.setFont(type::sans(12.0f));
     g.setColour(colour::warn);

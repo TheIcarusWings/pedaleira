@@ -40,10 +40,14 @@ public:
 
   void paint(juce::Graphics& g) override;
   void mouseUp(const juce::MouseEvent& event) override;
+  void mouseMove(const juce::MouseEvent& event) override;
+  void mouseExit(const juce::MouseEvent& event) override;
 
 private:
   juce::Rectangle<float> buttonBounds(int index) const;
   std::vector<GridScene> scenes;
+  // The button under the mouse (Add scene is the one after the scenes).
+  int hovered = -1;
 };
 
 // A split or mix point: the split's upper row and which of its two points.
@@ -53,7 +57,7 @@ struct GridPoint {
   bool operator==(const GridPoint& other) const { return row == other.row && mix == other.mix; }
 };
 
-class GridView : public juce::Component {
+class GridView : public juce::Component, private juce::Timer {
 public:
   GridView();
   ~GridView() override;
@@ -161,7 +165,19 @@ private:
 
   GridModel model;
   std::vector<int> shown;
-  std::array<RowLevels, 4> levels, holds;
+  // What the meters show, what the engine last read, and the peak holds.
+  // The shown levels rise at once and fall smoothly between readings.
+  std::array<RowLevels, 4> levels, targets, holds;
+  void timerCallback() override;
+  // The part of a row's boxes under the mouse, lit to say it can be used.
+  enum class HoverPart { none, input, output, trim, volume, mute, solo, addRow };
+  struct Hover {
+    int row = -1;
+    HoverPart part = HoverPart::none;
+    bool operator!=(const Hover& other) const { return row != other.row || part != other.part; }
+  };
+  Hover hoverAt(juce::Point<float> position) const;
+  Hover hovering;
   // Until when each row's input (0) and output (1) shows a clip.
   std::array<std::array<juce::uint32, 2>, 4> clipUntil{};
   // A trim or volume drag: the row, which, the value and x it started at.

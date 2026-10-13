@@ -79,12 +79,18 @@ void Knob::paint(juce::Graphics& g) {
   else if (assignment == Assignment::expression)
     arc = colour::ok;
 
-  const juce::PathStrokeType stroke(box * 4.0f / 64.0f, juce::PathStrokeType::curved,
+  const float lit = bypassed ? 0.0f : hover.value(), active = bypassed ? 0.0f : turning.value();
+  // A soft halo behind the knob while the mouse is on it.
+  if (lit > 0.0f) {
+    g.setColour(arc.withAlpha(0.07f * lit + 0.05f * active));
+    g.fillEllipse(knobArea.reduced(box * 2.0f / 64.0f));
+  }
+  const juce::PathStrokeType stroke(box * (4.0f + 0.75f * active) / 64.0f, juce::PathStrokeType::curved,
                                     juce::PathStrokeType::rounded);
   juce::Path track;
   track.addCentredArc(centre.x, centre.y, radius, radius, 0.0f, kStartAngle - juce::MathConstants<float>::twoPi,
                       kStartAngle - juce::MathConstants<float>::twoPi + kSweep, true);
-  g.setColour(colour::line.withMultipliedAlpha(alpha));
+  g.setColour(colour::line.interpolatedWith(colour::dim, 0.5f * lit).withMultipliedAlpha(alpha));
   g.strokePath(track, stroke);
   const float valueAngle = kStartAngle - juce::MathConstants<float>::twoPi + kSweep * static_cast<float>(position);
   if (position > 0.0) {
@@ -96,10 +102,10 @@ void Knob::paint(juce::Graphics& g) {
   }
 
   // The cap, with its drop, and the pointer.
-  const float cap = box * 18.0f / 64.0f;
+  const float cap = box * (18.0f + 1.0f * active) / 64.0f;
   g.setColour(colour::drop);
   g.fillEllipse(juce::Rectangle<float>(cap * 2.0f, cap * 2.0f).withCentre(centre.translated(0.0f, box * 1.5f / 64.0f)));
-  g.setColour(colour::control.withMultipliedAlpha(bypassed ? 0.7f : 1.0f));
+  g.setColour(colour::control.interpolatedWith(colour::line, 0.6f * lit).withMultipliedAlpha(bypassed ? 0.7f : 1.0f));
   g.fillEllipse(juce::Rectangle<float>(cap * 2.0f, cap * 2.0f).withCentre(centre));
   const juce::Point<float> inner = centre.getPointOnCircumference(cap * 7.0f / 18.0f, valueAngle);
   const juce::Point<float> outer = centre.getPointOnCircumference(cap * 15.0f / 18.0f, valueAngle);
@@ -115,14 +121,23 @@ void Knob::paint(juce::Graphics& g) {
   g.setFont(type::sans(12.0f, type::Weight::semibold));
   g.setColour((bypassed ? colour::muted : colour::text).withMultipliedAlpha(alpha));
   g.drawText(getName(), text.removeFromTop(kNameHeight), juce::Justification::centred, true);
+  // The value brightens while the mouse is on the knob, and takes the arc's
+  // colour while it turns.
   g.setFont(type::mono(12.0f));
-  g.setColour(colour::muted.withMultipliedAlpha(alpha));
+  g.setColour(colour::muted.interpolatedWith(colour::text, lit).interpolatedWith(arc, active).withMultipliedAlpha(alpha));
   g.drawText(valueText, text.removeFromTop(kValueHeight), juce::Justification::centred, true);
   if (tagText.isNotEmpty()) {
     g.setFont(type::sans(11.0f));
     g.setColour(tagColour.withMultipliedAlpha(alpha));
     g.drawText(tagText, text.removeFromTop(kTagHeight), juce::Justification::centred, true);
   }
+}
+
+void Knob::mouseEnter(const juce::MouseEvent&) { hover.setTarget(1.0f); }
+
+void Knob::mouseExit(const juce::MouseEvent&) {
+  if (!isMouseButtonDown())
+    hover.setTarget(0.0f);
 }
 
 void Knob::mouseDown(const juce::MouseEvent& event) {
@@ -132,6 +147,22 @@ void Knob::mouseDown(const juce::MouseEvent& event) {
     return;
   }
   dragStart = position;
+  turning.setTarget(1.0f);
+}
+
+void Knob::mouseUp(const juce::MouseEvent&) {
+  turning.setTarget(0.0f);
+  if (!isMouseOver())
+    hover.setTarget(0.0f);
+}
+
+void Knob::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) {
+  // A wheel or trackpad turns the knob too: shift for fine steps.
+  const float delta = std::abs(wheel.deltaY) > std::abs(wheel.deltaX) ? wheel.deltaY : -wheel.deltaX;
+  if (delta == 0.0f)
+    return;
+  const double scale = event.mods.isShiftDown() ? 0.05 : 0.25;
+  setPosition(position + (wheel.isReversed ? -delta : delta) * scale, juce::sendNotification);
 }
 
 void Knob::mouseDrag(const juce::MouseEvent& event) {

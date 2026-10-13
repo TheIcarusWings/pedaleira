@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../Tokens.h"
+#include "Motion.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -28,11 +29,15 @@ public:
 
 protected:
   void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
+  void buttonStateChanged() override;
 
 private:
   Kind kind;
   bool monoText = false;
   const juce::Path* icon = nullptr;
+  // 0 to 1: the mouse over it, and pressed (it sinks by a pixel).
+  Tween hover{*this};
+  Tween press{*this, 0.0f, motion::pressMs};
 };
 
 // A choice shown as a field with a chevron (the boards' selects: Sort by,
@@ -47,9 +52,11 @@ public:
 
 protected:
   void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
+  void buttonStateChanged() override;
 
 private:
   juce::String text;
+  Tween hover{*this};
 };
 
 // A row of mutually exclusive choices (Preset / Scene / Stomp / Hybrid).
@@ -63,7 +70,10 @@ public:
 
   int idealWidth() const;
   void paint(juce::Graphics& g) override;
+  void resized() override;
   void mouseUp(const juce::MouseEvent& event) override;
+  void mouseMove(const juce::MouseEvent& event) override;
+  void mouseExit(const juce::MouseEvent& event) override;
   bool keyPressed(const juce::KeyPress& key) override;
 
 private:
@@ -73,6 +83,10 @@ private:
 
   juce::StringArray options;
   int selected = 0;
+  int hovered = -1;
+  // The selection pill slides to the chosen segment: its left edge and width.
+  Tween pillX{*this, 0.0f, motion::selectMs};
+  Tween pillWidth{*this, 0.0f, motion::selectMs};
 };
 
 // The round switch: iris track with a dark knob when on, line track with a
@@ -83,6 +97,14 @@ public:
 
 protected:
   void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
+  void buttonStateChanged() override;
+  void clicked() override;
+
+private:
+  // 0 off to 1 on: the knob slides and the track fills.
+  Tween slide{*this, 0.0f, motion::selectMs};
+  Tween hover{*this};
+  bool seen = false;
 };
 
 }  // namespace pedaleira::ui

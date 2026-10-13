@@ -11,6 +11,7 @@
 
 #include "DeviceSettings.h"
 #include "EngineClient.h"
+#include "LookAndFeel.h"
 #include "pages/ComingSoon.h"
 #include "pages/CapturePage.h"
 #include "pages/FootswitchModesPage.h"
@@ -48,6 +49,10 @@ public:
   void resized() override;
 
 private:
+  // First member: it outlives every component that draws with it.
+  PedaleiraLookAndFeel lookAndFeel;
+  // The default look before this editor, put back when it goes.
+  juce::LookAndFeel* previousDefaultLook = nullptr;
   std::unique_ptr<LocalEngineClient> client;
   // The audio device of the standalone application; null when there is none.
   std::unique_ptr<DeviceSettings> device;

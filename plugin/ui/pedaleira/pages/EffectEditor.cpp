@@ -9,6 +9,15 @@
 namespace pedaleira::ui {
 
 namespace {
+// The graphic equaliser's band parameters, low to high (effects/eq/GraphicEq10.cpp).
+juce::String graphicEqBandId(int band) {
+  static const char* const ids[GraphicEqView::kBands] = {"band31", "band63", "band125", "band250", "band500",
+                                                         "band1k", "band2k", "band4k",  "band8k",  "band16k"};
+  return ids[band];
+}
+}  // namespace
+
+namespace {
 
 constexpr int kGap = 16;
 constexpr int kPresetsWidth = 260;
@@ -176,6 +185,7 @@ void EffectEditor::showBlock(const BlockContext& block) {
 void EffectEditor::rebuild(const std::vector<KnobParam>& specs) {
   sections.clear();
   timeGroups.clear();
+  graphicEq.reset();
   knobsById.clear();
   choicesById.clear();
   switchesById.clear();
@@ -260,6 +270,21 @@ void EffectEditor::rebuild(const std::vector<KnobParam>& specs) {
     timeGroups.push_back(std::move(group));
   }
 
+  // The graphic equaliser: its bands as sliders over the curve they make.
+  if (context.kindId == "eq.graphic10") {
+    graphicEq = std::make_unique<GraphicEqView>();
+    graphicEq->setSize(640, 260);
+    graphicEq->onChange = [this](int band, double db) { setParam(graphicEqBandId(band), db); };
+    addAndMakeVisible(*graphicEq);
+    Section bands;
+    bands.title = "Bands";
+    bands.items.push_back(graphicEq.get());
+    bands.breaks.push_back(false);
+    built.push_back(bands);
+    for (int b = 0; b < GraphicEqView::kBands; ++b)
+      consumed.add(graphicEqBandId(b));
+  }
+
   // The other parameters of the kind: knobs, then the choices, then the
   // switches that are not the tail's.
   Section params;
@@ -331,6 +356,12 @@ void EffectEditor::rebuild(const std::vector<KnobParam>& specs) {
 
 void EffectEditor::updateValues(const std::vector<KnobParam>& specs) {
   const bool dimmed = !context.enabled;
+  if (graphicEq != nullptr) {
+    graphicEq->setBypassed(dimmed);
+    for (int b = 0; b < GraphicEqView::kBands; ++b)
+      if (const KnobParam* band = findSpec(specs, graphicEqBandId(b)))
+        graphicEq->setGain(b, band->value);
+  }
   for (const auto& spec : specs) {
     if (const auto knob = knobsById.find(spec.id); knob != knobsById.end()) {
       knob->second->update(spec);

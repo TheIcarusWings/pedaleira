@@ -306,7 +306,16 @@ Resolved resolveValue(const juce::var& entry, const juce::var& sourceValue,
   if (transform.getDynamicObject() != nullptr && transform["map"].isVoid()) {
     const double scale = transform["scale"].isVoid() ? 1.0 : numberOf(transform["scale"]);
     const double offset = transform["offset"].isVoid() ? 0.0 : numberOf(transform["offset"]);
-    result = result * scale + offset;
+    if (!transform["exponent"].isVoid()) {
+      // A curve: scale * (value / inputMax) ^ exponent + offset, for a
+      // parameter whose law is not a straight line of the unit's knob
+      // (inputMax is the knob's own range, 100 unless the table says).
+      const double inputMax = transform["inputMax"].isVoid() ? 100.0 : numberOf(transform["inputMax"]);
+      const double unit = inputMax > 0.0 ? juce::jmax(0.0, result / inputMax) : 0.0;
+      result = scale * std::pow(unit, numberOf(transform["exponent"])) + offset;
+    } else {
+      result = result * scale + offset;
+    }
   } else if (transform.isString() && transform.toString() != "linear") {
     out.why = "unknown transform \"" + transform.toString() + "\" in the mapping table";
     return out;

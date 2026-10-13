@@ -3,6 +3,15 @@
 // even musical steps), with feedback of either sign around the chain. The
 // wet is the input plus the allpassed signal: every pair of stages gives one
 // notch where the two are in opposite phase.
+//
+// The voicing picks how the wet is made. Classic (the default) is the above.
+// Lifted is the response measured on a reference unit, which is lifted by
+// +1.5 to +5.7 dB across the band rather than dipping: the wet is the input
+// plus the allpassed copy at 1.8 times the loop-normalised level, so at the
+// 50% mix that response is for (a crossfade of one dry share and one wet
+// share) the output is the dry signal plus 0.9 of the allpass chain, which
+// lifts by up to 5.6 dB where the two add and dips only a little where the
+// notches dwell. It is made for a mix of 50%; at 100% it is louder.
 #include <algorithm>
 #include <cmath>
 #include "effects/EffectDsp.h"
@@ -14,7 +23,10 @@ public:
   static constexpr const char* kKindId = "modulation.phaser";
 
   // The first three are the standard rate parameters (fx::appendRateParams).
-  enum Param { kSync = 0, kDivision, kRateHz, kDepth, kCenterHz, kStages, kFeedback, kWidth };
+  enum Param {
+    kSync = 0, kDivision, kRateHz, kDepth, kCenterHz, kStages, kFeedback, kWidth, kVoicing
+  };
+  enum Voicing { kClassic = 0, kLifted };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -36,6 +48,10 @@ public:
       t.push_back(BlockParamSpec::floatParam("feedback", "Feedback", "%", -90.0f, 90.0f, 30.0f)
                       .withAffectsTail());
       t.push_back(BlockParamSpec::floatParam("width", "Width", "%", 0.0f, 100.0f, 50.0f));
+      // Appended after the first release.
+      t.push_back(BlockParamSpec::choiceParam("voicing", "Voicing",
+                                              juce::StringArray{"Classic", "Lifted"}, kClassic)
+                      .notAutomatable());
       return t;
     }();
     return table;
@@ -109,6 +125,7 @@ protected:
 
     float* channels[kMaxChannels] = {buffer.getWritePointer(0),
                                      numChannels > 1 ? buffer.getWritePointer(1) : nullptr};
+    const bool lifted = param(kVoicing) >= 0.5f;
     const float pi = juce::MathConstants<float>::pi;
     const float fs = static_cast<float>(sampleRate);
     for (int i = 0; i < numSamples; ++i) {
@@ -149,7 +166,10 @@ protected:
             tapped += weights[2] * v;
         }
         s.returned = tapped;
-        channels[ch][i] = (in + tapped) * norm;
+        if (lifted)
+          channels[ch][i] = in + kLiftedWet * (1.0f - std::abs(fb)) * tapped;
+        else
+          channels[ch][i] = (in + tapped) * norm;
       }
       lfo.advance();
     }
@@ -161,6 +181,8 @@ private:
   static constexpr int kNumTaps = 3;
   static constexpr float kSweepOctaves = 2.0f;
   static constexpr double kLowestHz = 40.0;
+  // The lifted voicing's allpass level: twice 0.9, for a crossfade at 50%.
+  static constexpr float kLiftedWet = 1.8f;
 
   struct ChannelState {
     float z[kMaxStages] = {};

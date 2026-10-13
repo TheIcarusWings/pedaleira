@@ -314,3 +314,64 @@ TEST(RotaryTest, StaysFiniteAndBoundedAtTheExtremes) {
     expectCleanSignal(out.right, 6.0f, "extreme rotary, right");
   }
 }
+
+// ---------------------------------------------------------------------------
+// The options measured against a reference unit: the dark cabinet and the
+// slow speed as a share of fast. Both are off by default (the old sound).
+// ---------------------------------------------------------------------------
+
+TEST(RotaryTest, OpenCabinetAndTwelvePercentSlowAreTheDefaults) {
+  const BlockKindInfo* info = BlockKindRegistry::instance().find(kKind);
+  ASSERT_NE(info, nullptr);
+  const int cabinet = findBlockParam(info->params, "cabinet");
+  const int slow = findBlockParam(info->params, "slowPercent");
+  ASSERT_GE(cabinet, 0);
+  ASSERT_GE(slow, 0);
+  EXPECT_EQ(info->params[static_cast<size_t>(cabinet)].defaultValue, 0.0f);
+  EXPECT_EQ(info->params[static_cast<size_t>(slow)].defaultValue, 12.0f);
+  // Open and 12% render exactly what the unchanged kind did: the cabinet
+  // filter is out of the path and the explicit values equal the defaults.
+  const std::vector<float> in = noise(1.0, 3u, 0.25f, kRate);
+  DirectKind plain(kKind, {{"speed", kFast}});
+  DirectKind explicitDefaults(kKind, {{"speed", kFast}, {"cabinet", 0.0}, {"slowPercent", 12.0}});
+  EXPECT_EQ(plain.render(in), explicitDefaults.render(in));
+}
+
+TEST(RotaryTest, DarkCabinetMatchesTheReferenceUnitsRollOff) {
+  // A still rotor, no depth, no drive: 24 dB down at 8 kHz and about 50 dB at
+  // 16 kHz, against the level at 1 kHz. Open, nothing of the kind.
+  const auto response = [](double cabinet) {
+    EffectRig rig = monoRig({{"speed", kBrake}, {"depth", 0.0}, {"drive", 0.0}, {"cabinet", cabinet}});
+    const std::vector<float> ir = captureImpulseResponse(rig, 0.5);
+    const std::vector<double> r = magnitudeResponseDb(ir, {1000.0, 4000.0, 8000.0, 16000.0}, kRate);
+    return std::vector<double>{r[1] - r[0], r[2] - r[0], r[3] - r[0]};
+  };
+  const std::vector<double> dark = response(1.0);
+  const std::vector<double> open = response(0.0);
+  std::cout << "[  DARK    ] rotary vs 1 kHz: 4k " << dark[0] << " 8k " << dark[1] << " 16k " << dark[2]
+            << std::endl;
+  EXPECT_NEAR(dark[1], -24.0, 2.0);
+  EXPECT_NEAR(dark[2], -50.0, 3.0);
+  EXPECT_GT(open[1], -10.0);
+  EXPECT_GT(open[1] - dark[1], 14.0);
+}
+
+TEST(RotaryTest, SlowSpeedIsTheSlowPercentOfFast) {
+  // The reference unit's drum: 4.15 Hz fast and 0.71 Hz slow. At a horn of
+  // 4.85 Hz the drum is 4.15 Hz; 17.1% of that is 0.71 Hz.
+  const Params slow = {{"speed", kSlow}, {"rateHz", 4.85}, {"slowPercent", 17.1}};
+  const Params fast = {{"speed", kFast}, {"rateHz", 4.85}, {"slowPercent", 17.1}};
+  EXPECT_NEAR(measuredRate(fast, kDrumProbeHz, 5.0), 4.15, 0.12);
+  EXPECT_NEAR(measuredRate(slow, kDrumProbeHz, 14.0), 0.71, 0.03);
+  EXPECT_NEAR(measuredRate(slow, kHornProbeHz, 14.0), 4.85 * 0.171, 0.04);
+}
+
+TEST(RotaryTest, DarkCabinetConforms) {
+  ConformanceOptions options;
+  options.params = {{"speed", kFast}, {"depth", 80.0}, {"drive", 40.0}, {"rateHz", 5.0},
+                    {"cabinet", 1.0}, {"slowPercent", 20.0}};
+  options.latency = LatencyCheck::AtMostOnset;
+  options.cpuAverageBudgetNs = 18000.0;
+  options.cpuWorstBudgetNs = 150000.0;
+  expectKindConforms("modulation.rotary", options);
+}

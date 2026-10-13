@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 // Tuning, all in ms so every rate behaves the same. The values are the ones
@@ -58,6 +59,72 @@ constexpr double kSearchKeepRatio = 0.1;
 // Power and tonality blends, the same length as the image decks'
 // (kDeckFadeSeconds): every transition passes through a mix, never a jump.
 constexpr double kBlendSeconds = 0.025;
+// A tap being faded out of must stay this many samples behind the write head
+// (the interpolator reads two samples ahead of its position).
+constexpr double kRunwayMargin = 4.0;
+constexpr int kMinFadeSamples = 4;
+
+// The buffer geometry the drift logic works from, in samples. Kept apart from
+// the engine so that the constant-latency mode can ask what an interval needs
+// (PitchShift::minOnsetDelaySamples) with the very same arithmetic the engine
+// runs on.
+struct Geometry {
+  int dMin = 0, dMax = 0;
+  int fadeLen = 0, fadeMaxLen = 0, fadeMinLen = 0, searchLead = 1;
+};
+
+Geometry geometryFor(double sampleRate, int windowMs) {
+  Geometry g;
+  g.dMin = static_cast<int>(sampleRate * PitchShift::kMinDelayMs * 0.001);
+  g.dMax = static_cast<int>(sampleRate * windowMs * 0.001);
+  g.fadeLen = std::max(8, static_cast<int>(sampleRate * kFadeMs * 0.001));
+  g.fadeMaxLen = std::max(g.fadeLen, static_cast<int>(sampleRate * kFadeMaxMs * 0.001));
+  g.fadeMinLen = std::max(8, static_cast<int>(sampleRate * kFadeMinMs * 0.001));
+  g.searchLead = std::max(1, static_cast<int>(sampleRate * kSearchLeadMs * 0.001));
+  return g;
+}
+
+// The longest drift fade and the search lead a ratio allows (see
+// Impl::updateFadeRange, which this is).
+struct FadeRange {
+  int fadeHi = 0;
+  int searchLeadNow = 1;
+};
+
+FadeRange fadeRangeFor(const Geometry& g, double ratio) {
+  const double drift = std::abs(1.0 - ratio);
+  double hi = g.fadeMaxLen;
+  double lead = g.searchLead;
+  int floor = g.fadeMinLen;
+  if (ratio > 1.0) {
+    hi = std::max<double>(g.fadeMinLen, std::min(hi, static_cast<double>(g.dMax - g.dMin) / (6.0 * drift)));
+    const double cost = drift * (2.0 * hi + lead + 4.0) + 6.0;
+    const double budget = g.dMax * (1.0 - kUpshiftLandShare);
+    if (cost > budget) {
+      const double scale = budget / cost;
+      hi *= scale;
+      lead *= scale;
+      floor = 8;
+    }
+  }
+  return {std::max(floor, static_cast<int>(hi)), std::max(1, static_cast<int>(lead))};
+}
+
+// The closest an upshift tap may come to the write head (see Impl::lowGuard).
+int lowGuardFor(const Geometry& g, double ratio, int fadeHi) {
+  return std::max(g.dMin, static_cast<int>(std::max(0.0, ratio - 1.0) * fadeHi) + 4);
+}
+
+// The front of the range a splice may land in (see process()).
+int landLoFor(const Geometry& g, double ratio) {
+  if (!(ratio > 1.0))
+    return g.dMin;
+  const FadeRange range = fadeRangeFor(g, ratio);
+  const double drift = ratio - 1.0;
+  const int fadeDrift = static_cast<int>(std::ceil(drift * range.fadeHi));
+  const int leadDriftI = static_cast<int>(std::ceil(drift * (range.searchLeadNow + 4)));
+  return std::min(lowGuardFor(g, ratio, range.fadeHi) + fadeDrift + leadDriftI + 2, g.dMax);
+}
 }  // namespace
 
 struct PitchShift::Impl {
@@ -117,6 +184,8 @@ struct PitchShift::Impl {
   double sampleRate = 0.0;
   Params params;
   double ratio = 1.0;
+  // Constant-latency mode (Params::onsetDelaySamples), 0 = off.
+  int onsetDelay = 0;
 
   // Power: the shifted signal blends against the dry; the engine keeps
   // running until a fade-out lands so the processor can stop calling it.
@@ -199,33 +268,28 @@ struct PitchShift::Impl {
   // fade and the lead scale down together until it does. A downshift tap
   // only runs deeper, which costs ring memory, not range, so it keeps the
   // full span and the full lead.
+  Geometry geometry() const {
+    Geometry g;
+    g.dMin = dMin;
+    g.dMax = dMax;
+    g.fadeLen = fadeLen;
+    g.fadeMaxLen = fadeMaxLen;
+    g.fadeMinLen = fadeMinLen;
+    g.searchLead = searchLead;
+    return g;
+  }
+
   void updateFadeRange() {
-    const double drift = std::abs(1.0 - ratio);
-    double hi = fadeMaxLen;
-    double lead = searchLead;
-    int floor = fadeMinLen;
-    if (ratio > 1.0) {
-      hi = std::max<double>(fadeMinLen, std::min(hi, static_cast<double>(dMax - dMin) / (6.0 * drift)));
-      const double cost = drift * (2.0 * hi + lead + 4.0) + 6.0;
-      const double budget = dMax * (1.0 - kUpshiftLandShare);
-      if (cost > budget) {
-        const double scale = budget / cost;
-        hi *= scale;
-        lead *= scale;
-        floor = 8;
-      }
-    }
-    fadeHi = std::max(floor, static_cast<int>(hi));
+    const FadeRange range = fadeRangeFor(geometry(), ratio);
+    fadeHi = range.fadeHi;
     fadeLo = std::min(fadeLen, fadeHi);
-    searchLeadNow = std::max(1, static_cast<int>(lead));
+    searchLeadNow = range.searchLeadNow;
   }
 
   // Delay floor the tap may approach at the current ratio: an upshift tap
   // gains on the write head during a fade, so the floor moves out to keep
   // the interpolator behind the newest sample.
-  int lowGuard() const {
-    return std::max(dMin, static_cast<int>(std::max(0.0, ratio - 1.0) * fadeHi) + 4);
-  }
+  int lowGuard() const { return lowGuardFor(geometry(), ratio, fadeHi); }
 
   // Fade length for a drift splice whose best lag matched with `ncc`,
   // within `room`, the samples the destination tap can fade before it runs
@@ -262,6 +326,24 @@ struct PitchShift::Impl {
     minAcc = 1e9;
     maxAcc = 0.0;
     lastOnset = -(1 << 30);
+    if (onsetDelay > 0) {
+      // Constant-latency mode: a start is silence before an attack, so the
+      // very first attack is recognised (the history would otherwise take
+      // 50 ms to fill), and the tap rests where an attack would be placed.
+      minHist.fill(0.0f);
+      maxHist.fill(0.0f);
+      rA = rB = static_cast<double>(written) - onsetTapDelay(ratio);
+    }
+  }
+
+  // Where the tap sits, in samples behind the write head, so that an attack
+  // arrives onsetDelay samples after it went in (Params::onsetDelaySamples): it
+  // is approached at `ratio` samples a sample. Never closer than the engine
+  // allows at that ratio.
+  double onsetTapDelay(double atRatio) const {
+    const double floor = atRatio > 1.0 ? static_cast<double>(lowGuardFor(geometry(), atRatio, fadeRangeFor(geometry(), atRatio).fadeHi)) + 2.0
+                                       : static_cast<double>(dMin);
+    return std::max(static_cast<double>(onsetDelay) * atRatio, floor);
   }
 
   // Normalised cross-correlation of the reference with the corrLen control
@@ -347,14 +429,20 @@ struct PitchShift::Impl {
   // next sample plans afresh.
   void startFade(int64_t jump, int fadeSamples) {
     search.ready = false;
-    const double destDelay = static_cast<double>(written - 1) - (rA + static_cast<double>(jump));
-    if (destDelay < 2.0 || destDelay > static_cast<double>(rings[0].buf.size()) - 8.0) return;
     // Keep rA's fraction so the splice is a pure integer lag.
-    rB = rA + static_cast<double>(jump);
+    beginFadeTo(rA + static_cast<double>(jump), fadeSamples, juce::jlimit(0.0, 1.0, search.bestNcc));
+  }
+
+  // Crossfade from the tap to absolute position `target` over `fadeSamples`.
+  // `ncc` is how well the two correlate, which sets the gain law.
+  void beginFadeTo(double target, int fadeSamples, double ncc) {
+    const double destDelay = static_cast<double>(written - 1) - target;
+    if (destDelay < 2.0 || destDelay > static_cast<double>(rings[0].buf.size()) - 8.0) return;
+    rB = target;
     fading = true;
     fade = 0.0;
     fadeInc = 1.0 / fadeSamples;
-    fadeNcc = juce::jlimit(0.0, 1.0, search.bestNcc);
+    fadeNcc = ncc;
   }
 
   // Runs the detector on one control sample; true on a pick attack.
@@ -477,6 +565,10 @@ void PitchShift::setParams(const Params& p) {
     s.ratio = ratio;
     s.updateFadeRange();
   }
+  if (p.onsetDelaySamples != s.params.onsetDelaySamples) {
+    s.params.onsetDelaySamples = p.onsetDelaySamples;
+    s.onsetDelay = std::max(0, p.onsetDelaySamples);
+  }
   if (!juce::exactlyEqual(p.tonalityHz, s.params.tonalityHz)) {
     s.params.tonalityHz = p.tonalityHz;
     s.setTonality(p.tonalityHz);
@@ -515,8 +607,28 @@ void PitchShift::process(juce::AudioBuffer<float>& buffer) {
     control *= channelScale;
     s.control.write(now, control);
 
-    const double delay = static_cast<double>(now) - s.rA;
     const int guard = s.lowGuard();
+    if (s.fading && ratio > 1.0) {
+      // Both taps of a fade can gain on the write head once the ratio is above
+      // 1, and one that reaches it reads stale audio, which is a click. A ratio
+      // that rose since the fade began (a pitch glide up from a downshift or
+      // from unison, where the taps rest near the head) can put either tap
+      // there:
+      //  - the tap being faded out gets less runway than the fade has left: the
+      //    fade is sped up to end before the tap runs out;
+      //  - the tap being faded in is already inside the guard: the fade ends
+      //    now, and the guard logic below splices again at once, from where the
+      //    blend has got to.
+      if (static_cast<double>(now) - s.rB <= guard) {
+        s.rA = s.rB;
+        s.fading = false;
+      } else {
+        const double runway = (static_cast<double>(now) - s.rA - kRunwayMargin) / drift;
+        const double remaining = (1.0 - s.fade) / s.fadeInc;
+        if (remaining > runway) s.fadeInc = (1.0 - s.fade) / std::max(1.0, runway);
+      }
+    }
+    const double delay = static_cast<double>(now) - s.rA;
     const bool onset = s.detectOnset(control);
     // Where a splice may land (delay at splice time). Downshift: anywhere
     // from the floor up to where the shortest fade and the next search's
@@ -524,8 +636,35 @@ void PitchShift::process(juce::AudioBuffer<float>& buffer) {
     // guard. The onset re-sync targets the front of that range.
     const int landLo = ratio > 1.0 ? std::min(guard + fadeDrift + leadDriftI + 2, s.dMax) : s.dMin;
     const int landHi = ratio < 1.0 ? std::max(s.dMin, s.dMax - fadeDrift - leadDriftI - 2) : s.dMax;
-    if (!s.fading) {
-      if (onset && now - s.lastOnset > s.refractory && delay > landLo + s.onsetSpan) {
+    const bool constantLatency = s.onsetDelay > 0;
+    if (constantLatency && onset && now - s.lastOnset > s.refractory) {
+      // Onset in constant-latency mode: the tap goes to exactly the delay at
+      // which this attack arrives onsetDelay samples from now (see
+      // Params::onsetDelaySamples), and the splice is a plain short fade, with
+      // no search: an attack is its own sync point. An onset that finds a fade
+      // under way takes it over (the heavier tap becomes the old one).
+      s.lastOnset = now;
+      if (s.fading) {
+        if (s.fade >= 0.5) s.rA = s.rB;
+        s.fading = false;
+      }
+      s.search = Impl::Search{};
+      const double want = s.onsetTapDelay(ratio);
+      const double have = static_cast<double>(now) - s.rA;
+      if (std::abs(have - want) > 0.01) {
+        // A tap that is nearer the head than the target would read the attack
+        // before the new tap does: its share has to be gone by then.
+        int fadeSamples = s.onsetFadeLen;
+        if (have < want)
+          fadeSamples = juce::jlimit(4, s.onsetFadeLen, static_cast<int>(have / ratio) - 2);
+        s.beginFadeTo(static_cast<double>(now) - want, fadeSamples, 0.0);
+      }
+      // The attack becomes the reference: a re-trigger needs a fresh dip.
+      s.minHist.fill(static_cast<float>(s.eHf));
+      s.maxHist.fill(static_cast<float>(s.eHf));
+      s.minAcc = s.maxAcc = s.eHf;
+    } else if (!s.fading) {
+      if (!constantLatency && onset && now - s.lastOnset > s.refractory && delay > landLo + s.onsetSpan) {
         // Onset re-sync: a pick attack brings the tap to the front of the
         // buffer, so attacks arrive with the floor delay wherever the tap
         // was. A small search, run at once.
@@ -562,7 +701,20 @@ void PitchShift::process(juce::AudioBuffer<float>& buffer) {
         // already leaves room for the longest fade.
         if (!s.search.active && !s.search.ready && delay <= guard + leadDrift)
           s.beginSearch(landLo + leadDriftI, landHi + leadDriftI, s.searchLeadNow);
-        if (s.search.ready && delay <= guard) s.startFade(s.search.resultJump, s.fadeFor(s.search.bestNcc, s.fadeHi));
+        if (delay <= guard) {
+          // Inside the guard: the splice cannot wait. A ratio that rose after
+          // the tap was planned for (a pitch glide up from unison, where the
+          // tap rests at the floor, is the common case) puts the tap here
+          // with a search still running or not begun; it is finished now.
+          if (s.search.active) s.stepSearch(std::numeric_limits<int>::max());
+          if (s.search.ready) {
+            // And the fade has only the runway the tap has left, not the
+            // full length the guard assumed.
+            const int runway = static_cast<int>((delay - kRunwayMargin) / drift);
+            s.startFade(s.search.resultJump,
+                        std::max(kMinFadeSamples, std::min(s.fadeFor(s.search.bestNcc, s.fadeHi), runway)));
+          }
+        }
       }
     }
     if (s.search.active) s.stepSearch(s.search.perSample);
@@ -604,4 +756,22 @@ void PitchShift::process(juce::AudioBuffer<float>& buffer) {
   if (!s.enabled && !s.wetMix.isSmoothing()) s.running = false;
 }
 
-int PitchShift::latencySamples() const { return (impl_->dMin + impl_->dMax) / 2; }
+int PitchShift::latencySamples() const {
+  return impl_->onsetDelay > 0 ? impl_->onsetDelay : (impl_->dMin + impl_->dMax) / 2;
+}
+
+int PitchShift::minOnsetDelaySamples(Window w, double sampleRate, double maxAbsSemitones) {
+  const Geometry g = geometryFor(sampleRate, windowMs(w));
+  // The delay an attack needs is landing distance over ratio: the nearest the
+  // tap can sit at that ratio (the floor going down, the landing range's front
+  // going up), divided by the speed it approaches the attack at. Worst over
+  // every interval in range; the upshifts have the harder landings, and the
+  // curve peaks a semitone or so above unison, so scan finely.
+  double worst = static_cast<double>(g.dMin);
+  for (double semitones = -maxAbsSemitones; semitones <= maxAbsSemitones + 1.0e-9; semitones += 0.05) {
+    const double ratio = std::pow(2.0, semitones / 12.0);
+    const double nearest = ratio > 1.0 ? static_cast<double>(landLoFor(g, ratio)) : static_cast<double>(g.dMin);
+    worst = std::max(worst, nearest / ratio);
+  }
+  return static_cast<int>(std::ceil(worst)) + 2;
+}

@@ -1403,3 +1403,41 @@ TEST(PresetImporterTest, EqualiserModelsGetTheirKinds) {
   EXPECT_NEAR(number(3, "lowMidFreq"), 350.0, 1e-3);
   EXPECT_NEAR(number(3, "hpOn"), 1.0, 1e-6) << "the unit's filters are always in";
 }
+
+TEST(PresetImporterTest, ModulationModelsSelectTheVoicingsMeasuredOnTheUnit) {
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  const juce::var foreign = parseJson(R"json({"format":"pedaleira-foreign-preset","version":1,
+    "source":"quad-cortex","name":"Modulation","rows":[{"index":0,"blocks":[
+      {"position":0,"model":"Chorus Engine","category":"Modulation","enabled":true,
+       "params":{"RATE":{"value":1},"DEPTH":{"value":50},"WIDTH":{"value":80},"MIX":{"value":50}}},
+      {"position":1,"model":"Chorus Engine","category":"Modulation","enabled":true,
+       "params":{"DEPTH":{"value":100}}},
+      {"position":2,"model":"Vibrato","category":"Modulation","enabled":true,
+       "params":{"DEPTH":{"value":50},"FADE IN":{"value":100}}},
+      {"position":3,"model":"Phaser","category":"Modulation","enabled":true,
+       "params":{"DEPTH":{"value":50},"MIX":{"value":50}}},
+      {"position":4,"model":"Rotary","category":"Modulation","enabled":true,
+       "params":{"SPEED":{"value":0},"DRIVE":{"value":20}}}]}]})json");
+  const importer::ImportResult result = importer::convertForeignPreset(foreign, table);
+  ASSERT_TRUE(result.ok) << result.error;
+  const juce::var preset = result.preset;
+  const auto number = [&](int position, const char* id) {
+    return static_cast<double>(kindParam(slotNode(preset, 0, position), id));
+  };
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 0)), "modulation.chorus");
+  EXPECT_NEAR(number(0, "depth"), 20.4 * std::pow(0.5, 1.75), 1e-2) << "the unit's depth curve";
+  EXPECT_NEAR(number(1, "depth"), 20.4, 1e-2);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "modulation.vibrato");
+  EXPECT_NEAR(number(2, "depthMode"), 1.0, 1e-6) << "the delay excursion mode";
+  EXPECT_NEAR(number(2, "depth"), 50.0, 1e-3);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "modulation.phaser");
+  EXPECT_NEAR(number(3, "voicing"), 1.0, 1e-6) << "the lifted voicing";
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 4)), "modulation.rotary");
+  EXPECT_NEAR(number(4, "cabinet"), 1.0, 1e-6) << "the dark cabinet";
+  EXPECT_NEAR(number(4, "rateHz"), 4.85, 1e-3);
+  EXPECT_NEAR(number(4, "slowPercent"), 17.1, 1e-3);
+}

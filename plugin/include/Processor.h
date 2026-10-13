@@ -33,6 +33,7 @@
 #include "CaptureAudio.h"
 #include "InputRecorder.h"
 #include "RtWorkerPool.h"
+#include "Looper.h"
 #include "MidiMapper.h"
 #include "NoiseGate.h"
 #include "PitchShift.h"
@@ -1084,6 +1085,12 @@ public:
   void setTunerEnabled(bool enabled) { tuner.setEnabled(enabled); }
   bool isTunerEnabled() const { return tuner.isEnabled(); }
   juce::var getTunerReading() { return tuner.getReading(); }
+
+  // The looper at the end of the main output (see Looper.h). Its controls
+  // are lock-free and any thread may use them; the loop is not part of a
+  // preset or of saved state.
+  Looper& getLooper() noexcept { return looper; }
+  const Looper& getLooper() const noexcept { return looper; }
 
   // Auto balance: one-shot chain energy match.
   // startAutoBalance() arms a "listening" measurement: the audio thread
@@ -2642,6 +2649,11 @@ private:
 
   // Tuner pitch detection (fed from processBlock when enabled)
   TunerDetector tuner;
+
+  // Looper: records and plays back the main output (runOutputStrip).
+  Looper looper;
+  // A looper MIDI control, on the audio thread (see MidiMapper::onLooperControl).
+  void handleLooperControl(MidiMapper::FixedControl control, int value) noexcept;
 
   // Auto balance measurement state.
   // Lock-free audio↔message thread handshake. The audio thread only touches

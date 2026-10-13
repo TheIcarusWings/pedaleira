@@ -383,6 +383,9 @@ target_sources(${PROJECT_NAME}
         src/ProcessorPlanExec.cpp
         src/ProcessorGrid.cpp
         src/GridCommands.cpp
+        include/Looper.h
+        src/Looper.cpp
+        src/LooperCommands.cpp
         src/LibraryCommands.cpp
         src/ProcessorLibrary.cpp
         include/MidiMapper.h

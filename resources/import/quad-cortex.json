@@ -553,12 +553,12 @@
       "verified": false,
       "params": {
         "RATE": { "param": "rateHz", "transform": "linear" },
-        "DEPTH": { "param": "depth", "transform": "linear" },
+        "DEPTH": { "param": "depth", "transform": { "scale": 20.4, "offset": 0, "exponent": 1.75, "inputMax": 100 } },
         "TONE FREQ": { "param": "toneHz", "transform": "linear" },
         "WIDTH": { "param": "width", "transform": "linear" },
         "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+      "notes": "DEPTH follows the unit's law, measured on a unit: the pitch moves by about 3 cents (peak to peak, at 1 Hz) at DEPTH 50 and 10 cents at 100, a curve of the knob to the 1.75 power; our depth is a straight line, so it is 20.4 x (DEPTH / 100) ^ 1.75 percent. Settings names from the unit's catalogue (CorOS d14e); the rest of the scaling ours, unverified."
     },
     "Digital Flanger": {
       "kind": "modulation.flanger",
@@ -606,7 +606,8 @@
         "WIDTH": { "param": "width", "transform": "linear" },
         "MIX": { "param": "mix", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "SPEED is a 0 to 100 knob, not Hz, so the rate stays at ours until it is timed on a unit. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+      "defaults": { "voicing": 1 },
+      "notes": "On our lifted voicing, made for MIX 50: the unit's response is lifted by +1.5 to +5.7 dB from 50 Hz to 16 kHz where the classic voicing dips to -5 dB. SPEED is a 0 to 100 knob, not Hz, so the rate stays at ours until it is timed on a unit. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Tremolo": {
       "kind": "modulation.tremolo",
@@ -622,10 +623,11 @@
       "verified": false,
       "params": {
         "RATE": { "param": "rateHz", "transform": "linear" },
-        "DEPTH": { "param": "depthCents", "transform": "linear" },
+        "DEPTH": { "param": "depth", "transform": "linear" },
         "FADE IN": { "param": "riseMs", "transform": "linear" }
       },
-      "notes": "DEPTH in percent maps onto cents one for one, a guess. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+      "defaults": { "depthMode": 1 },
+      "notes": "On our delay excursion depth mode: DEPTH in percent is the size of the delay sweep (100 is 2 ms either side), measured on a unit as 21.7 cents peak to peak per Hz of RATE at DEPTH 50. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
     "Rotary": {
       "kind": "modulation.rotary",
@@ -634,7 +636,8 @@
         "SPEED": { "param": "speed", "transform": "linear" },
         "DRIVE": { "param": "drive", "transform": "linear" }
       },
-      "notes": "SPEED is the slow and fast switch: 0 slow, 1 fast, as ours. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+      "defaults": { "cabinet": 1, "rateHz": 4.85, "slowPercent": 17.1 },
+      "notes": "On our dark cabinet (24 dB down at 8 kHz, 50 dB at 16 kHz, as on the unit) and the unit's speeds: its drum turns at 0.71 Hz slow and 4.15 Hz fast, which is a horn of 4.85 Hz and a slow speed of 17.1 percent of fast. SPEED is the slow and fast switch: 0 slow, 1 fast, as ours. Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
     },
 
     "Envelope Filter": {

@@ -177,3 +177,92 @@ TEST(VibratoTest, StaysBoundedAtTheExtremes) {
     expectCleanSignal(out.right, 1.5f, "extreme vibrato, right");
   }
 }
+
+namespace {
+
+// Peak pitch deviation, up and down, of a delay swept by `depth` percent (2 ms
+// at 100%) at `rateHz`.
+double excursionUpCents(double depth, double rateHz) {
+  return 1200.0 * std::log2(1.0 + 2.0 * kPi * rateHz * depth * 0.01 * 0.002);
+}
+double excursionDownCents(double depth, double rateHz) {
+  return 1200.0 * std::log2(1.0 - 2.0 * kPi * rateHz * depth * 0.01 * 0.002);
+}
+
+}  // namespace
+
+TEST(VibratoTest, CentsIsTheDefaultDepthMode) {
+  const BlockKindInfo* info = BlockKindRegistry::instance().find(kKind);
+  ASSERT_NE(info, nullptr);
+  const int mode = findBlockParam(info->params, "depthMode");
+  ASSERT_GE(mode, 0);
+  EXPECT_EQ(info->params[static_cast<size_t>(mode)].defaultValue, 0.0f);
+  // The excursion depth does nothing in the default mode.
+  const std::vector<float> in = noise(1.0, 5u, 0.25f, kRate);
+  DirectKind a(kKind, {{"depthCents", 30.0}, {"depth", 0.0}});
+  DirectKind b(kKind, {{"depthCents", 30.0}, {"depth", 100.0}});
+  EXPECT_EQ(a.render(in), b.render(in));
+}
+
+TEST(VibratoTest, ExcursionModeBendsThePitchByTheDelaySweepSoItGrowsWithTheRate) {
+  for (const double depth : {25.0, 50.0, 100.0})
+    for (const double rateHz : {1.0, 2.43, 5.0, 8.0}) {
+      SCOPED_TRACE(depth);
+      SCOPED_TRACE(rateHz);
+      const CycleFrequencies f = cycleFrequencies(
+          render({{"depthMode", 1.0}, {"depth", depth}, {"depthCents", 5.0}, {"rateHz", rateHz},
+                  {"riseMs", 0.0}},
+                 4.0),
+          kRate, static_cast<size_t>(samples(0.3)));
+      const Deviation d = deviationOf(f, kCarrierHz, 0.5, 4.0);
+      const double up = excursionUpCents(depth, rateHz);
+      const double down = excursionDownCents(depth, rateHz);
+      EXPECT_NEAR(d.maxCents, up, 0.08 * up + 0.5);
+      EXPECT_NEAR(d.minCents, down, 0.08 * std::abs(down) + 0.5);
+    }
+}
+
+TEST(VibratoTest, ExcursionModeAtFiftyPercentIsTwentyOneCentsPerHertzPeakToPeak) {
+  // The numbers measured on the reference unit: 21.7 cents per Hz at 50%,
+  // 53 cents at 2.43 Hz.
+  for (const double rateHz : {1.0, 2.43, 4.0}) {
+    SCOPED_TRACE(rateHz);
+    const CycleFrequencies f = cycleFrequencies(
+        render({{"depthMode", 1.0}, {"depth", 50.0}, {"rateHz", rateHz}, {"riseMs", 0.0}}, 5.0),
+        kRate, static_cast<size_t>(samples(0.3)));
+    const Deviation d = deviationOf(f, kCarrierHz, 0.5, 5.0);
+    EXPECT_NEAR(d.maxCents - d.minCents, 21.7 * rateHz, 0.06 * 21.7 * rateHz + 0.5);
+  }
+}
+
+TEST(VibratoTest, ExcursionModeDepthZeroIsAPlainShortDelay) {
+  const std::vector<float> in = noise(2.0, 5u, 0.25f, kRate);
+  DirectKind kind(kKind, {{"depthMode", 1.0}, {"depth", 0.0}, {"riseMs", 0.0}});
+  std::vector<float> expected(in.size(), 0.0f);
+  for (size_t i = 24; i < in.size(); ++i)
+    expected[i] = in[i - 24];
+  EXPECT_LT(maxDifference(kind.render(in), expected), 1.0e-6f);
+}
+
+TEST(VibratoTest, ExcursionModeStaysBoundedAndConformsAtSlowTempos) {
+  // A whole note per cycle at 30 bpm is 0.125 Hz: the 2 ms sweep bends the
+  // pitch by only 2.7 cents, and the line never runs short.
+  DirectKind kind(kKind,
+                  {{"sync", 1.0}, {"division", static_cast<double>(fx::kDivWhole)},
+                   {"depthMode", 1.0}, {"depth", 100.0}, {"riseMs", 0.0}},
+                  Layout::Mono, 256, 30.0);
+  const std::vector<float> out = kind.render(sine(8.0, kCarrierHz, 0.25f, kRate));
+  expectCleanSignal(out, 0.3f, "slow synced vibrato, excursion mode");
+  const Deviation d = deviationOf(cycleFrequencies(out, kRate, static_cast<size_t>(samples(0.3))),
+                                  kCarrierHz, 0.5, 8.0);
+  EXPECT_NEAR(d.maxCents, excursionUpCents(100.0, 0.125), 0.4);
+}
+
+TEST(VibratoTest, ExcursionModeConforms) {
+  ConformanceOptions options;
+  options.params = {{"depthMode", 1.0}, {"depth", 60.0}, {"rateHz", 5.0}, {"riseMs", 0.0}};
+  options.latency = LatencyCheck::AtMostOnset;
+  options.cpuAverageBudgetNs = 4000.0;
+  options.cpuWorstBudgetNs = 150000.0;
+  expectKindConforms("modulation.vibrato", options);
+}

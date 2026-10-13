@@ -571,3 +571,27 @@ engine reports itself stopped within 50 ms.
   `plugin_shifter.h` wrapper that scores the shipped class, and for the
   chord take `bars.py` (valley excess) and `glitch.py` (per-partial
   instantaneous frequency deviation).
+
+## Chain blocks: constant attack latency and click-free interval changes
+
+Two fixes for the pitch family's blocks (plugin/src/effects/pitch), both in the engine.
+
+**Constant attack latency** (`Params::onsetDelaySamples`, off in the input stage). A shifted
+note is a drifting delay, so a held note has no constant latency; an event can. In this mode
+every pick attack (and an impulse, and a stream start) places the tap exactly
+`onsetDelay * ratio` samples behind the write head, so the attack arrives `onsetDelay`
+samples after it went in, at every interval. Impulses measure it to the sample on all four
+windows from -24 to +24 st (and a noise burst after a held tone within a sample).
+`PitchShift::minOnsetDelaySamples(window, rate, maxAbsSt)` is the smallest figure at which
+the landing fits at every interval in range: for +-24 st 386 samples on the 20 ms window,
+446 on 30 ms, 595 on 40 ms, 880 on 60 ms (the blocks used to report the tap's mean,
+768 on 30 ms). A note without an attack the detector recognises arrives wherever the tap is.
+
+**Runway.** A tap that gains on the write head (ratio above 1) used to be able to run into it
+during a fade when the ratio rose after the fade began (a glide up from unison or from a
+downshift), reading stale audio. Now a fade is sped up to end before the faded-out tap runs
+out of runway, a fade whose destination is inside the guard ends and splices again at once,
+and a tap inside the guard finishes its search immediately. Worst step over every pair of
+intervals on a 330 Hz sine: 0.375 before (1.5 times the peak), 0.043 now (the sine's own
+slope). Random interval jumps: 14 times the slope before, 1.04 now. The legacy mode is fixed
+the same way.

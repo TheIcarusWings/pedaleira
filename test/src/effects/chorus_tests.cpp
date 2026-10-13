@@ -196,3 +196,23 @@ TEST(ChorusTest, StaysBoundedAtTheExtremes) {
     expectCleanSignal(out.right, 3.0f, "extreme chorus, right");
   }
 }
+
+TEST(ChorusTest, TheImportsDepthCurveGivesThreeCentsAtHalfAndTenAtFull) {
+  // The reference unit bends the pitch by about 3 cents (peak to peak, at
+  // 1 Hz) at depth 50% and 10 cents at 100%. The import maps its DEPTH to
+  // 20.4 x (DEPTH / 100) ^ 1.75 percent of ours, which is 6.1 at 50 and 20.4
+  // at 100; the kind's own law is untouched.
+  const auto swing = [](double depth) {
+    EffectRig rig(kKind, {{"depth", depth}, {"rateHz", 1.0}, {"toneHz", 20000.0}, {"mix", 1.0}});
+    const CycleFrequencies f = cycleFrequencies(rig.render(sine(8.0, 400.0, 0.25f, kRate)), kRate,
+                                                static_cast<size_t>(samples(0.5)));
+    const Deviation d = deviationOf(f, 400.0, 1.0, 8.0);
+    return d.maxCents - d.minCents;
+  };
+  const double half = swing(20.4 * std::pow(0.5, 1.75));
+  const double full = swing(20.4);
+  std::cout << "[  PITCH   ] chorus at 1 Hz through the import curve: DEPTH 50 " << half << ", DEPTH 100 "
+            << full << " cents p-p; own depth 6: " << swing(6.0) << std::endl;
+  EXPECT_NEAR(half, 3.0, 1.0);
+  EXPECT_NEAR(full, 10.0, 2.0);
+}

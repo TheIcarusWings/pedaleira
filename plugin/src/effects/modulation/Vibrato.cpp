@@ -3,6 +3,12 @@
 // with its own dry is a chorus). The depth is the peak pitch deviation in
 // cents, so the sweep of the delay is derived from it and the rate: a delay
 // that moves by `a * sin(2 pi r t)` bends the pitch by up to 2 pi r a.
+//
+// depthMode picks what the depth means. Cents (the default) is the above.
+// Delay excursion is how the unit this was measured against does it: the
+// `depth` parameter (%) is the size of the delay sweep itself, 100% being 2
+// ms either side, so the pitch deviation grows with the rate (50% bends it
+// 21.7 cents peak to peak per Hz of rate; 53 cents at 2.43 Hz).
 #include <cmath>
 #include "effects/EffectDsp.h"
 
@@ -13,7 +19,8 @@ public:
   static constexpr const char* kKindId = "modulation.vibrato";
 
   // The first three are the standard rate parameters (fx::appendRateParams).
-  enum Param { kSync = 0, kDivision, kRateHz, kDepthCents, kRiseMs };
+  enum Param { kSync = 0, kDivision, kRateHz, kDepthCents, kRiseMs, kDepthMode, kDepth };
+  enum DepthMode { kCents = 0, kExcursion };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -29,6 +36,12 @@ public:
       // block is switched on.
       t.push_back(BlockParamSpec::floatParam("riseMs", "Rise", "ms", 0.0f, 5000.0f, 250.0f)
                       .withSkew(0.4f));
+      // Appended after the first release: what the depth means, and the
+      // depth of the excursion mode (the cents parameter is unused there).
+      t.push_back(BlockParamSpec::choiceParam("depthMode", "Depth Mode",
+                                              juce::StringArray{"Cents", "Delay Excursion"}, kCents)
+                      .notAutomatable());
+      t.push_back(BlockParamSpec::floatParam("depth", "Excursion", "%", 0.0f, 100.0f, 40.0f));
       return t;
     }();
     return table;
@@ -76,15 +89,21 @@ protected:
       lfo.syncPhaseToTransport(ctx.transport,
                                fx::noteDivisionBeats(static_cast<int>(std::lround(param(kDivision)))));
 
-    // Peak pitch ratio change: sinh keeps the upward and the downward peak
-    // equally far from the played pitch in cents (to a fraction of a cent).
-    // Slow rates would need more delay than the line has; the depth gives
-    // way there rather than the line overflowing.
-    const double bend = std::sinh(static_cast<double>(param(kDepthCents)) *
-                                  0.6931471805599453 / 1200.0);
-    const double omega = juce::MathConstants<double>::twoPi * juce::jmax(rateHz, 0.01);
-    excursion.setTarget(static_cast<float>(
-        juce::jmin(kMaxExcursionSeconds, bend / omega) * sampleRate));
+    if (param(kDepthMode) >= 0.5f) {
+      // The sweep is a delay excursion of its own: independent of the rate.
+      excursion.setTarget(static_cast<float>(static_cast<double>(param(kDepth)) * 0.01 *
+                                             kExcursionModeSeconds * sampleRate));
+    } else {
+      // Peak pitch ratio change: sinh keeps the upward and the downward peak
+      // equally far from the played pitch in cents (to a fraction of a cent).
+      // Slow rates would need more delay than the line has; the depth gives
+      // way there rather than the line overflowing.
+      const double bend = std::sinh(static_cast<double>(param(kDepthCents)) *
+                                    0.6931471805599453 / 1200.0);
+      const double omega = juce::MathConstants<double>::twoPi * juce::jmax(rateHz, 0.01);
+      excursion.setTarget(static_cast<float>(
+          juce::jmin(kMaxExcursionSeconds, bend / omega) * sampleRate));
+    }
 
     const float riseSamples = param(kRiseMs) * 0.001f * static_cast<float>(sampleRate);
     const float riseStep = riseSamples > 1.0f ? 1.0f / riseSamples : 1.0f;
@@ -112,6 +131,8 @@ private:
   static constexpr int kMaxChannels = 2;
   static constexpr double kMaxExcursionSeconds = 0.025;
   static constexpr double kMinDelaySeconds = 0.0005;
+  // Excursion mode: the sweep at 100% depth.
+  static constexpr double kExcursionModeSeconds = 0.002;
 
   fx::DelayLine line;
   fx::Lfo lfo;

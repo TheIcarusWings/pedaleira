@@ -71,9 +71,9 @@ protected:
   void prepareEffect(const EffectSpec& spec) override {
     sampleRate = spec.sampleRate;
     maxBlock = juce::jmax(1, spec.maxBlockSize);
-    latch.prepare(sampleRate, param(kWindow));
+    latch.prepare(sampleRate, param(kWindow), 24.0);
     for (auto& voice : voices)
-      voice.prepare(sampleRate, maxBlock, latch.current());
+      voice.prepare(sampleRate, maxBlock, latch.current(), latch.latencySamples());
     for (auto& copy : scratch)
       copy.setSize(2, maxBlock, false, true, false);
     // The longest window's latency, with room to spare.
@@ -128,7 +128,7 @@ protected:
         float* pointers[2] = {scratch[v].getWritePointer(0),
                               numChannels > 1 ? scratch[v].getWritePointer(1) : nullptr};
         const float semitones[pitchfx::kMaxLanes] = {kSemitones[v], kSemitones[v]};
-        voices[v].process(pointers, numChannels, dual, start, length, semitones, window);
+        voices[v].process(pointers, numChannels, dual, start, length, semitones, window, delay);
       }
       for (int i = start; i < start + length; ++i) {
         const float direct = levels[0].next();

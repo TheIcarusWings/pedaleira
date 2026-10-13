@@ -246,3 +246,130 @@ TEST(PhaserTest, StaysFiniteAndBoundedAtMaximumFeedbackWithAHotInput) {
       EXPECT_GT(rmsOf(out.left), 0.1);
     }
 }
+
+// ---------------------------------------------------------------------------
+// The Lifted voicing: the response measured on a reference unit. At the 50%
+// mix it is made for, the output is the dry signal plus 0.9 of the allpass
+// chain, which lifts by up to 5.6 dB rather than dipping.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::vector<float> liftedResponse(int stages, double centerHz, double feedback = 0.0) {
+  EffectRig rig(kKind, {{"depth", 0.0}, {"centerHz", centerHz}, {"stages", stageChoice(stages)},
+                        {"feedback", feedback}, {"voicing", 1.0}, {"mix", 0.5}});
+  return captureImpulseResponse(rig, 0.4);
+}
+
+// Level of `out` against `in` in a sixth-octave either side of each centre,
+// summed over many bins, in dB.
+std::vector<double> bandLevelsDb(const std::vector<float>& out, const std::vector<float>& in,
+                                 const std::vector<double>& centres) {
+  const size_t skip = static_cast<size_t>(samples(0.5));
+  std::vector<double> levels;
+  for (const double c : centres) {
+    double powerOut = 0.0, powerIn = 0.0;
+    for (double f = c * std::pow(2.0, -1.0 / 6.0); f < c * std::pow(2.0, 1.0 / 6.0); f *= 1.02) {
+      powerOut += goertzelPower(out.data() + skip, out.size() - skip, f, kRate);
+      powerIn += goertzelPower(in.data() + skip, in.size() - skip, f, kRate);
+    }
+    levels.push_back(10.0 * std::log10(powerOut / powerIn));
+  }
+  return levels;
+}
+
+}  // namespace
+
+TEST(PhaserTest, ClassicIsTheDefaultVoicing) {
+  const BlockKindInfo* info = BlockKindRegistry::instance().find(kKind);
+  ASSERT_NE(info, nullptr);
+  const int voicing = findBlockParam(info->params, "voicing");
+  ASSERT_GE(voicing, 0);
+  EXPECT_EQ(info->params[static_cast<size_t>(voicing)].defaultValue, 0.0f);
+  EXPECT_EQ(info->mixLaw, BlockMixLaw::Crossfade);
+  EXPECT_FLOAT_EQ(info->defaultMix, 1.0f);
+}
+
+TEST(PhaserTest, LiftedStaticResponseIsTheDryPlusNineTenthsOfTheChain) {
+  const std::vector<float> ir = liftedResponse(6, 800.0);
+  const double t0 = std::tan(kPi * 800.0 / kRate);
+  const std::vector<double> freqs = {120.0, 350.0, 1400.0, 2600.0, 5500.0, 11000.0};
+  const std::vector<double> measured = magnitudeResponseDb(ir, freqs, kRate);
+  for (size_t i = 0; i < freqs.size(); ++i) {
+    const double x = std::tan(kPi * freqs[i] / kRate) / t0;
+    const double expected = std::sqrt(1.81 + 1.8 * std::cos(12.0 * std::atan(x)));
+    EXPECT_NEAR(measured[i], toDb(expected), 0.4) << freqs[i];
+  }
+}
+
+TEST(PhaserTest, LiftedStillHasOneNotchForEveryTwoStages) {
+  for (const int stages : {4, 6, 8}) {
+    SCOPED_TRACE(stages);
+    const std::vector<double> notches =
+        responseNotches(liftedResponse(stages, 1000.0), 30.0, 20000.0, 5.0, 12.0);
+    ASSERT_EQ(notches.size(), static_cast<size_t>(stages / 2));
+    for (int k = 1; k <= stages / 2; ++k) {
+      const double expected = notchHz(stages, 1000.0, k);
+      EXPECT_NEAR(notches[static_cast<size_t>(k - 1)], expected, 0.03 * expected + 5.0) << k;
+    }
+  }
+}
+
+TEST(PhaserTest, LiftedNeverLiftsByMoreThanSixDecibelsWhateverTheFeedback) {
+  // The loop is scaled so the wet never exceeds the dry: dry plus wet is at
+  // most +5.6 dB, positive or negative feedback.
+  for (const double feedback : {-90.0, -40.0, 0.0, 40.0, 90.0}) {
+    SCOPED_TRACE(feedback);
+    const std::vector<float> ir = liftedResponse(4, 1000.0, feedback);
+    std::vector<double> freqs;
+    for (double f = 40.0; f < 20000.0; f *= 1.05)
+      freqs.push_back(f);
+    for (const double level : magnitudeResponseDb(ir, freqs, kRate))
+      EXPECT_LT(level, 5.8);
+  }
+}
+
+TEST(PhaserTest, LiftedDefaultResponseLiftsAcrossTheBandInsteadOfDipping) {
+  // Long-term level of noise at depth 50% and mix 50%. (A reference unit
+  // measures +1.5 to +5.7 dB from 50 Hz to 16 kHz; the classic voicing dips
+  // to -5 dB between 500 Hz and 2 kHz.) Measured here: +4.6 dB at 31.5 Hz,
+  // -1.3 at 250 Hz, +4.1 at 16 kHz.
+  const std::vector<double> centres = {31.5, 63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0};
+  const std::vector<float> in = noise(30.0, 5u, 0.25f, kRate);
+  EffectRig rig(kKind, {{"depth", 50.0}, {"mix", 0.5}, {"width", 0.0}, {"voicing", 1.0}});
+  const Stereo out = rig.renderBoth(in);
+  const std::vector<double> left = bandLevelsDb(out.left, in, centres);
+  std::cout << "[  PHASER  ] lifted band levels dB at 31.5 63 125 250 500 1k 2k 4k 8k 16k:";
+  for (const double v : left)
+    std::cout << " " << juce::String(v, 1);
+  std::cout << std::endl;
+  for (size_t i = 0; i < centres.size(); ++i) {
+    EXPECT_GT(left[i], -2.0) << centres[i];
+    EXPECT_LT(left[i], 6.2) << centres[i];
+  }
+  for (const size_t i : {size_t{0}, size_t{1}, size_t{8}, size_t{9}})
+    EXPECT_GT(left[i], 3.0) << centres[i];
+}
+
+TEST(PhaserTest, LiftedSidesAgreeAtTheExtremesOfTheBand) {
+  // The width moves the right side's sweep behind the left's, which changes
+  // where the notches are at a moment but not the long-term level where the
+  // chain is in phase with the dry all the time.
+  const std::vector<double> centres = {31.5, 63.0, 16000.0};
+  const std::vector<float> in = noise(30.0, 5u, 0.25f, kRate);
+  EffectRig rig(kKind, {{"depth", 50.0}, {"mix", 0.5}, {"width", 50.0}, {"voicing", 1.0}});
+  const Stereo out = rig.renderBoth(in);
+  const std::vector<double> left = bandLevelsDb(out.left, in, centres);
+  const std::vector<double> right = bandLevelsDb(out.right, in, centres);
+  for (size_t i = 0; i < centres.size(); ++i)
+    EXPECT_NEAR(left[i], right[i], 1.5) << centres[i];
+}
+
+TEST(PhaserTest, LiftedConforms) {
+  ConformanceOptions options;
+  options.params = {{"depth", 80.0}, {"rateHz", 1.0}, {"feedback", 50.0}, {"stages", 1.0},
+                    {"voicing", 1.0}};
+  options.cpuAverageBudgetNs = 12000.0;
+  options.cpuWorstBudgetNs = 150000.0;
+  expectKindConforms("modulation.phaser", options);
+}

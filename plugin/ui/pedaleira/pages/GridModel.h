@@ -85,6 +85,13 @@ struct GridModel {
   const GridSplit* splitInto(int lowerRow) const;
   const GridSlot* find(const juce::String& blockId, int* rowOut = nullptr, int* slotOut = nullptr) const;
 
+  // The block an arrow key moves the selection to: left and right along the
+  // row, up and down to the nearest block of the next shown row (the closest
+  // slot, the lower one on a tie). The block itself when there is nowhere to
+  // go; the first block of the grid when `from` is not a block.
+  juce::String neighbour(const juce::String& from, int dx, int dy) const;
+  juce::String firstBlock() const;
+
   static GridModel read(EngineClient& engine);
 };
 

@@ -5,6 +5,13 @@
 // millisecond early or late as the source moves towards or away from it
 // (Doppler, a short modulated delay). In a true stereo image two microphones
 // sit at different angles round the cabinet.
+//
+// The cabinet option (Open by default, which is the whole sound described
+// above) adds the Dark cabinet of the reference unit this was measured
+// against: a one-pole at 2.5 kHz and a biquad at 3.5 kHz end the chain, 25 dB
+// down at 8 kHz and 49 dB at 16 kHz (the unit: 24 and 50). `slowPercent` is
+// the slow speed as a share of the fast one (12% by default; the unit's drum
+// turns at 0.71 Hz slow and 4.15 Hz fast, 17.1%).
 #include <algorithm>
 #include <cmath>
 #include "effects/EffectDsp.h"
@@ -17,16 +24,17 @@ public:
 
   // The first three are the standard rate parameters (fx::appendRateParams);
   // here the rate is the horn's fast speed.
-  enum Param { kSync = 0, kDivision, kRateHz, kSpeed, kDepth, kDrive, kHornDb, kWidth };
+  enum Param {
+    kSync = 0, kDivision, kRateHz, kSpeed, kDepth, kDrive, kHornDb, kWidth, kSlowPercent, kCabinet
+  };
+  enum Cabinet { kOpen = 0, kDark };
   enum Speed { kSlow = 0, kFast, kBrake };
 
   // Time the rotors take to go from slow to fast (and back). The horn is
   // light and gets there in about a second; the drum is heavy.
   static constexpr double kHornRampSeconds = 1.2;
   static constexpr double kDrumRampSeconds = 3.0;
-  // Slow speed as a share of fast (a Leslie 122: 48 rpm against 400 rpm), and
-  // the drum's speed as a share of the horn's (342 rpm against 400 rpm).
-  static constexpr double kSlowShare = 0.12;
+  // The drum's speed as a share of the horn's (342 rpm against 400 rpm).
   static constexpr double kDrumShare = 0.855;
 
   static const BlockParamTable& parameterSpecs() {
@@ -44,6 +52,12 @@ public:
       t.push_back(BlockParamSpec::floatParam("drive", "Drive", "%", 0.0f, 100.0f, 25.0f));
       t.push_back(BlockParamSpec::floatParam("hornDb", "Horn Level", "dB", -12.0f, 12.0f, 0.0f));
       t.push_back(BlockParamSpec::floatParam("width", "Width", "%", 0.0f, 100.0f, 60.0f));
+      // Appended after the first release. Slow speed as a share of fast (a
+      // Leslie 122: 48 rpm against 400 rpm), and the cabinet's tone.
+      t.push_back(BlockParamSpec::floatParam("slowPercent", "Slow Speed", "%", 5.0f, 50.0f, 12.0f));
+      t.push_back(BlockParamSpec::choiceParam("cabinet", "Cabinet", juce::StringArray{"Open", "Dark"},
+                                              kOpen)
+                      .notAutomatable());
       return t;
     }();
     return table;
@@ -64,6 +78,11 @@ protected:
     drumLine.prepare(channels, lineSamples);
     hornLfo.prepare(sampleRate);
     drumLfo.prepare(sampleRate);
+    const fx::BiquadCoeffs darkBiquad = fx::BiquadCoeffs::lowpass(kDarkBiquadHz, 1.0, sampleRate);
+    for (auto& stage : dark) {
+      stage.biquad.setCoeffs(darkBiquad);
+      stage.pole.setCutoff(kDarkPoleHz, sampleRate);
+    }
     const fx::BiquadCoeffs low = fx::BiquadCoeffs::lowpass(kCrossoverHz, 0.70710678, sampleRate);
     const fx::BiquadCoeffs high = fx::BiquadCoeffs::highpass(kCrossoverHz, 0.70710678, sampleRate);
     for (auto& source : sources) {
@@ -88,6 +107,10 @@ protected:
       source.highA.reset();
       source.highB.reset();
     }
+    for (auto& stage : dark) {
+      stage.biquad.reset();
+      stage.pole.reset();
+    }
     hornLfo.reset();
     drumLfo.reset();
     depth.snapOnNextTarget();
@@ -108,11 +131,13 @@ protected:
     const double fastHorn =
         fx::resolveRateHz(param(kSync), param(kDivision), param(kRateHz), ctx.transport);
     const double fastDrum = fastHorn * kDrumShare;
+    const double slowShare = static_cast<double>(param(kSlowPercent)) / 100.0;
+    const bool darkCabinet = param(kCabinet) >= 0.5f;
     const int speed = static_cast<int>(std::lround(param(kSpeed)));
-    const double hornTarget = speed == kFast ? fastHorn : speed == kSlow ? fastHorn * kSlowShare : 0.0;
-    const double drumTarget = speed == kFast ? fastDrum : speed == kSlow ? fastDrum * kSlowShare : 0.0;
-    const double hornStep = fastHorn * (1.0 - kSlowShare) / (kHornRampSeconds * sampleRate);
-    const double drumStep = fastDrum * (1.0 - kSlowShare) / (kDrumRampSeconds * sampleRate);
+    const double hornTarget = speed == kFast ? fastHorn : speed == kSlow ? fastHorn * slowShare : 0.0;
+    const double drumTarget = speed == kFast ? fastDrum : speed == kSlow ? fastDrum * slowShare : 0.0;
+    const double hornStep = fastHorn * (1.0 - slowShare) / (kHornRampSeconds * sampleRate);
+    const double drumStep = fastDrum * (1.0 - slowShare) / (kDrumRampSeconds * sampleRate);
     if (snapRotors) {
       hornRate = hornTarget;
       drumRate = drumTarget;
@@ -171,7 +196,8 @@ protected:
         drumLine.write(src, low);
       }
       for (int ch = 0; ch < numChannels; ++ch)
-        channels[ch][i] = mixed[ch];
+        channels[ch][i] = darkCabinet ? dark[ch].biquad.process(dark[ch].pole.lowpass(mixed[ch]))
+                                      : mixed[ch];
       hornLfo.advance();
       drumLfo.advance();
     }
@@ -180,6 +206,8 @@ protected:
 private:
   static constexpr int kMaxChannels = 2;
   static constexpr double kCrossoverHz = 800.0;
+  static constexpr double kDarkPoleHz = 2500.0;
+  static constexpr double kDarkBiquadHz = 3500.0;
   // The source's distance to the microphone changes by this much either side
   // of its mean as it goes round (the radius of the rotor over the speed of
   // sound: 15 cm and 19 cm), at full depth.
@@ -222,6 +250,11 @@ private:
   fx::Lfo hornLfo;
   fx::Lfo drumLfo;
   Source sources[kMaxChannels];
+  struct Dark {
+    fx::OnePole pole;
+    fx::Biquad biquad;
+  };
+  Dark dark[kMaxChannels];
   fx::SmoothedParam depth;
   fx::SmoothedParam drive;
   fx::SmoothedParam hornGain;

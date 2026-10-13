@@ -9,6 +9,7 @@
 #include "EditorParts.h"
 #include "GraphicEqView.h"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <vector>
@@ -21,6 +22,23 @@ public:
   ~EffectEditor() override;
 
   void showBlock(const BlockContext& block) override;
+
+  // How it is shown. The full editor has the effect presets column and a
+  // line of help under the sections; the compact one (the settings panel on
+  // the grid page) has neither, smaller knobs and tighter sections, and its
+  // sections and knobs take the block's accent colour.
+  struct Style {
+    bool compact = false;
+    juce::Colour accent = juce::Colours::transparentBlack;
+  };
+  void setStyle(const Style& newStyle);
+  double tempoBpm() const { return bpm; }
+  // The height the sections need at the width the editor has, for a viewport.
+  int getContentHeight() const { return contentHeight; }
+  // The parameters as last read, with the values the player has set since.
+  const std::vector<KnobParam>& currentParams() const { return lastSpecs; }
+  // Called when the parameters are read and when one is changed from here.
+  std::function<void(const std::vector<KnobParam>&)> onParamsChanged;
 
   void paint(juce::Graphics& g) override;
   void resized() override;
@@ -49,6 +67,11 @@ private:
   void updateTime(TimeGroup& group);
   juce::String timeText(const TimeGroup& group, const KnobParam& spec) const;
   void setParam(const juce::String& id, double value);
+  void noteValue(const juce::String& id, double value);
+  int sectionPadding() const;
+  int sectionHead() const;
+  int gapPx() const;
+  int knobDiameter() const;
   void readTempo();
   void layoutSections();
   int naturalWidth(const Section& section) const;
@@ -57,6 +80,10 @@ private:
   void addItem(Section& section, juce::Component* item, bool breakBefore = false);
   ParamKnob* makeKnob(const KnobParam& spec, int diameter = 72);
 
+  Style style;
+  std::vector<KnobParam> lastSpecs;
+  int contentHeight = 0;
+  bool denseKnobs = false;
   BlockContext context;
   juce::String signature;
   double bpm = 120.0;

@@ -517,7 +517,8 @@ TEST(FootswitchMidiTest, TheFixedControlsWorkThroughProcessBlock) {
 
   // midi.getMap documents them.
   const juce::var defaults = rig.must("midi.getMap")["defaults"];
-  ASSERT_EQ(defaults.size(), 4);
+  // The four above and the looper's fourteen (CC 48 to 61, looper_tests.cpp).
+  ASSERT_EQ(defaults.size(), 18);
   const std::pair<const char*, int> expected[] = {
       {"sceneSelect", 43}, {"tapTempo", 44}, {"tuner", 45}, {"footswitchMode", 47}};
   for (int i = 0; i < 4; ++i) {
@@ -583,7 +584,8 @@ TEST(FootswitchMidiTest, TheFixedControlsWorkThroughProcessBlock) {
   const double tapped = static_cast<double>(rig.must("tempo.get")["bpm"]);
   EXPECT_NEAR(tapped, expectedBpm, expectedBpm * 0.05);
 
-  // Reserved numbers do nothing: gig view and the looper's range.
+  // The reserved number does nothing: gig view. (CC 48 to 61 are the looper's
+  // and act on the looper, not on the footswitches or scenes.)
   const juce::String before = juce::JSON::toString(rig.footswitches());
   for (const int cc : {46, 48, 55, 61}) {
     sendCc(rig, cc, 127);

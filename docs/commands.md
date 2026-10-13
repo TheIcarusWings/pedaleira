@@ -126,8 +126,17 @@ given as `null`.
 | [`library.get`](#libraryget) | no | read | Returns the library: root (its folder), setlists (as setlist.list), current (setlist, slot or 0, and presetId, the active preset's id), favourites (preset ids), recents (as recent.list), unsaved (the rig differs from the active preset; with no active preset, from the empty default) and legacyPresets (how many presets of the old .t3kpreset store library.importLegacyPresets would bring over). |
 | [`library.importLegacyPresets`](#libraryimportlegacypresets) | yes | edit | Copies the user presets of the old .t3kpreset store into a setlist as JSON presets, keeping their ids. The setlist is made when missing and a second one is started when it is full. The old files are neither moved nor deleted, and presets imported before are skipped. (An empty library brings the old preset list over by itself the first time it is used; this is for presets deleted since, or a library that was not empty.) Returns { imported, skipped, failed, setlists }. |
 | [`library.rescan`](#libraryrescan) | yes | edit | Reads the library's folders again from scratch, for changes made outside the app (a file browser, git) that the usual time and size check could miss. With tidy the preset files are also renamed to what their slots and names make them (a file added without a slot number gets one). Returns library.get plus renamed. |
+| [`looper.clear`](#looperclear) | yes | edit | Erases the loop and all its layers and goes back to empty. |
+| [`looper.get`](#looperget) | no | read | Returns the looper's state as the audio thread last published it: state (empty, recording, playing, overdubbing or stopped), closing (the first recording is running on to the next beat, with quantise on), queued (actions waiting for the next audio block), channels (1 or 2), lengthFrames and lengthSeconds (of the loop as recorded), playbackLengthSeconds (twice that at half speed), recordedSeconds (while recording), positionFrames, positionSeconds and position (0 to 1) in the loop, layers (the recording and the overdubs in the sound now; the one being recorded counts), canUndo, redoLayers, canRedo, layersFull, maxLayers, maxSeconds, capacitySeconds, and options: halfSpeed, reverse, oneShot, quantise and levelDb. The loop is not saved with a preset or the plugin state. |
+| [`looper.overdub`](#looperoverdub) | yes | edit | Layers new playing on top of the loop (up to four layers after the first recording). Recording: ends the first recording and starts overdubbing from the top of the loop. Playing or stopped: starts overdubbing. Overdubbing: ends the layer and keeps playing. Nothing is recorded in half speed or reverse: overdubbing runs at normal speed, forwards. Ignored with no loop, and when all layers are used (layersFull). |
+| [`looper.play`](#looperplay) | yes | edit | Plays the loop. Stopped: from the start (or, in reverse, from the end). Recording: ends the first recording and plays it. Overdubbing: ends the layer and keeps playing. |
+| [`looper.record`](#looperrecord) | yes | edit | Records the loop from the main output (after the tone stack, before the output level). Empty: starts the first recording, which sets the loop's length when it ends. Recording: ends it and starts playing (with quantise on, at the nearest whole number of beats). With a loop already there: throws it away and starts a new recording. Up to 60 seconds; at the limit the loop closes by itself. Takes effect at the start of the next audio block. Answers with looper.get's state, which does not show the action yet. |
+| [`looper.redo`](#looperredo) | yes | edit | Puts back the overdub layer looper.undo took out, if no new overdub has started since. |
+| [`looper.setOptions`](#loopersetoptions) | yes | edit | Sets how the loop plays; give at least one. halfSpeed plays at half speed, an octave down and twice as long (playbackLengthSeconds); reverse plays backwards; oneShot plays the loop once and stops instead of repeating; quantise rounds the length of the first recording to a whole number of beats at the tempo of the moment it ends; levelDb is the loop's playback level (the rig's own sound is not touched). They take effect within a block and can change while playing. Answers with looper.get's state. |
+| [`looper.stop`](#looperstop) | yes | edit | Stops the loop and puts it back at the start, keeping what was recorded. Recording: ends the first recording and stops. Overdubbing: ends the layer first. |
+| [`looper.undo`](#looperundo) | yes | edit | Takes the last overdub layer out of the sound (the first recording stays; use looper.clear for that). While overdubbing it throws away the layer being recorded and keeps playing. The layer is kept for looper.redo until a new overdub starts. |
 | [`meters.get`](#metersget) | no | read | Returns the current levels in dB (floor -60): input and output as [left, right], each block's in and out by block id (with readings, by reading id, for a kind that has them: see kinds.list), the audio thread's CPU load (0 to 1) and the output's stereo correlation (-1 to 1). Also rows (in grid mode, per row what entered it and what it sent, as [left, right]), splits (in grid mode, per split what the splitter sent down paths A and B as split and what reached the mixer from each as mix), outputs (per output pair in use, its level after the output strip) and planCpu (total, critical and rows: what the rig's blocks are estimated to cost, as fractions of one core; critical is the most one thread has to carry with multi-core on). |
-| [`midi.getMap`](#midigetmap) | no | read | Returns the MIDI map: the channel filter (0 is omni) and each mapping's target, source (cc or note) and number. |
+| [`midi.getMap`](#midigetmap) | no | read | Returns the MIDI map: the channel filter (0 is omni), each mapping's target, source (cc or note) and number, and defaults, the fixed controls (scene select, tap tempo, tuner, footswitch mode and the fourteen looper controls, CC 48 to 61) each with its action, cc and whether a mapping of the user's own overrides it. |
 | [`midi.remove`](#midiremove) | yes | edit | Removes the mapping of one target. |
 | [`midi.setCc`](#midisetcc) | yes | edit | Maps a MIDI CC number to a target, replacing any mapping that target already had. |
 | [`midi.setChannelFilter`](#midisetchannelfilter) | yes | edit | Limits MIDI control (mappings and program changes) to one channel, or to all of them. |
@@ -1148,6 +1157,84 @@ Mutates state: yes. Permission: edit.
 |---|---|---|---|---|
 | `tidy` | boolean | no | default `false` | Also rename the preset files. |
 
+## looper.clear
+
+Erases the loop and all its layers and goes back to empty.
+
+Mutates state: yes. Permission: edit.
+
+No parameters.
+
+## looper.get
+
+Returns the looper's state as the audio thread last published it: state (empty, recording, playing, overdubbing or stopped), closing (the first recording is running on to the next beat, with quantise on), queued (actions waiting for the next audio block), channels (1 or 2), lengthFrames and lengthSeconds (of the loop as recorded), playbackLengthSeconds (twice that at half speed), recordedSeconds (while recording), positionFrames, positionSeconds and position (0 to 1) in the loop, layers (the recording and the overdubs in the sound now; the one being recorded counts), canUndo, redoLayers, canRedo, layersFull, maxLayers, maxSeconds, capacitySeconds, and options: halfSpeed, reverse, oneShot, quantise and levelDb. The loop is not saved with a preset or the plugin state.
+
+Mutates state: no. Permission: read.
+
+No parameters.
+
+## looper.overdub
+
+Layers new playing on top of the loop (up to four layers after the first recording). Recording: ends the first recording and starts overdubbing from the top of the loop. Playing or stopped: starts overdubbing. Overdubbing: ends the layer and keeps playing. Nothing is recorded in half speed or reverse: overdubbing runs at normal speed, forwards. Ignored with no loop, and when all layers are used (layersFull).
+
+Mutates state: yes. Permission: edit.
+
+No parameters.
+
+## looper.play
+
+Plays the loop. Stopped: from the start (or, in reverse, from the end). Recording: ends the first recording and plays it. Overdubbing: ends the layer and keeps playing.
+
+Mutates state: yes. Permission: edit.
+
+No parameters.
+
+## looper.record
+
+Records the loop from the main output (after the tone stack, before the output level). Empty: starts the first recording, which sets the loop's length when it ends. Recording: ends it and starts playing (with quantise on, at the nearest whole number of beats). With a loop already there: throws it away and starts a new recording. Up to 60 seconds; at the limit the loop closes by itself. Takes effect at the start of the next audio block. Answers with looper.get's state, which does not show the action yet.
+
+Mutates state: yes. Permission: edit.
+
+No parameters.
+
+## looper.redo
+
+Puts back the overdub layer looper.undo took out, if no new overdub has started since.
+
+Mutates state: yes. Permission: edit.
+
+No parameters.
+
+## looper.setOptions
+
+Sets how the loop plays; give at least one. halfSpeed plays at half speed, an octave down and twice as long (playbackLengthSeconds); reverse plays backwards; oneShot plays the loop once and stops instead of repeating; quantise rounds the length of the first recording to a whole number of beats at the tempo of the moment it ends; levelDb is the loop's playback level (the rig's own sound is not touched). They take effect within a block and can change while playing. Answers with looper.get's state.
+
+Mutates state: yes. Permission: edit.
+
+| Parameter | Type | Required | Allowed | Description |
+|---|---|---|---|---|
+| `halfSpeed` | boolean | no |  | Half speed playback. |
+| `reverse` | boolean | no |  | Reverse playback. |
+| `oneShot` | boolean | no |  | Play once, then stop. |
+| `quantise` | boolean | no |  | Round the first recording's length to whole beats (applies to the next one that ends). |
+| `levelDb` | number | no | -60 to 12 | Playback level in dB, -60 (silent) to 12. |
+
+## looper.stop
+
+Stops the loop and puts it back at the start, keeping what was recorded. Recording: ends the first recording and stops. Overdubbing: ends the layer first.
+
+Mutates state: yes. Permission: edit.
+
+No parameters.
+
+## looper.undo
+
+Takes the last overdub layer out of the sound (the first recording stays; use looper.clear for that). While overdubbing it throws away the layer being recorded and keeps playing. The layer is kept for looper.redo until a new overdub starts.
+
+Mutates state: yes. Permission: edit.
+
+No parameters.
+
 ## meters.get
 
 Returns the current levels in dB (floor -60): input and output as [left, right], each block's in and out by block id (with readings, by reading id, for a kind that has them: see kinds.list), the audio thread's CPU load (0 to 1) and the output's stereo correlation (-1 to 1). Also rows (in grid mode, per row what entered it and what it sent, as [left, right]), splits (in grid mode, per split what the splitter sent down paths A and B as split and what reached the mixer from each as mix), outputs (per output pair in use, its level after the output strip) and planCpu (total, critical and rows: what the rig's blocks are estimated to cost, as fractions of one core; critical is the most one thread has to carry with multi-core on).
@@ -1158,7 +1245,7 @@ No parameters.
 
 ## midi.getMap
 
-Returns the MIDI map: the channel filter (0 is omni) and each mapping's target, source (cc or note) and number.
+Returns the MIDI map: the channel filter (0 is omni), each mapping's target, source (cc or note) and number, and defaults, the fixed controls (scene select, tap tempo, tuner, footswitch mode and the fourteen looper controls, CC 48 to 61) each with its action, cc and whether a mapping of the user's own overrides it.
 
 Mutates state: no. Permission: read.
 

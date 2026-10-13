@@ -90,6 +90,8 @@ private:
   void registerLiveCommands();
   void registerSceneCommands();
   void registerFootswitchCommands();
+  // LooperCommands.cpp: looper.*.
+  void registerLooperCommands();
   // GridCommands.cpp: grid.* and row.*.
   void registerGridCommands();
   // LibraryCommands.cpp: setlist.*, the slot commands of preset.*,

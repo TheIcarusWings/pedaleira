@@ -63,6 +63,8 @@ function(t3k_add_headless_processor target)
         ${plugin_dir}/src/ProcessorPlanExec.cpp
         ${plugin_dir}/src/ProcessorGrid.cpp
         ${plugin_dir}/src/GridCommands.cpp
+        ${plugin_dir}/src/Looper.cpp
+        ${plugin_dir}/src/LooperCommands.cpp
         ${plugin_dir}/src/LibraryCommands.cpp
         ${plugin_dir}/src/ProcessorLibrary.cpp
         ${plugin_dir}/src/ProcessorPlugins.cpp

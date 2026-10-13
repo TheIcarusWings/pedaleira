@@ -106,4 +106,12 @@ if (PEDALEIRA_BUILD_UI_TESTBED)
     target_compile_definitions(PedaleiraUiTestbed PRIVATE PEDALEIRA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     t3k_add_headless_processor(PedaleiraUiTestbed)
     pedaleira_add_ui(PedaleiraUiTestbed)
+    # Checks of the grid page's logic (selection, the settings panel, the
+    # curves); needs no display of its own, but runs under xvfb when it is there.
+    find_program(PEDALEIRA_XVFB xvfb-run)
+    if (PEDALEIRA_XVFB)
+        add_test(NAME UiTestbedSelfTest COMMAND ${PEDALEIRA_XVFB} -a $<TARGET_FILE:PedaleiraUiTestbed> --selftest)
+    else()
+        add_test(NAME UiTestbedSelfTest COMMAND PedaleiraUiTestbed --selftest)
+    endif()
 endif()

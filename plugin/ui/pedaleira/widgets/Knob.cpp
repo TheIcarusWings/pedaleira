@@ -63,6 +63,13 @@ void Knob::setDiameter(int newDiameter) {
   repaint();
 }
 
+void Knob::setAccent(juce::Colour newAccent) {
+  if (accent == newAccent)
+    return;
+  accent = newAccent;
+  repaint();
+}
+
 void Knob::paint(juce::Graphics& g) {
   const float alpha = bypassed ? 0.45f : 1.0f;
   // The knob's box, as the canvas draws it in a 64 px view box: the arc at
@@ -73,7 +80,7 @@ void Knob::paint(juce::Graphics& g) {
   const float radius = box * 26.0f / 64.0f;
   const juce::Point<float> centre = knobArea.getCentre();
 
-  juce::Colour arc = colour::text;
+  juce::Colour arc = accent;
   if (assignment == Assignment::scene)
     arc = colour::iris;
   else if (assignment == Assignment::expression)

@@ -23,7 +23,7 @@ public:
       t.push_back(BlockParamSpec::floatParam("gainDb", "Gain", "dB", 0.0f, 30.0f, 12.0f));
       t.push_back(BlockParamSpec::floatParam("rangeHz", "Range", "Hz", 400.0f, 4000.0f, 1000.0f)
                       .withSkew(0.4f));
-      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -18.0f, 18.0f, 0.0f));
+      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -48.0f, 18.0f, 0.0f));
       return t;
     }();
     return table;

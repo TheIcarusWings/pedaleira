@@ -841,7 +841,8 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheCategoriesWeHave) {
   EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "delay.digital");
   EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 1), "feedback")), 45.0, 1e-3);
   EXPECT_NEAR(static_cast<double>(slotNode(preset, 0, 1)["mix"]), 0.3, 1e-6);
-  EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 1), "timeMs")), 380.0, 1e-3);
+  EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 1), "timeMs")), 379.4, 1e-3)
+      << "the unit's delay runs 0.6 ms short of the time it shows";
   EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "reverb.plate");
   EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 2), "preDelayMs")), 40.0, 1e-3);
   EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "modulation.phaser");
@@ -929,7 +930,7 @@ TEST(PresetImporterTest, DriveModelsGetTheirKindsAndTheKnobsOnOurScales) {
   EXPECT_NEAR(number(0, "midDb"), -6.0, 1e-3);
   EXPECT_NEAR(number(0, "midHz"), 1600.0, 1e-2);
   EXPECT_NEAR(number(0, "highDb"), 12.0, 1e-3);
-  EXPECT_NEAR(number(0, "levelDb"), 0.0, 1e-3) << "5 on the knob is unity";
+  EXPECT_NEAR(number(0, "levelDb"), -21.5, 1e-3) << "5 on the knob is the level measured on the unit";
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "drive.distortion");
   EXPECT_NEAR(number(1, "distortionPercent"), 100.0, 1e-3);

@@ -46,7 +46,7 @@ public:
       t.push_back(BlockParamSpec::floatParam("midHz", "Mid Freq", "Hz", 200.0f, 3000.0f, 700.0f)
                       .withSkew(0.4f));
       t.push_back(BlockParamSpec::floatParam("highDb", "High", "dB", -12.0f, 12.0f, 0.0f));
-      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -18.0f, 18.0f, 0.0f));
+      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -48.0f, 18.0f, 0.0f));
       // The lowest value switches the gate off.
       t.push_back(BlockParamSpec::floatParam("gateDb", "Gate", "dB", -90.0f, -30.0f, -90.0f));
       return t;

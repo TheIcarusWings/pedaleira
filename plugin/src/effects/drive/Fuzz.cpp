@@ -45,7 +45,7 @@ public:
       t.push_back(BlockParamSpec::floatParam("fuzzPercent", "Fuzz", "%", 0.0f, 100.0f, 60.0f));
       t.push_back(BlockParamSpec::floatParam("biasPercent", "Bias", "%", 0.0f, 100.0f, 70.0f));
       t.push_back(BlockParamSpec::floatParam("tonePercent", "Tone", "%", 0.0f, 100.0f, 50.0f));
-      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -18.0f, 18.0f, 0.0f));
+      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -48.0f, 18.0f, 0.0f));
       return t;
     }();
     return table;

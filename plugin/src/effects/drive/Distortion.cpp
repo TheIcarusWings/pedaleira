@@ -27,7 +27,7 @@ public:
       t.push_back(
           BlockParamSpec::floatParam("distortionPercent", "Distortion", "%", 0.0f, 100.0f, 50.0f));
       t.push_back(BlockParamSpec::floatParam("filterPercent", "Filter", "%", 0.0f, 100.0f, 60.0f));
-      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -18.0f, 18.0f, 0.0f));
+      t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -48.0f, 18.0f, 0.0f));
       return t;
     }();
     return table;

@@ -55,7 +55,7 @@ given as `null`.
 | [`block.setEqBand`](#blockseteqband) | yes | edit | Changes one band of a block's six-band EQ; fields left out keep their current value. |
 | [`block.setEqEnabled`](#blockseteqenabled) | yes | edit | Turns a block's EQ on or off, keeping its band settings. |
 | [`block.setEqPre`](#blockseteqpre) | yes | edit | Places a block's EQ before its model (true) or after it (false, the default). |
-| [`block.setParam`](#blocksetparam) | yes | edit | Sets one of a block's settings. The common ones are knob positions: inputGain, outputGain and mix from 0 to 1 (0.5 is unity for the gains), enabled and normalize as switches (0 or 1). Any other id is a parameter of the block's kind (see block.listParams) and takes a value in that parameter's own unit, clamped to its range (0 to 1 for a hosted plugin's parameters). The blocks carry the active scene: enabled and a scene-assigned parameter (scene.assignParam) change in the active scene only, every other setting has one value shared by all scenes. |
+| [`block.setParam`](#blocksetparam) | yes | edit | Sets one of a block's settings. The common ones are knob positions: inputGain, outputGain and mix from 0 to 1 (0.5 is unity for the gains), enabled and normalize as switches (0 or 1). Any other id is a parameter of the block's kind (see block.listParams) and takes a value in that parameter's own unit, clamped to its range (0 to 1 for a hosted plugin's parameters). The blocks carry the active scene: enabled and a scene-assigned parameter (scene.assignParam) change in the active scene only. While the preset has more than one scene (scene.add), a parameter that is not assigned yet is scene-assigned by its first set, so it changes in the active scene only and the others keep the value they had; this is one undo step. With one scene, and for normalize, a parameter on the expression pedal or one scene.assignParam refuses, the setting has one value shared by all scenes. |
 | [`block.setSlimSize`](#blocksetslimsize) | yes | edit | Sets a NAM block's model size, trading CPU for accuracy: 0 is the lightest, 1 the full model (only A2 slimmable captures change; IR blocks refuse). |
 | [`capture.addToRig`](#captureaddtorig) | yes | local | Adds the trained capture to the rig being played as a NAM block (chain.addToneFromFiles), so it can be compared with the real device. Returns what that command returns. |
 | [`capture.cancelRecording`](#capturecancelrecording) | yes | local | Stops a recording that is going and throws away what was recorded; also discards a finished recording so that it can be made again (in the record or check step). |
@@ -102,7 +102,7 @@ given as `null`.
 | [`expression.assignParam`](#expressionassignparam) | yes | edit | Sets a block parameter aside for the expression pedal. The pedal itself is not there yet; what the flag does today is keep the parameter out of the scenes: it is unassigned from them (the active scene's value stays as the shared one) and scene.assignParam refuses it, so a scene switch never pulls a pedal-driven value away. |
 | [`expression.unassignParam`](#expressionunassignparam) | yes | edit | Clears a parameter's expression pedal flag, so it can be scene-assigned again. |
 | [`favourite.set`](#favouriteset) | yes | edit | Marks a preset as a favourite or takes the mark away. Favourites are a set of preset ids kept in library.json; a factory preset can be one. |
-| [`footswitch.getState`](#footswitchgetstate) | no | read | Returns what a pedalboard view draws: mode (preset, scene, stomp or hybrid), hybridRows (what the top row A to D and the bottom row E to H do in hybrid mode), bank and bankCount (preset banks), scenePage, activeScene, bpm, and the eleven switches (A to H, bankUp, bankDown, tempo), each with its role in the current mode (preset, scene, stomp, bankUp, bankDown, presetNext, presetPrevious or tapTempo), label, colour (a hint: the category of a stomp's first block, else the role), lit, held, empty (nothing behind the switch) and its target (scene, presetId and presetIndex, or blockIds and momentary). |
+| [`footswitch.getState`](#footswitchgetstate) | no | read | Returns what a pedalboard view draws: mode (preset, scene, stomp or hybrid), hybridRows (what the top row A to D and the bottom row E to H do in hybrid mode), bank and bankCount (preset banks), scenePage, activeScene, sceneCount (scenes in use), bpm, and the eleven switches (A to H, bankUp, bankDown, tempo), each with its role in the current mode (preset, scene, stomp, bankUp, bankDown, presetNext, presetPrevious or tapTempo), label, colour (a hint: the category of a stomp's first block, else the role), lit, held, empty (nothing behind the switch, also a scene the preset does not use) and its target (scene, presetId and presetIndex, or blockIds and momentary). |
 | [`footswitch.press`](#footswitchpress) | yes | edit | Presses a footswitch. A to H act by mode: Preset loads preset bank x 8 + switch of the preset list, Scene selects scene A to H, Stomp flips the switch's assigned blocks, Hybrid does per row what footswitch.setHybridRows says. bankUp and bankDown move the preset bank (and, in a hybrid with one scene row, flip that row between scenes A to D and E to H); where there is nothing to page (Scene and Stomp mode) they step to the next or previous preset. tempo taps the tempo (see tempo.tap). Follow it with footswitch.release. |
 | [`footswitch.release`](#footswitchrelease) | yes | edit | Releases a footswitch; a momentary stomp flips its blocks back, nothing else acts on the release. |
 | [`footswitch.setHybridRows`](#footswitchsethybridrows) | yes | settings | Sets what each row does in hybrid mode: scene, stomp or preset. A stomp row uses its own switches' assignments. With both rows on scenes the top row is scenes A to D and the bottom E to H; a single scene row shows A to D and bankUp / bankDown flip it to E to H. A preset row shows four presets, two show eight, and the bank switches move by that many. Machine-wide, like the mode. |
@@ -174,12 +174,14 @@ given as `null`.
 | [`sandbox.discard`](#sandboxdiscard) | yes | edit | Discards one of the calling connection's sandbox rigs and frees what it held; the connection goes back to the live rig if it had it selected. Default: the calling connection's selected sandbox. |
 | [`sandbox.list`](#sandboxlist) | no | read | Lists the calling connection's own sandbox rigs (a local caller sees every client's): id, name, the client that made it, whether a render is running through it and whether it is the calling connection's selected rig; selected names that rig (live when none). |
 | [`sandbox.use`](#sandboxuse) | yes | edit | Selects the rig the calling connection's rig commands act on: one of its own sandboxes by id, or live for the rig being played. |
-| [`scene.assignParam`](#sceneassignparam) | yes | edit | Gives a block parameter a value per scene, starting with its current value in all eight; from then on block.setParam changes it in the active scene only and scene.setParamValue in any scene. Works for inputGain, outputGain, mix and the parameters of the block's kind, a hosted plugin's included. Refused for enabled (a block's on/off state is per scene already), normalize, a parameter that changes the block's latency (affectsLatency in block.listParams) and one assigned to the expression pedal. |
+| [`scene.add`](#sceneadd) | yes | edit | Adds the next scene (a preset starts with one and can have up to eight). The new scene starts as a copy of the active scene's block states and assigned values, with its default name; the active scene stays the same. Returns the scenes (as scene.get) and added, the id of the new scene (A to H). Refused when all eight are in use. |
+| [`scene.assignParam`](#sceneassignparam) | yes | edit | Gives a block parameter a value per scene, starting with its current value in all eight places; from then on block.setParam changes it in the active scene only and scene.setParamValue in any scene. With more than one scene in use block.setParam does this by itself on a parameter's first set, so calling it is only needed to assign without changing the value. Works for inputGain, outputGain, mix and the parameters of the block's kind, a hosted plugin's included. Refused for enabled (a block's on/off state is per scene already), normalize, a parameter that changes the block's latency (affectsLatency in block.listParams) and one assigned to the expression pedal. |
 | [`scene.copy`](#scenecopy) | yes | edit | Copies one scene's block states and assigned values onto another, which keeps its name; copying onto the active scene is heard at once, like a scene switch. |
-| [`scene.get`](#sceneget) | no | read | Returns the rig's eight scenes: active (index 0 to 7) and activeId (A to H), and for each scene its name, whether it is the active one, blocks (the on/off state of every tone block by block id) and values (the value of each scene-assigned parameter: a knob position from 0 to 1 for inputGain, outputGain and mix, the parameter's own unit for a kind parameter). assigned lists the scene-assigned parameters and expression those set aside for the expression pedal. A parameter that is not assigned has one value shared by all scenes. |
+| [`scene.get`](#sceneget) | no | read | Returns the rig's scenes: count (how many the preset uses, 1 to 8), active (index 0 to 7) and activeId (A to H), and for each of the eight places its name, whether it is in use (inUse), whether it is the active one, blocks (the on/off state of every tone block by block id) and values (the value of each scene-assigned parameter: a knob position from 0 to 1 for inputGain, outputGain and mix, the parameter's own unit for a kind parameter). assigned lists the scene-assigned parameters and expression those set aside for the expression pedal. A parameter that is not assigned has one value shared by all scenes. |
+| [`scene.remove`](#sceneremove) | yes | edit | Removes a scene that is in use. The scenes after it move down one place and keep their names, block states and assigned values; the last place goes back to a fresh scene and the count goes down by one. The sound does not change: the active scene stays active wherever it moves to. If the active scene is the one removed, the scene that takes its place is selected (the new last scene when it was the last). Refused for a scene that is not in use and for the only scene. |
 | [`scene.rename`](#scenerename) | yes | edit | Names a scene (the default names are Scene A to Scene H). |
 | [`scene.reset`](#scenereset) | yes | edit | Puts a scene back to its starting point: default name, every block on, and each scene-assigned parameter at the value the active scene has (resetting the active scene keeps its values). |
-| [`scene.select`](#sceneselect) | yes | edit | Makes a scene the active one: its block states and assigned values are put on the blocks without a click and without muting the chain (blocks fade, a block with spillover that the scene turns off rings out, values glide), so it is safe at footswitch speed. Not an undo step. The scene active when a rig or preset is saved is the one it opens with. |
+| [`scene.select`](#sceneselect) | yes | edit | Makes a scene the active one: its block states and assigned values are put on the blocks without a click and without muting the chain (blocks fade, a block with spillover that the scene turns off rings out, values glide), so it is safe at footswitch speed. Refused for a scene that is not in use. Not an undo step. The scene active when a rig or preset is saved is the one it opens with. |
 | [`scene.setParamValue`](#scenesetparamvalue) | yes | edit | Sets a scene-assigned parameter's value in one scene without selecting that scene (for the active scene this is block.setParam). The value is clamped to the parameter's range. |
 | [`scene.unassignParam`](#sceneunassignparam) | yes | edit | Takes a parameter out of the scenes again: the value the active scene has becomes the one value all scenes share. |
 | [`server.setEnabled`](#serversetenabled) | yes | local | Starts or stops the command server (off by default) and keeps the choice across restarts. It listens on 127.0.0.1 only and every client must present the token from the connection file; stopping it disconnects every client. |
@@ -382,7 +384,7 @@ Mutates state: yes. Permission: edit.
 
 ## block.setParam
 
-Sets one of a block's settings. The common ones are knob positions: inputGain, outputGain and mix from 0 to 1 (0.5 is unity for the gains), enabled and normalize as switches (0 or 1). Any other id is a parameter of the block's kind (see block.listParams) and takes a value in that parameter's own unit, clamped to its range (0 to 1 for a hosted plugin's parameters). The blocks carry the active scene: enabled and a scene-assigned parameter (scene.assignParam) change in the active scene only, every other setting has one value shared by all scenes.
+Sets one of a block's settings. The common ones are knob positions: inputGain, outputGain and mix from 0 to 1 (0.5 is unity for the gains), enabled and normalize as switches (0 or 1). Any other id is a parameter of the block's kind (see block.listParams) and takes a value in that parameter's own unit, clamped to its range (0 to 1 for a hosted plugin's parameters). The blocks carry the active scene: enabled and a scene-assigned parameter (scene.assignParam) change in the active scene only. While the preset has more than one scene (scene.add), a parameter that is not assigned yet is scene-assigned by its first set, so it changes in the active scene only and the others keep the value they had; this is one undo step. With one scene, and for normalize, a parameter on the expression pedal or one scene.assignParam refuses, the setting has one value shared by all scenes.
 
 Mutates state: yes. Permission: edit.
 
@@ -900,7 +902,7 @@ Mutates state: yes. Permission: edit.
 
 ## footswitch.getState
 
-Returns what a pedalboard view draws: mode (preset, scene, stomp or hybrid), hybridRows (what the top row A to D and the bottom row E to H do in hybrid mode), bank and bankCount (preset banks), scenePage, activeScene, bpm, and the eleven switches (A to H, bankUp, bankDown, tempo), each with its role in the current mode (preset, scene, stomp, bankUp, bankDown, presetNext, presetPrevious or tapTempo), label, colour (a hint: the category of a stomp's first block, else the role), lit, held, empty (nothing behind the switch) and its target (scene, presetId and presetIndex, or blockIds and momentary).
+Returns what a pedalboard view draws: mode (preset, scene, stomp or hybrid), hybridRows (what the top row A to D and the bottom row E to H do in hybrid mode), bank and bankCount (preset banks), scenePage, activeScene, sceneCount (scenes in use), bpm, and the eleven switches (A to H, bankUp, bankDown, tempo), each with its role in the current mode (preset, scene, stomp, bankUp, bankDown, presetNext, presetPrevious or tapTempo), label, colour (a hint: the category of a stomp's first block, else the role), lit, held, empty (nothing behind the switch, also a scene the preset does not use) and its target (scene, presetId and presetIndex, or blockIds and momentary).
 
 Mutates state: no. Permission: read.
 
@@ -1673,9 +1675,17 @@ Mutates state: yes. Permission: edit.
 |---|---|---|---|---|
 | `sandbox` | string | yes |  | A sandbox id from sandbox.list, or live. |
 
+## scene.add
+
+Adds the next scene (a preset starts with one and can have up to eight). The new scene starts as a copy of the active scene's block states and assigned values, with its default name; the active scene stays the same. Returns the scenes (as scene.get) and added, the id of the new scene (A to H). Refused when all eight are in use.
+
+Mutates state: yes. Permission: edit.
+
+No parameters.
+
 ## scene.assignParam
 
-Gives a block parameter a value per scene, starting with its current value in all eight; from then on block.setParam changes it in the active scene only and scene.setParamValue in any scene. Works for inputGain, outputGain, mix and the parameters of the block's kind, a hosted plugin's included. Refused for enabled (a block's on/off state is per scene already), normalize, a parameter that changes the block's latency (affectsLatency in block.listParams) and one assigned to the expression pedal.
+Gives a block parameter a value per scene, starting with its current value in all eight places; from then on block.setParam changes it in the active scene only and scene.setParamValue in any scene. With more than one scene in use block.setParam does this by itself on a parameter's first set, so calling it is only needed to assign without changing the value. Works for inputGain, outputGain, mix and the parameters of the block's kind, a hosted plugin's included. Refused for enabled (a block's on/off state is per scene already), normalize, a parameter that changes the block's latency (affectsLatency in block.listParams) and one assigned to the expression pedal.
 
 Mutates state: yes. Permission: edit.
 
@@ -1697,11 +1707,21 @@ Mutates state: yes. Permission: edit.
 
 ## scene.get
 
-Returns the rig's eight scenes: active (index 0 to 7) and activeId (A to H), and for each scene its name, whether it is the active one, blocks (the on/off state of every tone block by block id) and values (the value of each scene-assigned parameter: a knob position from 0 to 1 for inputGain, outputGain and mix, the parameter's own unit for a kind parameter). assigned lists the scene-assigned parameters and expression those set aside for the expression pedal. A parameter that is not assigned has one value shared by all scenes.
+Returns the rig's scenes: count (how many the preset uses, 1 to 8), active (index 0 to 7) and activeId (A to H), and for each of the eight places its name, whether it is in use (inUse), whether it is the active one, blocks (the on/off state of every tone block by block id) and values (the value of each scene-assigned parameter: a knob position from 0 to 1 for inputGain, outputGain and mix, the parameter's own unit for a kind parameter). assigned lists the scene-assigned parameters and expression those set aside for the expression pedal. A parameter that is not assigned has one value shared by all scenes.
 
 Mutates state: no. Permission: read.
 
 No parameters.
+
+## scene.remove
+
+Removes a scene that is in use. The scenes after it move down one place and keep their names, block states and assigned values; the last place goes back to a fresh scene and the count goes down by one. The sound does not change: the active scene stays active wherever it moves to. If the active scene is the one removed, the scene that takes its place is selected (the new last scene when it was the last). Refused for a scene that is not in use and for the only scene.
+
+Mutates state: yes. Permission: edit.
+
+| Parameter | Type | Required | Allowed | Description |
+|---|---|---|---|---|
+| `scene` | string | yes | one of `A`, `B`, `C`, `D`, `E`, `F`, `G`, `H` | The scene to remove, A to H. |
 
 ## scene.rename
 
@@ -1726,7 +1746,7 @@ Mutates state: yes. Permission: edit.
 
 ## scene.select
 
-Makes a scene the active one: its block states and assigned values are put on the blocks without a click and without muting the chain (blocks fade, a block with spillover that the scene turns off rings out, values glide), so it is safe at footswitch speed. Not an undo step. The scene active when a rig or preset is saved is the one it opens with.
+Makes a scene the active one: its block states and assigned values are put on the blocks without a click and without muting the chain (blocks fade, a block with spillover that the scene turns off rings out, values glide), so it is safe at footswitch speed. Refused for a scene that is not in use. Not an undo step. The scene active when a rig or preset is saved is the one it opens with.
 
 Mutates state: yes. Permission: edit.
 

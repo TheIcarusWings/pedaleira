@@ -66,6 +66,10 @@ TEST(SceneTest, ASceneHoldsBlockStatesAndAssignedValues) {
   const juce::String gain = rig.addKind("utility.gain");
   const juce::String delay = rig.addKind("delay.simple");
   rig.settle();
+  // Set while the rig has one scene, so the values are shared.
+  rig.setParam(delay, "mix", 0.25);
+  rig.setParam(delay, "feedback", 20.0);
+  rig.useScenes(8);
 
   // A fresh rig: scene A active, default names, every block on everywhere,
   // nothing assigned.
@@ -85,8 +89,6 @@ TEST(SceneTest, ASceneHoldsBlockStatesAndAssignedValues) {
 
   // An assigned parameter has a value per scene: a common setting and a kind
   // parameter.
-  rig.setParam(delay, "mix", 0.25);
-  rig.setParam(delay, "feedback", 20.0);
   rig.assign(delay, "mix");
   rig.assign(delay, "feedback");
   rig.select("B");
@@ -161,10 +163,13 @@ TEST(SceneTest, EditingRules) {
   const juce::String delay = rig.addKind("delay.simple");
   rig.settle();
 
-  // An unassigned parameter has one value, whichever scene it is set in.
-  rig.select("B");
+  // An unassigned parameter has one value, whichever scene it is set in
+  // (with one scene in use, every set is of this kind).
   rig.setParam(gain, "gainDb", 4.0);
   rig.setParam(delay, "outputGain", 0.6);
+  rig.useScenes(8);
+  rig.select("B");
+  EXPECT_NEAR(rig.blockValue(gain, "gainDb"), 4.0, 1e-5);
   rig.select("A");
   EXPECT_NEAR(rig.blockValue(gain, "gainDb"), 4.0, 1e-5);
   EXPECT_NEAR(rig.blockValue(delay, "outputGain"), 0.6, 1e-6);
@@ -283,6 +288,7 @@ TEST(SceneTest, SwitchingUnderAudioIsClickFreeAndNeverMutesTheChain) {
   rig.setParam(trim, "gainDb", -6.0);
   rig.setParam(delay, "mix", 0.1);
   rig.setParam(delay, "outputGain", 0.45);
+  rig.useScenes(8);
   rig.assign(trim, "gainDb");
   rig.assign(delay, "mix");
   rig.assign(delay, "outputGain");
@@ -351,6 +357,7 @@ TEST(SceneTest, ADelayASceneTurnsOffRingsOutWithSpilloverAndIsCutWithout) {
     rig.setParam(delay, "feedback", 50.0);
     rig.setParam(delay, "mix", 0.5);
     rig.setParam(delay, "spillover", spillover ? 1.0 : 0.0);
+    rig.useScenes(8);
     rig.select("B");
     rig.setEnabled(delay, false);
     rig.select("A");
@@ -381,6 +388,7 @@ TEST(SceneTest, TwoHundredSwitchesAgainstARunningAudioThread) {
   const juce::String trim = rig.addKind("utility.gain");
   const juce::String pad = rig.addKind("utility.gain");
   rig.setParam(pad, "gainDb", -12.0);
+  rig.useScenes(8);
   rig.assign(trim, "gainDb");
   rig.assign(pad, "mix");
   const double trimDb[] = {-6.0, 0.0, 3.0, -3.0};
@@ -466,6 +474,7 @@ TEST(SceneTest, SavedStateAndPresetsKeepEveryScene) {
   const juce::String gain = rig.addKind("utility.gain");
   const juce::String delay = rig.addKind("delay.simple");
   rig.settle();
+  rig.useScenes(8);
 
   rig.assign(delay, "mix");
   rig.assign(gain, "gainDb");
@@ -553,6 +562,7 @@ TEST(SceneTest, ARigSavedBeforeScenesLoadsWithEverySceneEqualToIt) {
   // Something to be replaced, so the load is seen to clear scene data too.
   const juce::String old = rig.addKind("utility.gain");
   rig.assign(old, "gainDb");
+  rig.useScenes(5);
   rig.select("E");
   rig.proc.restoreFromTree(snapshot);
   rig.waitLoaded();
@@ -567,12 +577,17 @@ TEST(SceneTest, ARigSavedBeforeScenesLoadsWithEverySceneEqualToIt) {
     EXPECT_FALSE(rig.sceneBlock(letter, "blk-gain")) << letter;
     EXPECT_EQ(rig.scene(letter)["values"].size(), 0);
   }
-  // Selecting any of them changes nothing.
+  // A rig from before scenes has one; added scenes copy it, and selecting
+  // any of them changes nothing.
+  EXPECT_EQ(static_cast<int>(scenes["count"]), 1);
+  rig.useScenes(4);
   rig.select("D");
   EXPECT_FALSE(rig.blockEnabled("blk-gain"));
   EXPECT_NEAR(rig.blockValue("blk-delay", "mix"), 0.3, 1e-6);
   EXPECT_NEAR(rig.blockValue("blk-delay", "feedback"), 45.0, 1e-4);
   rig.select("A");
+  for (int i = 0; i < 3; ++i)
+    rig.must("scene.remove", R"({"scene":"B"})");
 
   // And saving it again adds nothing: the rig never used scenes or stomps.
   const juce::ValueTree saved = savedSnapshot(rig.proc);
@@ -586,6 +601,7 @@ TEST(SceneTest, UndoAndRedoCoverSceneEdits) {
   const juce::String gain = rig.addKind("utility.gain");
   const juce::String delay = rig.addKind("delay.simple");
   rig.settle();
+  rig.useScenes(8);
   const double startMix = rig.blockValue(delay, "mix");
 
   // An assignment.
@@ -630,6 +646,7 @@ TEST(SceneTest, UndoAndRedoCoverSceneEdits) {
   // switches: one undo takes the edit back (and, the snapshot being the rig
   // as it was when the edit was made, shows it in scene A again).
   SceneRig second;
+  second.useScenes(4);
   const juce::String block = second.addKind("utility.gain");
   second.settle();
   second.setParam(block, "gainDb", 3.0);
@@ -640,13 +657,17 @@ TEST(SceneTest, UndoAndRedoCoverSceneEdits) {
   EXPECT_NEAR(second.blockValue(block, "gainDb"), 0.0, 1e-5);
   EXPECT_EQ(second.activeScene(), "A");
   ASSERT_TRUE(second.proc.undoChain());  // adding the block
+  for (int i = 0; i < 3; ++i)
+    ASSERT_TRUE(second.proc.undoChain()) << "adding scene " << i;
   EXPECT_FALSE(second.proc.undoChain()) << "the scene switches left steps in the history";
-  ASSERT_TRUE(second.proc.redoChain());
-  ASSERT_TRUE(second.proc.redoChain());
+  for (int i = 0; i < 5; ++i)
+    ASSERT_TRUE(second.proc.redoChain());
   second.waitLoaded();
-  EXPECT_NEAR(second.blockValue(block, "gainDb"), 3.0, 1e-5);
-  // The redo is the rig as it was when the undo was made: in scene D.
+  // The redo is the rig as it was when the undo was made: in scene D, which
+  // kept the old gain when the set in scene A gave the knob a value per scene.
   EXPECT_EQ(second.activeScene(), "D");
+  EXPECT_NEAR(second.blockValue(block, "gainDb"), 0.0, 1e-5);
+  EXPECT_NEAR(second.sceneValue("A", block, "gainDb"), 3.0, 1e-5);
 }
 
 TEST(SceneTest, HostedPluginAndBuiltInParametersCanBeSceneAssigned) {
@@ -672,6 +693,7 @@ TEST(SceneTest, HostedPluginAndBuiltInParametersCanBeSceneAssigned) {
   ASSERT_DOUBLE_EQ(pluginGain(), 0.5);
   ASSERT_TRUE(gainId.isNotEmpty());
 
+  rig.useScenes(8);
   rig.assign(plugin, gainId.toRawUTF8());
   rig.assign(delay, "feedback");
   rig.setSceneValue("B", plugin, gainId.toRawUTF8(), 0.9);
@@ -691,6 +713,7 @@ TEST(SceneTest, HostedPluginAndBuiltInParametersCanBeSceneAssigned) {
 
   // The plugin hears it: its gain is exact, 0.25 normalised against 0.9.
   rig.settle();
+  rig.useScenes(8);
   const std::vector<float> in = makeSine(40 * rig.block, 440.0, 0.1f);
   rig.setEnabled(delay, false);
   rig.select("B");
@@ -718,6 +741,7 @@ TEST(SceneTest, ExpressionFlaggedParametersStayOutOfTheScenes) {
   SceneRig rig;
   const juce::String delay = rig.addKind("delay.simple");
   rig.settle();
+  rig.useScenes(8);
   const juce::String mixArgs = "{\"blockId\":" + quoted(delay) + R"(,"param":"mix"})";
   const juce::String feedbackArgs = "{\"blockId\":" + quoted(delay) + R"(,"param":"feedback"})";
 
@@ -767,4 +791,263 @@ TEST(SceneTest, ExpressionFlaggedParametersStayOutOfTheScenes) {
   // The other way round as well: flagging what the last line assigned.
   rig.must("expression.assignParam", mixArgs);
   EXPECT_FALSE(rig.isAssigned(delay, "mix"));
+}
+
+// ####################
+// SCENE COUNT
+// ####################
+TEST(SceneTest, ANewRigHasOneSceneAndGrowsToEight) {
+  SceneRig rig;
+  const juce::String gain = rig.addKind("utility.gain");
+  rig.settle();
+
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 1);
+  EXPECT_TRUE(static_cast<bool>(rig.scene("A")["inUse"]));
+  EXPECT_FALSE(static_cast<bool>(rig.scene("B")["inUse"]));
+
+  // The new scene copies the active one and the active one stays.
+  rig.setEnabled(gain, false);
+  const juce::var added = rig.must("scene.add");
+  EXPECT_EQ(added["added"].toString(), "B");
+  EXPECT_EQ(static_cast<int>(added["count"]), 2);
+  EXPECT_EQ(rig.activeScene(), "A");
+  EXPECT_FALSE(rig.sceneBlock("B", gain));
+  EXPECT_EQ(rig.scene("B")["name"].toString(), "Scene B");
+
+  for (int expected = 3; expected <= 8; ++expected)
+    EXPECT_EQ(static_cast<int>(rig.must("scene.add")["count"]), expected);
+  const CommandResult refused = rig.run("scene.add");
+  EXPECT_FALSE(refused.ok);
+  EXPECT_TRUE(refused.errorMessage.contains("at most 8"));
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 8);
+}
+
+TEST(SceneTest, ASceneNotInUseCannotBeSelectedOrEdited) {
+  SceneRig rig;
+  const juce::String delay = rig.addKind("delay.simple");
+  rig.settle();
+
+  const CommandResult select = rig.run("scene.select", R"({"scene":"B"})");
+  EXPECT_FALSE(select.ok);
+  EXPECT_TRUE(select.errorMessage.contains("not in use"));
+  EXPECT_EQ(rig.activeScene(), "A");
+  EXPECT_FALSE(rig.run("scene.rename", R"({"scene":"C","name":"X"})").ok);
+  EXPECT_FALSE(rig.run("scene.copy", R"({"from":"A","to":"D"})").ok);
+  EXPECT_FALSE(rig.run("scene.reset", R"({"scene":"E"})").ok);
+  rig.assign(delay, "mix");
+  EXPECT_FALSE(rig.run("scene.setParamValue", "{\"scene\":\"F\",\"blockId\":" + quoted(delay) +
+                                                  R"(,"param":"mix","value":0.5})")
+                   .ok);
+
+  // The switch of a scene that is not in use is empty and does nothing.
+  rig.must("footswitch.setMode", R"({"mode":"scene"})");
+  rig.must("scene.add");
+  EXPECT_FALSE(static_cast<bool>(rig.footswitch("B")["empty"]));
+  EXPECT_TRUE(static_cast<bool>(rig.footswitch("C")["empty"]));
+  EXPECT_EQ(static_cast<int>(rig.footswitches()["sceneCount"]), 2);
+  rig.stomp("C");
+  EXPECT_EQ(rig.activeScene(), "A");
+  rig.stomp("B");
+  EXPECT_EQ(rig.activeScene(), "B");
+}
+
+TEST(SceneTest, RemovingASceneShiftsTheLaterOnesAndKeepsTheSound) {
+  SceneRig rig;
+  const juce::String gain = rig.addKind("utility.gain");
+  const juce::String delay = rig.addKind("delay.simple");
+  rig.settle();
+  rig.assign(delay, "mix");
+  rig.useScenes(4);
+  rig.must("scene.rename", R"({"scene":"B","name":"Verse"})");
+  rig.must("scene.rename", R"({"scene":"C","name":"Chorus"})");
+  rig.must("scene.rename", R"({"scene":"D","name":"Solo"})");
+  rig.setSceneValue("B", delay, "mix", 0.2);
+  rig.setSceneValue("C", delay, "mix", 0.5);
+  rig.setSceneValue("D", delay, "mix", 0.8);
+  rig.select("C");
+  rig.setEnabled(gain, false);
+  rig.select("D");
+
+  EXPECT_FALSE(rig.run("scene.remove", R"({"scene":"E"})").ok);
+
+  // Remove B while D is heard: D becomes C and keeps sounding the same.
+  const juce::var result = rig.must("scene.remove", R"({"scene":"B"})");
+  EXPECT_EQ(static_cast<int>(result["count"]), 3);
+  EXPECT_EQ(rig.activeScene(), "C");
+  EXPECT_EQ(rig.scene("B")["name"].toString(), "Chorus");
+  EXPECT_EQ(rig.scene("C")["name"].toString(), "Solo");
+  EXPECT_EQ(rig.scene("D")["name"].toString(), "Scene D");
+  EXPECT_FALSE(rig.sceneBlock("B", gain));
+  EXPECT_TRUE(rig.sceneBlock("C", gain));
+  EXPECT_NEAR(rig.sceneValue("B", delay, "mix"), 0.5, 1e-6);
+  EXPECT_NEAR(rig.sceneValue("C", delay, "mix"), 0.8, 1e-6);
+  EXPECT_NEAR(rig.blockValue(delay, "mix"), 0.8, 1e-6);
+  EXPECT_TRUE(rig.blockEnabled(gain));
+  // The freed place is a fresh scene.
+  EXPECT_TRUE(rig.sceneBlock("D", gain));
+  EXPECT_NEAR(rig.sceneValue("D", delay, "mix"), 0.8, 1e-6);
+
+  // Removing the active scene selects the one that takes its place.
+  rig.select("B");
+  EXPECT_FALSE(rig.blockEnabled(gain));
+  rig.must("scene.remove", R"({"scene":"B"})");
+  EXPECT_EQ(rig.activeScene(), "B");
+  EXPECT_EQ(rig.scene("B")["name"].toString(), "Solo");
+  EXPECT_TRUE(rig.blockEnabled(gain));
+  EXPECT_NEAR(rig.blockValue(delay, "mix"), 0.8, 1e-6);
+
+  // Removing the active last scene selects the new last one.
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 2);
+  rig.select("B");
+  rig.must("scene.remove", R"({"scene":"B"})");
+  EXPECT_EQ(rig.activeScene(), "A");
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 1);
+
+  // The only scene stays.
+  const CommandResult last = rig.run("scene.remove", R"({"scene":"A"})");
+  EXPECT_FALSE(last.ok);
+  EXPECT_TRUE(last.errorMessage.contains("only scene"));
+}
+
+TEST(SceneTest, TheSceneCountIsSavedAndInferredWhenAFileHasNone) {
+  SceneRig rig;
+  const juce::String gain = rig.addKind("utility.gain");
+  rig.settle();
+  rig.useScenes(3);
+  EXPECT_EQ(static_cast<int>(savedSnapshot(rig.proc).getChildWithName("Scenes").getProperty("count")),
+            3);
+
+  // Plugin state.
+  juce::MemoryBlock blob;
+  rig.proc.getStateInformation(blob);
+  {
+    SceneRig reopened;
+    reopened.proc.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
+    reopened.waitLoaded();
+    EXPECT_EQ(static_cast<int>(reopened.scenes()["count"]), 3);
+  }
+
+  // A preset.
+  const juce::String id = rig.must("preset.save", R"({"name":"Three"})")["id"].toString();
+  rig.must("scene.add");
+  rig.must("preset.load", "{\"id\":" + quoted(id) + "}");
+  rig.waitLoaded();
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 3);
+
+  // A chain reset starts over with one.
+  rig.must("chain.reset");
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 1);
+
+  // Files without a count: the highest scene that is not fresh, or active.
+  const auto loadWithout = [](SceneRig& source) {
+    juce::ValueTree snapshot = savedSnapshot(source.proc);
+    snapshot.getChildWithName("Scenes").removeProperty("count", nullptr);
+    SceneRig target;
+    target.proc.restoreFromTree(snapshot);
+    target.waitLoaded();
+    return static_cast<int>(target.scenes()["count"]);
+  };
+  SceneRig named;
+  const juce::String block = named.addKind("utility.gain");
+  named.settle();
+  named.useScenes(8);
+  named.must("scene.rename", R"({"scene":"C","name":"Lead"})");
+  EXPECT_EQ(loadWithout(named), 3);
+  named.select("E");
+  EXPECT_EQ(loadWithout(named), 5);
+  named.setEnabled(block, false);  // scene E off, the rest on
+  named.select("A");
+  EXPECT_EQ(loadWithout(named), 5);
+  named.must("scene.reset", R"({"scene":"E"})");
+  named.must("scene.reset", R"({"scene":"C"})");
+  EXPECT_EQ(loadWithout(named), 1);
+  named.assign(block, "gainDb");
+  named.setSceneValue("G", block, "gainDb", 6.0);
+  EXPECT_EQ(loadWithout(named), 7);
+}
+
+TEST(SceneTest, AddingAndRemovingScenesAreUndoable) {
+  SceneRig rig;
+  const juce::String gain = rig.addKind("utility.gain");
+  rig.settle();
+
+  rig.must("scene.add");
+  ASSERT_TRUE(rig.proc.undoChain());
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 1);
+  ASSERT_TRUE(rig.proc.redoChain());
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 2);
+
+  rig.must("scene.add");
+  rig.must("scene.rename", R"({"scene":"C","name":"Last"})");
+  const juce::String before = scenesJson(rig);
+  rig.must("scene.remove", R"({"scene":"B"})");
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 2);
+  EXPECT_EQ(rig.scene("B")["name"].toString(), "Last");
+  ASSERT_TRUE(rig.proc.undoChain());
+  EXPECT_EQ(scenesJson(rig), before);
+  ASSERT_TRUE(rig.proc.redoChain());
+  EXPECT_EQ(static_cast<int>(rig.scenes()["count"]), 2);
+  EXPECT_EQ(rig.scene("B")["name"].toString(), "Last");
+}
+
+// ####################
+// AUTOMATIC ASSIGNMENT
+// ####################
+TEST(SceneTest, WithSeveralScenesASettingIsAssignedByItsFirstSet) {
+  SceneRig rig;
+  const juce::String delay = rig.addKind("delay.simple");
+  rig.settle();
+  const double startMix = rig.blockValue(delay, "mix");
+
+  // One scene: the value stays shared and nothing is assigned.
+  rig.setParam(delay, "mix", 0.3);
+  rig.setParam(delay, "feedback", 30.0);
+  EXPECT_EQ(rig.scenes()["assigned"].size(), 0);
+
+  // Two scenes: a set changes the active scene only.
+  rig.must("scene.add");
+  rig.setParam(delay, "mix", 0.6);
+  rig.setParam(delay, "feedback", 50.0);
+  EXPECT_TRUE(rig.isAssigned(delay, "mix"));
+  EXPECT_TRUE(rig.isAssigned(delay, "feedback"));
+  EXPECT_NEAR(rig.sceneValue("A", delay, "mix"), 0.6, 1e-6);
+  EXPECT_NEAR(rig.sceneValue("B", delay, "mix"), 0.3, 1e-6);
+  rig.select("B");
+  EXPECT_NEAR(rig.blockValue(delay, "mix"), 0.3, 1e-6);
+  EXPECT_NEAR(rig.blockValue(delay, "feedback"), 30.0, 1e-4);
+  rig.select("A");
+  EXPECT_NEAR(rig.blockValue(delay, "mix"), 0.6, 1e-6);
+  EXPECT_NEAR(rig.blockValue(delay, "feedback"), 50.0, 1e-4);
+
+  // The switches stay out of it.
+  rig.setEnabled(delay, false);
+  EXPECT_FALSE(rig.isAssigned(delay, "enabled"));
+  rig.must("block.setParam", "{\"blockId\":" + quoted(delay) + R"(,"param":"normalize","value":1})");
+  EXPECT_FALSE(rig.isAssigned(delay, "normalize"));
+
+  // An expression pedal parameter stays shared.
+  rig.must("expression.assignParam", "{\"blockId\":" + quoted(delay) + R"(,"param":"feedback"})");
+  EXPECT_FALSE(rig.isAssigned(delay, "feedback"));
+  rig.setParam(delay, "feedback", 70.0);
+  rig.select("B");
+  EXPECT_NEAR(rig.blockValue(delay, "feedback"), 70.0, 1e-4);
+  EXPECT_FALSE(rig.isAssigned(delay, "feedback"));
+  (void)startMix;
+}
+
+TEST(SceneTest, UndoOfAnAutomaticallyAssignedSetRestoresTheValueAndTheShare) {
+  SceneRig rig;
+  const juce::String gain = rig.addKind("utility.gain");
+  rig.settle();
+  rig.must("scene.add");
+  const double start = rig.blockValue(gain, "gainDb");
+
+  rig.setParam(gain, "gainDb", 6.0);
+  ASSERT_TRUE(rig.isAssigned(gain, "gainDb"));
+  ASSERT_TRUE(rig.proc.undoChain());
+  EXPECT_FALSE(rig.isAssigned(gain, "gainDb"));
+  EXPECT_NEAR(rig.blockValue(gain, "gainDb"), start, 1e-5);
+  ASSERT_TRUE(rig.proc.redoChain());
+  EXPECT_TRUE(rig.isAssigned(gain, "gainDb"));
+  EXPECT_NEAR(rig.blockValue(gain, "gainDb"), 6.0, 1e-5);
 }

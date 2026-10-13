@@ -1117,8 +1117,12 @@ void EngineCommands::registerBlockCommands() {
       "switches (0 or 1). Any other id is a parameter of the block's kind (see "
       "block.listParams) and takes a value in that parameter's own unit, clamped to its range "
       "(0 to 1 for a hosted plugin's parameters). The blocks carry the active scene: enabled "
-      "and a scene-assigned parameter (scene.assignParam) change in the active scene only, "
-      "every other setting has one value shared by all scenes.",
+      "and a scene-assigned parameter (scene.assignParam) change in the active scene only. "
+      "While the preset has more than one scene (scene.add), a parameter that is not assigned "
+      "yet is scene-assigned by its first set, so it changes in the active scene only and the "
+      "others keep the value they had; this is one undo step. With one scene, and for "
+      "normalize, a parameter on the expression pedal or one scene.assignParam refuses, the "
+      "setting has one value shared by all scenes.",
       {blockIdParam,
        P::required("param", T::string,
                    "Which setting: enabled, normalize, inputGain, outputGain, mix, or a kind "
@@ -1915,6 +1919,16 @@ void EngineCommands::registerSceneCommands() {
         processor.getScenesState(),
         {{"revision", static_cast<int>(processor.getCurrentChainRevision())}}));
   };
+  // A scene the preset does not use cannot be edited or heard: failed, with
+  // the reason.
+  const auto notInUse = [this](const juce::String& letter) -> std::optional<CommandResult> {
+    const int index = sceneIndexFromLetter(letter);
+    if (index >= processor.getSceneCount())
+      return fail(CommandError::failed,
+                  "scene " + letter + " is not in use (the preset has " +
+                      juce::String(processor.getSceneCount()) + "; see scene.add)");
+    return std::nullopt;
+  };
   // A scene edit on one block's parameter: the block has to be a tone block
   // (not_found otherwise), and what the engine refuses comes back as failed
   // with its reason.
@@ -1930,8 +1944,9 @@ void EngineCommands::registerSceneCommands() {
 
   commands.add({
       "scene.get",
-      "Returns the rig's eight scenes: active (index 0 to 7) and activeId (A to H), and for "
-      "each scene its name, whether it is the active one, blocks (the on/off state of every "
+      "Returns the rig's scenes: count (how many the preset uses, 1 to 8), active (index 0 "
+      "to 7) and activeId (A to H), and for each of the eight places its name, whether it is "
+      "in use (inUse), whether it is the active one, blocks (the on/off state of every "
       "tone block by block id) and values (the value of each scene-assigned parameter: a knob "
       "position from 0 to 1 for inputGain, outputGain and mix, the parameter's own unit for a "
       "kind parameter). assigned lists the scene-assigned parameters and expression those set "
@@ -1948,13 +1963,55 @@ void EngineCommands::registerSceneCommands() {
       "Makes a scene the active one: its block states and assigned values are put on the "
       "blocks without a click and without muting the chain (blocks fade, a block with "
       "spillover that the scene turns off rings out, values glide), so it is safe at "
-      "footswitch speed. Not an undo step. The scene active when a rig or preset is saved is "
-      "the one it opens with.",
+      "footswitch speed. Refused for a scene that is not in use. Not an undo step. The scene "
+      "active when a rig or preset is saved is the one it opens with.",
       {sceneParam("scene", "The scene to select, A to H.")},
       true,
       CommandPermission::edit,
-      [this, scenesResult](const juce::var& args) {
+      [this, scenesResult, notInUse](const juce::var& args) {
+        if (auto error = notInUse(args["scene"].toString()))
+          return *error;
         processor.selectScene(sceneIndexFromLetter(args["scene"].toString()));
+        return scenesResult();
+      },
+  });
+
+  commands.add({
+      "scene.add",
+      "Adds the next scene (a preset starts with one and can have up to eight). The new scene "
+      "starts as a copy of the active scene's block states and assigned values, with its "
+      "default name; the active scene stays the same. Returns the scenes (as scene.get) and "
+      "added, the id of the new scene (A to H). Refused when all eight are in use.",
+      {},
+      true,
+      CommandPermission::edit,
+      [this, scenesResult](const juce::var&) {
+        int added = -1;
+        if (const juce::Result result = processor.addScene(&added); result.failed())
+          return fail(CommandError::failed, result.getErrorMessage());
+        return CommandResult::success(withProperties(
+            scenesResult().value, {{"added", sceneLetter(added)}}));
+      },
+  });
+
+  commands.add({
+      "scene.remove",
+      "Removes a scene that is in use. The scenes after it move down one place and keep their "
+      "names, block states and assigned values; the last place goes back to a fresh scene and "
+      "the count goes down by one. The sound does not change: the active scene stays active "
+      "wherever it moves to. If the active scene is the one removed, the scene that takes its "
+      "place is selected (the new last scene when it was the last). Refused for a scene that "
+      "is not in use and for the only scene.",
+      {sceneParam("scene", "The scene to remove, A to H.")},
+      true,
+      CommandPermission::edit,
+      [this, scenesResult, notInUse](const juce::var& args) {
+        if (auto error = notInUse(args["scene"].toString()))
+          return *error;
+        if (const juce::Result result =
+                processor.removeScene(sceneIndexFromLetter(args["scene"].toString()));
+            result.failed())
+          return fail(CommandError::failed, result.getErrorMessage());
         return scenesResult();
       },
   });
@@ -1966,7 +2023,9 @@ void EngineCommands::registerSceneCommands() {
        P::required("name", T::string, "The new name; empty restores the default.")},
       true,
       CommandPermission::edit,
-      [this, scenesResult](const juce::var& args) {
+      [this, scenesResult, notInUse](const juce::var& args) {
+        if (auto error = notInUse(args["scene"].toString()))
+          return *error;
         processor.renameScene(sceneIndexFromLetter(args["scene"].toString()),
                               args["name"].toString());
         return scenesResult();
@@ -1981,7 +2040,10 @@ void EngineCommands::registerSceneCommands() {
        sceneParam("to", "The scene to overwrite, A to H.")},
       true,
       CommandPermission::edit,
-      [this, scenesResult](const juce::var& args) {
+      [this, scenesResult, notInUse](const juce::var& args) {
+        for (const char* name : {"from", "to"})
+          if (auto error = notInUse(args[name].toString()))
+            return *error;
         processor.copyScene(sceneIndexFromLetter(args["from"].toString()),
                             sceneIndexFromLetter(args["to"].toString()));
         return scenesResult();
@@ -1996,7 +2058,9 @@ void EngineCommands::registerSceneCommands() {
       {sceneParam("scene", "The scene to reset, A to H.")},
       true,
       CommandPermission::edit,
-      [this, scenesResult](const juce::var& args) {
+      [this, scenesResult, notInUse](const juce::var& args) {
+        if (auto error = notInUse(args["scene"].toString()))
+          return *error;
         processor.resetScene(sceneIndexFromLetter(args["scene"].toString()));
         return scenesResult();
       },
@@ -2005,8 +2069,10 @@ void EngineCommands::registerSceneCommands() {
   commands.add({
       "scene.assignParam",
       "Gives a block parameter a value per scene, starting with its current value in all "
-      "eight; from then on block.setParam changes it in the active scene only and "
-      "scene.setParamValue in any scene. Works for inputGain, outputGain, mix and the "
+      "eight places; from then on block.setParam changes it in the active scene only and "
+      "scene.setParamValue in any scene. With more than one scene in use block.setParam does "
+      "this by itself on a parameter's first set, so calling it is only needed to assign "
+      "without changing the value. Works for inputGain, outputGain, mix and the "
       "parameters of the block's kind, a hosted plugin's included. Refused for enabled (a "
       "block's on/off state is per scene already), normalize, a parameter that changes the "
       "block's latency (affectsLatency in block.listParams) and one assigned to the "
@@ -2048,7 +2114,9 @@ void EngineCommands::registerSceneCommands() {
                    "parameter's own unit otherwise.")},
       true,
       CommandPermission::edit,
-      [this, paramEdit](const juce::var& args) {
+      [this, paramEdit, notInUse](const juce::var& args) {
+        if (auto error = notInUse(args["scene"].toString()))
+          return *error;
         const juce::String blockId = args["blockId"].toString();
         return paramEdit(blockId, [&] {
           return processor.setSceneParamValue(sceneIndexFromLetter(args["scene"].toString()),
@@ -2202,11 +2270,11 @@ void EngineCommands::registerFootswitchCommands() {
       "footswitch.getState",
       "Returns what a pedalboard view draws: mode (preset, scene, stomp or hybrid), "
       "hybridRows (what the top row A to D and the bottom row E to H do in hybrid mode), bank "
-      "and bankCount (preset banks), scenePage, activeScene, bpm, and the eleven switches (A "
+      "and bankCount (preset banks), scenePage, activeScene, sceneCount (scenes in use), bpm, and the eleven switches (A "
       "to H, bankUp, bankDown, tempo), each with its role in the current mode (preset, scene, "
       "stomp, bankUp, bankDown, presetNext, presetPrevious or tapTempo), label, colour (a "
       "hint: the category of a stomp's first block, else the role), lit, held, empty (nothing "
-      "behind the switch) and its target (scene, presetId and presetIndex, or blockIds and "
+      "behind the switch, also a scene the preset does not use) and its target (scene, presetId and presetIndex, or blockIds and "
       "momentary).",
       {},
       false,

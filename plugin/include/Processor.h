@@ -340,9 +340,23 @@ public:
   // at footswitch speed. Not an undo step, and never dirties the history.
   // Message thread, like every chain edit; other threads go through
   // footswitchPress or the MIDI mapper, which hand over to it.
+  // False for a scene that is not in use (see getSceneCount).
   bool selectScene(int index);
   int getActiveScene() const;
-  // { active, activeId, scenes: [{ index, id, name, active, blocks: { <block
+  // How many scenes the rig uses, 1 to 8 (a new rig has one). Scenes at or
+  // past it are not in use: selecting, renaming, copying, resetting or
+  // setting a value in one is refused, and no footswitch reaches it.
+  int getSceneCount() const;
+  // Adds the next scene as a copy of the active scene's block states and
+  // assigned values, with its default name. The active scene stays. Fails
+  // at eight; `newIndex` is the added scene. Undoable.
+  juce::Result addScene(int* newIndex = nullptr);
+  // Removes a scene in use (not the only one). Later scenes move down one
+  // place with their names, states and values; the last place is reset. The
+  // active scene follows its own content, or the scene that takes the place
+  // of a removed one. Undoable.
+  juce::Result removeScene(int index);
+  // { active, activeId, count, scenes: [{ index, id, name, active, inUse, blocks: { <block
   //   id>: on }, values: [{ blockId, param, value }] }], assigned: [{
   //   blockId, param }], expression: [{ blockId, param }] }. `blocks` names
   // every tone block, also those whose state no scene has changed yet.
@@ -1809,6 +1823,11 @@ private:
   StompStore stomps;
   // The three common block settings a scene can hold besides the kind's.
   static bool isCommonSceneParam(const juce::String& param);
+  // With more than one scene in use, a parameter that is about to be set and
+  // that scene.assignParam would accept is assigned first (its current value
+  // in every scene), so the set changes the active scene only. Anything else
+  // is left shared. The caller holds chainMutex and has pushed history.
+  void autoAssignSceneParam(const ChainBlock& block, const juce::String& param);
   // A block's current value of a scene parameter / setting one, the same
   // stores setBlockParam makes. False for an id the block does not have (or
   // cannot answer for yet: a kind still being built). `affectsTail`, when

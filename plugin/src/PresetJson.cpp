@@ -978,7 +978,8 @@ Meta metaOf(const juce::var& parsed) {
             ++used;
         }
       }
-      meta.sceneCount = juce::jmax(1, used);
+      meta.sceneCount = node["count"].isVoid() ? juce::jmax(1, used)
+                                               : juce::jlimit(1, 8, static_cast<int>(node["count"]));
     }
   }
   return meta;

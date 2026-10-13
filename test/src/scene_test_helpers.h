@@ -81,6 +81,11 @@ struct SceneRig {
   void assign(const juce::String& blockId, const char* param) {
     must("scene.assignParam", "{\"blockId\":" + quoted(blockId) + ",\"param\":" + quoted(param) + "}");
   }
+  // Grows the rig to `count` scenes (a rig starts with one).
+  void useScenes(int count) {
+    while (static_cast<int>(scenes()["count"]) < count)
+      must("scene.add");
+  }
   void select(const char* scene) { must("scene.select", "{\"scene\":" + quoted(scene) + "}"); }
   void setSceneValue(const char* scene, const juce::String& blockId, const char* param,
                      double value) {

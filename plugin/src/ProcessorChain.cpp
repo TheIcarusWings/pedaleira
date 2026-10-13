@@ -2136,6 +2136,7 @@ bool TONE3000Processor::setBlockParam(const std::string& blockId, const juce::St
                                 : juce::String());
     // A lock-free store; the processor picks it up on its next block and
     // smooths what needs smoothing.
+    autoAssignSceneParam(*block, param);
     block->processor->setParameter(index, static_cast<float>(value));
     // A scene-assigned parameter: this is the active scene's value (the
     // other scenes keep theirs).
@@ -2163,6 +2164,7 @@ bool TONE3000Processor::setBlockParam(const std::string& blockId, const juce::St
   // Continuous params coalesce a whole knob drag into one undo step.
   pushChainHistory(isContinuous ? "param:" + juce::String(blockId) + ":" + param
                                 : juce::String());
+  autoAssignSceneParam(*block, param);
 
   if (param == "enabled") {
     // The switch belongs to the active scene. Before its first move the

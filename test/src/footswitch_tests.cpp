@@ -73,6 +73,7 @@ TEST(StompTest, AStompFlipsItsBlocksTogether) {
   const juce::String delay = rig.addKind("delay.simple");
   const juce::String reverb = rig.addKind("reverb.room");
   rig.settle();
+  rig.useScenes(8);
   setMode(rig, "stomp");
 
   // Two blocks on one switch, one of them off: the press flips each, so the
@@ -168,6 +169,7 @@ TEST(FootswitchTest, SceneModeSelectsScenes) {
   SceneRig rig;
   const juce::String gain = rig.addKind("utility.gain");
   rig.settle();
+  rig.useScenes(8);
   setMode(rig, "scene");
   rig.must("scene.rename", R"({"scene":"C","name":"Solo"})");
 
@@ -248,6 +250,7 @@ TEST(FootswitchTest, HybridRowsEachDoOneThing) {
   const juce::String gain = rig.addKind("utility.gain");
   const juce::String delay = rig.addKind("delay.simple");
   rig.settle();
+  rig.useScenes(8);
   const juce::StringArray ids = saveTenPresets(rig, gain);
   rig.must("stomp.assign", "{\"switch\":\"F\",\"blockIds\":[" + quoted(delay) + "]}");
   rig.must("stomp.assign", "{\"switch\":\"B\",\"blockIds\":[" + quoted(gain) + "]}");
@@ -510,6 +513,7 @@ TEST(FootswitchMidiTest, TheFixedControlsWorkThroughProcessBlock) {
   SceneRig rig;
   const juce::String gain = rig.addKind("utility.gain");
   rig.settle();
+  rig.useScenes(8);
 
   // midi.getMap documents them.
   const juce::var defaults = rig.must("midi.getMap")["defaults"];
@@ -632,6 +636,7 @@ TEST(FootswitchTest, PressesFromAnotherThreadAreDeliveredOnTheMessageThread) {
   SceneRig rig;
   const juce::String delay = rig.addKind("delay.simple");
   rig.settle();
+  rig.useScenes(8);
   rig.must("stomp.assign", "{\"switch\":\"E\",\"blockIds\":[" + quoted(delay) + "]}");
   rig.must("stomp.setOptions", R"({"switch":"E","momentary":true})");
   setMode(rig, "scene");

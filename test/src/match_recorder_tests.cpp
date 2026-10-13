@@ -355,6 +355,15 @@ TEST(MatchTakeTest, CheckRefusesAnImplausibleLevel) {
   EXPECT_TRUE(check.markersFound);
 }
 
+TEST(MatchTakeTest, AQuietSignalThroughAHighGainPathIsPlausible) {
+  // Played 36 dB down and made up by a 32 dB gain (a driven amp): 32 dB against what was
+  // played but -4 dB against nominal, so the level check accepts it.
+  const auto check = MatchTake::checkTake(delayedSignal(480, std::pow(10.0f, -4.0f / 20.0f)), kRate,
+                                          signalUnderTest(), -36.0);
+  EXPECT_NEAR(check.levelGainDb, 32.0, 0.5);
+  EXPECT_TRUE(check.passed);
+}
+
 TEST(MatchTakeTest, WavIsFloat48kAndTheRightWidth) {
   juce::TemporaryFile temp(".wav");
   juce::AudioBuffer<float> stereo(2, 1000);

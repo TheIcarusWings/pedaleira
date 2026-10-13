@@ -61,7 +61,8 @@ struct Check {
 constexpr double kClipDb = -0.01;
 constexpr int kClipRun = 3;
 // A take is too quiet when its peak stays under this level, and its level
-// implausible when the 1 kHz level gain falls outside this range.
+// implausible when the 1 kHz level gain falls outside this range: the low bound
+// against the signal played, the high bound against the nominal signal.
 constexpr double kQuietPeakDb = -50.0;
 constexpr double kMinLevelGainDb = -30.0;
 constexpr double kMaxLevelGainDb = 20.0;

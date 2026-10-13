@@ -336,6 +336,10 @@ void TONE3000Processor::applyKindState(ChainBlock& block, const juce::ValueTree&
   if (block.processor != nullptr && block.processor->kind() == ChainBlockType::KIND &&
       block.kindId == kindId) {
     block.processor->setKindState(kindState);
+    // A kind whose name belongs to the instance (a hosted plugin, an amp
+    // built from a description) follows the state it was just given.
+    if (const juce::String own = block.processor->displayName(); own.isNotEmpty())
+      block.kindName = own;
     block.processor->commitLatency();
     block.modelLoading = false;
     block.loaded = true;

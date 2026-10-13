@@ -588,6 +588,10 @@ add_dependencies(${PROJECT_NAME} NAM)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/ImportData.cmake)
 t3k_link_import_data(${PROJECT_NAME})
 
+# The amp framework: the shipped amp descriptions and chowdsp_wdf.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/AmpFramework.cmake)
+t3k_link_amp_framework(${PROJECT_NAME})
+
 # No browser engine anywhere in the plugin: the UI is drawn by JUCE, so
 # juce_gui_extra's WebBrowserComponent (and its WebKitGTK / WebView2 runtime
 # dependencies) stays out of the build. Likewise the vendored libwebp

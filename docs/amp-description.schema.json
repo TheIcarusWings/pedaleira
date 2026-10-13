@@ -1,0 +1,3091 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/TheIcarusWings/pedaleira/docs/amp-description.schema.json",
+  "title": "Pedaleira amp description",
+  "description": "An amp as data (format \"pedaleira-amp\", version 1). Documented in docs/amp-framework.md; the loader (plugin/src/effects/amp/dsp/AmpDescription.cpp) is the authority and also rejects unknown fields, a link without a coupling capacitor, a panel target that does not match its control, and a second gain pot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "metadata",
+    "stages",
+    "tone_stack",
+    "power_amp"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "const": "pedaleira-amp"
+    },
+    "version": {
+      "const": 1,
+      "description": "The format version."
+    },
+    "default_voicing": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2,
+      "description": "The voicing a block starts on when this description is loaded into an amp.custom block (index into voicings)."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The amp's name; shown as the block's name."
+        },
+        "author": {
+          "type": "string",
+          "description": "Who wrote the description."
+        },
+        "licence": {
+          "type": "string",
+          "description": "The licence of this description file (an SPDX identifier such as \"MIT\", \"CC0-1.0\", \"CC-BY-4.0\", or a name). The description is data you own; say what others may do with it."
+        },
+        "summary": {
+          "type": "string",
+          "description": "A sentence or two about the amp and what the description is based on."
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Where the values come from: schematic names, papers, measurements."
+        }
+      },
+      "required": [
+        "name",
+        "licence"
+      ],
+      "description": "Who made the description and under what terms."
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stage_solver": {
+          "type": "string",
+          "description": "\"classic\": one-pole filters and a static waveshaper (cheap, the shipped high-gain amp). \"wdf\": wave digital filter trees with the tube as a nonlinear root (slower, closer to the circuit).",
+          "enum": [
+            "classic",
+            "wdf"
+          ],
+          "default": "classic"
+        }
+      },
+      "description": "How the networks around each tube are solved."
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "coupling_capacitor_f": {
+          "description": "Input coupling capacitor. Unit: F.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1e-12,
+              "maximum": 0.001
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 1e-12,
+                  "maximum": 0.001
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 6.8e-09
+        },
+        "grid_leak_ohm": {
+          "description": "The first grid leak to ground. Unit: ohm.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1000.0,
+              "maximum": 100000000.0
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 1000.0,
+                  "maximum": 100000000.0
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 1000000.0
+        },
+        "grid_stopper_ohm": {
+          "description": "The grid stopper resistor in series with the first grid. Unit: ohm.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10000000.0
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000000.0
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 68000.0
+        },
+        "miller_f": {
+          "description": "Capacitance the stopper works against (the first stage's Miller capacitance). Unit: F.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1e-13,
+              "maximum": 1e-06
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 1e-13,
+                  "maximum": 1e-06
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 1.6e-10
+        },
+        "source_ohm": {
+          "description": "The guitar's source impedance; sets how fast the first coupling capacitor charges when the grid conducts. Unit: ohm.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000000.0
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000.0
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 10000.0
+        }
+      },
+      "description": "The input jack up to the first grid."
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Label for the stage (\"V2\")."
+          },
+          "tube": {
+            "description": "\"12AX7\" (or \"ECC83\"), \"12AT7\" (\"ECC81\"), \"12AU7\" (\"ECC82\"), or {\"mu\": ..., \"rp_ohm\": ...}. Datasheet small-signal constants at a typical operating point.",
+            "oneOf": [
+              {
+                "enum": [
+                  "12AX7",
+                  "ECC83",
+                  "12AT7",
+                  "ECC81",
+                  "12AU7",
+                  "ECC82"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mu",
+                  "rp_ohm"
+                ],
+                "properties": {
+                  "mu": {
+                    "description": "Amplification factor.",
+                    "oneOf": [
+                      {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 1000
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "value"
+                        ],
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 1,
+                            "maximum": 1000
+                          },
+                          "provenance": {
+                            "enum": [
+                              "schematic",
+                              "measured",
+                              "fitted"
+                            ]
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "rp_ohm": {
+                    "description": "Plate resistance. Unit: ohm.",
+                    "oneOf": [
+                      {
+                        "type": "number",
+                        "minimum": 100,
+                        "maximum": 10000000.0
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "value"
+                        ],
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 100,
+                            "maximum": 10000000.0
+                          },
+                          "provenance": {
+                            "enum": [
+                              "schematic",
+                              "measured",
+                              "fitted"
+                            ]
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "plate_load_ohm": {
+            "description": "The plate resistor Ra to the supply. Unit: ohm.",
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 1000.0,
+                "maximum": 10000000.0
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "value"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 1000.0,
+                    "maximum": 10000000.0
+                  },
+                  "provenance": {
+                    "enum": [
+                      "schematic",
+                      "measured",
+                      "fitted"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "plate_capacitance_f": {
+            "description": "Capacitance on the plate: wiring plus the next stage's Miller capacitance. With the plate impedance it sets the stage's high-frequency roll-off. Unit: F.",
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1e-06
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "value"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1e-06
+                  },
+                  "provenance": {
+                    "enum": [
+                      "schematic",
+                      "measured",
+                      "fitted"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            ],
+            "default": 0
+          },
+          "cathode": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "resistor_ohm": {
+                "description": "The cathode resistor Rk. With the bias current it sets the bias voltage, which sets where the curve clips. Unit: ohm.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000000.0
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000.0
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "bias_current_a": {
+                "description": "The plate current at rest. Unit: A.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 1e-06,
+                    "maximum": 1
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 1e-06,
+                        "maximum": 1
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "bypass_capacitor_f": {
+                "description": "The cathode bypass capacitor in farads, or \"ideal\" (a short for audio, the default), or \"none\" (unbypassed).",
+                "oneOf": [
+                  {
+                    "enum": [
+                      "ideal",
+                      "none"
+                    ]
+                  },
+                  {
+                    "description": "Bypass capacitance. Unit: F.",
+                    "oneOf": [
+                      {
+                        "type": "number",
+                        "minimum": 1e-12,
+                        "maximum": 0.1
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "value"
+                        ],
+                        "properties": {
+                          "value": {
+                            "type": "number",
+                            "minimum": 1e-12,
+                            "maximum": 0.1
+                          },
+                          "provenance": {
+                            "enum": [
+                              "schematic",
+                              "measured",
+                              "fitted"
+                            ]
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "resistor_ohm",
+              "bias_current_a"
+            ],
+            "description": "The cathode network."
+          },
+          "grid": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "cutoff_v": {
+                "description": "Grid voltage that cuts the plate current off. Defaults to 3.5 for a 12AX7 and is required for any other tube. Unit: V.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 200
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 200
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ],
+                "default": 3.5
+              },
+              "contact_potential_v": {
+                "description": "Grid conduction starts this far below zero grid-cathode volts. Unit: V.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 5
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 5
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ],
+                "default": 0.3
+              },
+              "conduction_ohm": {
+                "description": "Resistance of the conducting grid-cathode diode. Unit: ohm.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 10,
+                    "maximum": 1000000.0
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 10,
+                        "maximum": 1000000.0
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ],
+                "default": 2000
+              },
+              "max_bias_shift_v": {
+                "description": "Ceiling of the grid-conduction bias shift. Unit: V.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0.1,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 100
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ],
+                "default": 10
+              }
+            },
+            "description": "The grid model: catalogue and fitted values."
+          },
+          "coupling": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "capacitance_f": {
+                "description": "The coupling capacitor to the next grid; leave it out when every voicing gives it. Unit: F.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 1e-12,
+                    "maximum": 0.001
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 1e-12,
+                        "maximum": 0.001
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "series_ohm": {
+                "description": "A series resistor into the next grid. Unit: ohm.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100000000.0
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000000.0
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ],
+                "default": 0
+              },
+              "grid_leak_ohm": {
+                "description": "The next grid leak to ground. Unit: ohm.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 100.0,
+                    "maximum": 100000000.0
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 100.0,
+                        "maximum": 100000000.0
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "grid_leak_ohm"
+            ],
+            "description": "The network to the next grid. Not allowed on the last stage."
+          },
+          "gain_pot": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "resistance_ohm": {
+                "description": "Total resistance of the pot. Unit: ohm.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 1000.0,
+                    "maximum": 100000000.0
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 1000.0,
+                        "maximum": 100000000.0
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "floor_ohm": {
+                "description": "A fixed resistor between the pot and ground, so the control does not reach silence. Unit: ohm.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 10000000.0
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000000.0
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ],
+                "default": 0
+              },
+              "source_ohm": {
+                "description": "What drives the pot: the previous plate load. Defaults to the stage's plate_load_ohm. Unit: ohm.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 10000000.0
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000000.0
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "load_ohm": {
+                "description": "What loads the wiper (classic solver only; the wdf solver uses the real coupling network). Defaults to the coupling grid leak. Unit: ohm.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 1000.0,
+                    "maximum": 1000000000.0
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 1000.0,
+                        "maximum": 1000000000.0
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "taper": {
+                "description": "Resistance law of the pot: the resistance below the wiper is R * position ^ taper (3.3 is about 10 percent at half rotation, an audio taper).",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0.2,
+                    "maximum": 10
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0.2,
+                        "maximum": 10
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ],
+                "default": 3.3
+              },
+              "bright_capacitor_f": {
+                "description": "The bright capacitor across the upper part of the pot; 0 for none. Unit: F.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1e-06
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1e-06
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ],
+                "default": 0
+              }
+            },
+            "required": [
+              "resistance_ohm"
+            ],
+            "description": "The gain pot with its bright capacitor, between this stage's plate and its coupling."
+          }
+        },
+        "required": [
+          "tube",
+          "plate_load_ohm",
+          "cathode"
+        ],
+        "description": "One gain stage."
+      },
+      "description": "One entry per gain stage, in signal order, 1 to 6 of them. The first is the input stage. Every stage but the last has a `coupling`; one stage may have a `gain_pot` (between its plate and its coupling)."
+    },
+    "voicings": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Shown as the voicing's name."
+          },
+          "coupling_capacitors_f": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "number",
+                  "minimum": 1e-12,
+                  "maximum": 0.001
+                }
+              ]
+            },
+            "description": "One capacitance per link (stage k to stage k + 1), or null to use the stage's own `coupling.capacitance_f`. Recorded as fitted values."
+          },
+          "supply": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "b_plus_v": {
+                "description": "Unloaded high-voltage rail. Unit: V.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 5,
+                    "maximum": 2000
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 5,
+                        "maximum": 2000
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "source_ohm": {
+                "description": "Rectifier plus transformer winding resistance. Unit: ohm.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100000.0
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000.0
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "full_load_a": {
+                "description": "Supply current at full output. Unit: A.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0.0001,
+                    "maximum": 20
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0.0001,
+                        "maximum": 20
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "reservoir_f": {
+                "description": "The reservoir (filter) capacitor. Unit: F.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 1e-07,
+                    "maximum": 1
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 1e-07,
+                        "maximum": 1
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "attack_s": {
+                "description": "How fast the load builds (depends on the music, not the supply). Unit: s.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0.0001,
+                    "maximum": 5
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0.0001,
+                        "maximum": 5
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              },
+              "rectifier": {
+                "type": "string",
+                "description": "\"solid_state\", \"tube\" or \"none\": a label, the source resistance already contains the effect.",
+                "enum": [
+                  "solid_state",
+                  "tube",
+                  "none"
+                ]
+              }
+            },
+            "description": "Overrides of `power_amp.supply` for this voicing; anything left out is taken from there."
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "description": "One voicing."
+      },
+      "description": "1 to 3 voicings: the interstage capacitors and the supply the voicing switch selects."
+    },
+    "tone_stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "\"tmb\".",
+          "enum": [
+            "tmb"
+          ],
+          "default": "tmb"
+        },
+        "treble_pot_ohm": {
+          "description": "R1. Unit: ohm.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1000.0,
+              "maximum": 100000000.0
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 1000.0,
+                  "maximum": 100000000.0
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "bass_pot_ohm": {
+          "description": "R2, used as a variable resistor. Unit: ohm.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1000.0,
+              "maximum": 100000000.0
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 1000.0,
+                  "maximum": 100000000.0
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "middle_pot_ohm": {
+          "description": "R3. Unit: ohm.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 100.0,
+              "maximum": 100000000.0
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 100.0,
+                  "maximum": 100000000.0
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "slope_ohm": {
+          "description": "R4, the slope resistor. Unit: ohm.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 100.0,
+              "maximum": 100000000.0
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 100.0,
+                  "maximum": 100000000.0
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "treble_cap_f": {
+          "description": "C1. Unit: F.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1e-12,
+              "maximum": 1e-05
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 1e-12,
+                  "maximum": 1e-05
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "bass_cap_f": {
+          "description": "C2. Unit: F.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1e-10,
+              "maximum": 0.0001
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 1e-10,
+                  "maximum": 0.0001
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "middle_cap_f": {
+          "description": "C3. Unit: F.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1e-10,
+              "maximum": 0.0001
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 1e-10,
+                  "maximum": 0.0001
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "treble_pot_ohm",
+        "bass_pot_ohm",
+        "middle_pot_ohm",
+        "slope_ohm",
+        "treble_cap_f",
+        "bass_cap_f",
+        "middle_cap_f"
+      ],
+      "description": "The passive tone stack: treble, middle and bass pots with a slope resistor (the Fender / Marshall TMB), solved in closed form (Yeh and Smith)."
+    },
+    "effects_loop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "type": "boolean",
+          "description": "Whether the amp has a loop."
+        },
+        "note": {
+          "type": "string",
+          "description": "Free text."
+        }
+      },
+      "description": "A placeholder: the loop is read and kept, the signal does not pass through one."
+    },
+    "power_amp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tube": {
+          "type": "string",
+          "description": "A label for the output tubes.",
+          "enum": [
+            "EL34",
+            "6L6",
+            "EL84",
+            "6V6",
+            "KT88",
+            "6550",
+            "custom"
+          ],
+          "default": "EL34"
+        },
+        "topology": {
+          "type": "string",
+          "description": "\"push_pull_ab\" has crossover character; \"push_pull_a\" has none.",
+          "enum": [
+            "push_pull_ab",
+            "push_pull_a"
+          ],
+          "default": "push_pull_ab"
+        },
+        "open_loop_gain": {
+          "description": "Forward gain of the stage before its saturation.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 1000
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 20
+        },
+        "feedback": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "series_ohm": {
+              "description": "The feedback resistor from the output back. Unit: ohm.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 10000000.0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 1,
+                      "maximum": 10000000.0
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 4000
+            },
+            "shunt_ohm": {
+              "description": "The shunt resistor it divides against: beta = shunt / (shunt + series). Unit: ohm.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 10000000.0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 1,
+                      "maximum": 10000000.0
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 1000
+            }
+          },
+          "description": "The global negative feedback network."
+        },
+        "presence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pot_ohm": {
+              "description": "The presence pot. Unit: ohm.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000000.0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 10000000.0
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 5000
+            },
+            "min_ohm": {
+              "description": "Resistance left with the pot turned fully up. Unit: ohm.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.1,
+                  "maximum": 10000000.0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.1,
+                      "maximum": 10000000.0
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 220
+            },
+            "capacitor_f": {
+              "description": "The capacitor in series with it, across the shunt resistor. Unit: F.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 1e-12,
+                  "maximum": 0.001
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 1e-12,
+                      "maximum": 0.001
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 4.7e-08
+            }
+          },
+          "description": "The presence network: removes high-frequency feedback."
+        },
+        "depth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inductance_h": {
+              "description": "Resonance branch inductance (the speaker impedance peak). Unit: H.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.0001,
+                  "maximum": 100
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.0001,
+                      "maximum": 100
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 0.12
+            },
+            "capacitance_f": {
+              "description": "Its capacitance. Unit: F.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 1e-09,
+                  "maximum": 1
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 1e-09,
+                      "maximum": 1
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 2.1e-05
+            },
+            "resistance_ohm": {
+              "description": "Its resistance: sets the width. Unit: ohm.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.1,
+                  "maximum": 100000.0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.1,
+                      "maximum": 100000.0
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 63
+            },
+            "max_cut": {
+              "description": "The largest fraction of that band's feedback removed at full depth.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 0.85
+            }
+          },
+          "description": "The depth (resonance) network."
+        },
+        "transformer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "high_corner_hz": {
+              "description": "Output transformer high corner (two poles in the feedback path). Unit: Hz.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 500,
+                  "maximum": 100000
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 500,
+                      "maximum": 100000
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 9000
+            },
+            "low_corner_hz": {
+              "description": "Output transformer low corner (the output DC blocker). Unit: Hz.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 500
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 1,
+                      "maximum": 500
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 12
+            }
+          },
+          "description": "Output transformer corners."
+        },
+        "knee_mix": {
+          "description": "0 is a soft knee, 1 a sharp one.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 0
+        },
+        "crossover": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ratio": {
+              "description": "Small-signal gain at idle relative to full gain (class AB crossover).",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 0.9
+            },
+            "width": {
+              "description": "Level over which the notch recovers.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.01,
+                  "maximum": 10
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.01,
+                      "maximum": 10
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 0.3
+            }
+          },
+          "description": "Class AB crossover character; ignored (ratio 1) for push_pull_a."
+        },
+        "supply": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "b_plus_v": {
+              "description": "Unloaded high-voltage rail B+. Unit: V.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 5,
+                  "maximum": 2000
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 5,
+                      "maximum": 2000
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 450
+            },
+            "source_ohm": {
+              "description": "Rectifier plus transformer winding resistance. Unit: ohm.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100000.0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100000.0
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 250
+            },
+            "full_load_a": {
+              "description": "Supply current at full output. Unit: A.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.0001,
+                  "maximum": 20
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.0001,
+                      "maximum": 20
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 0.3
+            },
+            "reservoir_f": {
+              "description": "The reservoir capacitor. Unit: F.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 1e-07,
+                  "maximum": 1
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 1e-07,
+                      "maximum": 1
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 0.00022
+            },
+            "attack_s": {
+              "description": "How fast the load builds. Unit: s.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.0001,
+                  "maximum": 5
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.0001,
+                      "maximum": 5
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 0.008
+            },
+            "rectifier": {
+              "type": "string",
+              "description": "\"solid_state\", \"tube\" or \"none\".",
+              "enum": [
+                "solid_state",
+                "tube",
+                "none"
+              ],
+              "default": "tube"
+            }
+          },
+          "description": "The supply, sag depth = source resistance * full load current / B+, recovery time = source resistance * reservoir."
+        }
+      },
+      "required": [
+        "supply"
+      ],
+      "description": "The output stage."
+    },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input_full_scale_v": {
+          "description": "Digital full scale at the first grid, in volts. Unit: V.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0.001,
+              "maximum": 1000
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0.001,
+                  "maximum": 1000
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 2.0
+        },
+        "power_drive_v": {
+          "description": "Volts at the tone stack output (after the master) that drive the power stage to full swing; stands for the recovery stage and phase inverter. Unit: V.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 10000
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0.01,
+                  "maximum": 10000
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 40
+        },
+        "coupling_gain_rise": {
+          "description": "How much the interstage corners rise with gain (factor 1 + rise at full gain): the gain-dependent tightening of the low end.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 20
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 20
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 1.8
+        },
+        "output_trim": {
+          "description": "Scale from the power stage's swing to digital.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0.0001,
+              "maximum": 100
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0.0001,
+                  "maximum": 100
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 0.2
+        },
+        "control_smoothing_s": {
+          "description": "How fast the knobs glide. Unit: s.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0.0001,
+              "maximum": 5
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value"
+              ],
+              "properties": {
+                "value": {
+                  "type": "number",
+                  "minimum": 0.0001,
+                  "maximum": 5
+                },
+                "provenance": {
+                  "enum": [
+                    "schematic",
+                    "measured",
+                    "fitted"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          ],
+          "default": 0.02
+        }
+      },
+      "description": "Values with no component behind them; they tie the model to levels."
+    },
+    "panel": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The front panel: which knobs exist, what each drives, its taper and range. Leave it out for every knob the parts allow, linear, full travel.",
+      "properties": {
+        "gain": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The name shown for the control."
+            },
+            "target": {
+              "type": "string",
+              "description": "The part the knob moves. Must be the one that control can drive (see the table in docs/amp-framework.md)."
+            },
+            "taper": {
+              "description": "position = low + (high - low) * knob ^ taper. Defaults to 1, or 2 for the master.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 8
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 8
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "description": "[low, high]: the part of the pot's travel the knob covers."
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Targets: stages[N].gain_pot"
+        },
+        "bright": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The name shown for the control."
+            },
+            "target": {
+              "type": "string",
+              "description": "The part the knob moves. Must be the one that control can drive (see the table in docs/amp-framework.md)."
+            },
+            "taper": {
+              "description": "position = low + (high - low) * knob ^ taper. Defaults to 1, or 2 for the master.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 8
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 8
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "description": "[low, high]: the part of the pot's travel the knob covers."
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Targets: stages[N].gain_pot.bright_capacitor_f"
+        },
+        "bass": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The name shown for the control."
+            },
+            "target": {
+              "type": "string",
+              "description": "The part the knob moves. Must be the one that control can drive (see the table in docs/amp-framework.md)."
+            },
+            "taper": {
+              "description": "position = low + (high - low) * knob ^ taper. Defaults to 1, or 2 for the master.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 8
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 8
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "description": "[low, high]: the part of the pot's travel the knob covers."
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Targets: tone_stack.bass_pot_ohm"
+        },
+        "middle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The name shown for the control."
+            },
+            "target": {
+              "type": "string",
+              "description": "The part the knob moves. Must be the one that control can drive (see the table in docs/amp-framework.md)."
+            },
+            "taper": {
+              "description": "position = low + (high - low) * knob ^ taper. Defaults to 1, or 2 for the master.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 8
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 8
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "description": "[low, high]: the part of the pot's travel the knob covers."
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Targets: tone_stack.middle_pot_ohm"
+        },
+        "treble": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The name shown for the control."
+            },
+            "target": {
+              "type": "string",
+              "description": "The part the knob moves. Must be the one that control can drive (see the table in docs/amp-framework.md)."
+            },
+            "taper": {
+              "description": "position = low + (high - low) * knob ^ taper. Defaults to 1, or 2 for the master.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 8
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 8
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "description": "[low, high]: the part of the pot's travel the knob covers."
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Targets: tone_stack.treble_pot_ohm"
+        },
+        "presence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The name shown for the control."
+            },
+            "target": {
+              "type": "string",
+              "description": "The part the knob moves. Must be the one that control can drive (see the table in docs/amp-framework.md)."
+            },
+            "taper": {
+              "description": "position = low + (high - low) * knob ^ taper. Defaults to 1, or 2 for the master.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 8
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 8
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "description": "[low, high]: the part of the pot's travel the knob covers."
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Targets: power_amp.presence"
+        },
+        "depth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The name shown for the control."
+            },
+            "target": {
+              "type": "string",
+              "description": "The part the knob moves. Must be the one that control can drive (see the table in docs/amp-framework.md)."
+            },
+            "taper": {
+              "description": "position = low + (high - low) * knob ^ taper. Defaults to 1, or 2 for the master.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 8
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 8
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "description": "[low, high]: the part of the pot's travel the knob covers."
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Targets: power_amp.depth"
+        },
+        "master": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The name shown for the control."
+            },
+            "target": {
+              "type": "string",
+              "description": "The part the knob moves. Must be the one that control can drive (see the table in docs/amp-framework.md)."
+            },
+            "taper": {
+              "description": "position = low + (high - low) * knob ^ taper. Defaults to 1, or 2 for the master.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 8
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 8
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "description": "[low, high]: the part of the pot's travel the knob covers."
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Targets: master"
+        },
+        "voicing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The name shown for the control."
+            },
+            "target": {
+              "type": "string",
+              "description": "The part the knob moves. Must be the one that control can drive (see the table in docs/amp-framework.md)."
+            },
+            "taper": {
+              "description": "position = low + (high - low) * knob ^ taper. Defaults to 1, or 2 for the master.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 8
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 8
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "description": "[low, high]: the part of the pot's travel the knob covers."
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "description": "Targets: voicings"
+        }
+      }
+    }
+  }
+}

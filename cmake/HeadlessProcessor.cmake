@@ -159,6 +159,10 @@ function(t3k_add_headless_processor target)
     include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ImportData.cmake")
     t3k_link_import_data(${target})
 
+    # The shipped amp descriptions and chowdsp_wdf, for the amp effects.
+    include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/AmpFramework.cmake")
+    t3k_link_amp_framework(${target})
+
     # The scan helper next to the binary, where PluginScanner looks for it
     # (see plugin/CMakeLists.txt, which defines the target).
     if (TARGET PedaleiraPluginScan)

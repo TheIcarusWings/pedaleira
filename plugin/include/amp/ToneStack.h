@@ -22,6 +22,15 @@
 // here with the bilinear transform (no prewarp; at the oversampled rates the
 // amp runs at the warp is negligible below 10 kHz).
 //
+// The third-order coefficients (the s^3 terms of numerator and denominator)
+// of an earlier version of this file were wrong: they did not match the
+// network, gave complex poles at about two knob settings in a hundred (which a
+// passive RC network cannot have) and were up to 1 dB off the true response.
+// They were re-derived from the netlist and are now checked against
+// WdfToneStack.h, which solves the same network by wave digital filtering
+// (amp_wdf_tests.cpp: within 0.5 dB at several knob settings, and the poles of
+// random stacks are real and negative).
+//
 // Parameters (ToneStackParts): R1 treble pot, R2 bass pot, R3 middle pot,
 // R4 slope resistor in ohms; C1, C2, C3 in farads. The controls are the pot
 // positions; a log taper on the bass pot is applied by the caller.
@@ -97,8 +106,8 @@ inline ToneStackDesign designToneStack(const ToneStackParts& parts, double t, do
           l * m * (C1 * C3 * R2 * R3 + C2 * C3 * R2 * R3) +
           (C1 * C2 * R1 * R3 + C1 * C2 * R3 * R4 + C1 * C3 * R3 * R4);
   nb[3] = l * m * (C1 * C2 * C3 * R1 * R2 * R3 + C1 * C2 * C3 * R2 * R3 * R4) -
-          m * m * (C1 * C2 * C3 * R1 * R3 * R4 + C1 * C2 * C3 * R3 * R3 * R4) +
-          m * (C1 * C2 * C3 * R3 * R3 * R4 + C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R1 * R3 * R4) +
+          m * m * (C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R3 * R3 * R4) +
+          m * (C1 * C2 * C3 * R3 * R3 * R4 + C1 * C2 * C3 * R1 * R3 * R3) +
           t * C1 * C2 * C3 * R1 * R3 * R4 - t * m * C1 * C2 * C3 * R1 * R3 * R4 +
           t * l * C1 * C2 * C3 * R1 * R2 * R4;
 
@@ -111,8 +120,8 @@ inline ToneStackDesign designToneStack(const ToneStackParts& parts, double t, do
           (C1 * C2 * R1 * R4 + C1 * C3 * R1 * R4 + C1 * C2 * R3 * R4 + C1 * C2 * R1 * R3 +
            C1 * C3 * R3 * R4 + C2 * C3 * R3 * R4);
   da[3] = l * m * (C1 * C2 * C3 * R1 * R2 * R3 + C1 * C2 * C3 * R2 * R3 * R4) -
-          m * m * (C1 * C2 * C3 * R1 * R3 * R4 + C1 * C2 * C3 * R3 * R3 * R4) +
-          m * (C1 * C2 * C3 * R3 * R3 * R4 + C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R1 * R3 * R4) +
+          m * m * (C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R3 * R3 * R4) +
+          m * (C1 * C2 * C3 * R3 * R3 * R4 + C1 * C2 * C3 * R1 * R3 * R3 - C1 * C2 * C3 * R1 * R3 * R4) +
           l * C1 * C2 * C3 * R1 * R2 * R4 + C1 * C2 * C3 * R1 * R3 * R4;
 
   // Bilinear transform s = K (1 - z^-1) / (1 + z^-1). s^k becomes

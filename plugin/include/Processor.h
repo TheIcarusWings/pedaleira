@@ -316,6 +316,13 @@ public:
   // schedules the deferred engine refresh (flushDeferredBlockRefresh).
   bool setBlockParam(const std::string& blockId, const juce::String& param, double value);
 
+  // Gives a kind block that takes a description (BlockProcessor::takesDescription,
+  // amp.custom) the description in `text`. The text is checked first; on any
+  // failure `error` says why and nothing changes (no undo step). On success it is
+  // one undo step, the block takes the name the description gives it and the
+  // chain revision moves.
+  bool setBlockDescription(const std::string& blockId, const juce::String& text, juce::String& error);
+
   // Takes a block out of (true) or back into (false) the audible rig
   // without touching its saved `enabled` switch or the undo history. (A
   // scene change does the same thing to the audio through `enabled` itself;

@@ -330,7 +330,7 @@ class MappingTest(unittest.TestCase):
     def test_compressor_threshold(self):
         ours = self.derive(COMP_TAKE)
         self.assertEqual(ours.kind, "dynamics.compressor")
-        self.assertEqual(ours.kind_values(), {"thresholdDb": -30.0})
+        self.assertEqual(ours.kind_values(), {"thresholdDb": -31.28})
         self.assertEqual(ours.unmapped, [])
         self.assertFalse(ours.verified)  # the entry says verified false
 
@@ -379,6 +379,30 @@ class MappingTest(unittest.TestCase):
 
 
 class CommandTest(unittest.TestCase):
+    def test_a_curved_parameter_goes_to_the_unit_on_its_curve(self):
+        # Measured on a unit: wire 0.14614 played 249.4 ms, where linear 250 ms played 35 ms.
+        spec = FakeSpec(0, "DELAY TIME", 7.0, 6000.0, "ms")
+        exponent = qm.curve_exponent(qm.CURVES, "Digital Delay (M)", "DELAY TIME")
+        self.assertAlmostEqual(exponent, 5.0 / 3.0, places=5)
+        setting = qm.plan_setting(spec, 250, exponent)
+        self.assertAlmostEqual(setting.kwargs["value"], 0.14614, places=4)
+        self.assertNotIn("real", setting.kwargs)
+        self.assertIsNone(qm.curve_exponent(qm.CURVES, "VCA Comp (M)", "THRESHOLD"))
+        self.assertEqual(qm.plan_setting(spec, 250).kwargs, {"real": 250.0})
+
+    def test_ours_is_fully_wet_unless_the_plan_says_otherwise(self):
+        # A half-wet block (the old default) blended a compressor 50/50 with the dry signal.
+        block = qm.build_preset("c", "dynamics.compressor", {"ratio": 4})["chain"]["children"][0]["children"][0]
+        self.assertEqual(block["mix"], 1.0)
+
+    def test_ours_is_rendered_with_as_many_channels_as_are_recorded(self):
+        stereo = qm.options_from(qm.parse_args(["--plan", "p.json"]))
+        self.assertEqual(stereo.out_channels, 2)
+        mono = qm.options_from(qm.parse_args(["--plan", "p.json", "--in-ch", "3"]))
+        self.assertEqual(mono.out_channels, 1)
+        given = qm.options_from(qm.parse_args(["--plan", "p.json", "--render-out-channels", "1"]))
+        self.assertEqual(given.out_channels, 1)
+
     def test_record(self):
         self.assertEqual(
             qm.record_cmd("PM", "Quad Cortex", "5,6", "3,4", "delay-250", "/s/ref"),
@@ -611,7 +635,12 @@ class SessionTest(unittest.TestCase):
         for name, kw in unit.calls:
             by_name.setdefault(name, []).append(kw)
         self.assertEqual([kw["position"] if "position" in kw else kw["name"] for kw in by_name["find_preset"] + by_name["read_preset"]],
-                         ["Brit 2203", 7])
+                         ["Brit 2203", 7, 0, 7])
+        # The scratch preset is recalled again at the end, after every grid edit.
+        names_in_order = [c[0] for c in unit.calls]
+        last_edit = max(i for i, n in enumerate(names_in_order) if n.startswith("set_") or n == "remove_block")
+        self.assertIn("read_preset", names_in_order[last_edit:])
+        self.assertIn("recalled again", out)
         # Row 4 (index 3), column 0, USB 5/6 in, USB 3/4 out.
         for kw in by_name["set_block"]:
             self.assertEqual((kw["row"], kw["column"]), (3, 0))
@@ -796,6 +825,25 @@ class CatalogTest(unittest.TestCase):
         text = qm.render_mapping_check(result)
         self.assertIn("NOT ON THE UNIT", text)
         self.assertIn("unit mismatch", text)
+
+    def test_mono_and_stereo_models_are_one_mapping_entry(self):
+        # A real unit names many blocks "Digital Delay (M)" and "Digital Delay (ST)"; the
+        # importer looks both up as "Digital Delay", and so does the check.
+        self.assertEqual(qm.model_key("Digital Delay (M)"), qm.model_key("Digital Delay"))
+        self.assertEqual(qm.model_key("VCA Comp (S/C)"), qm.model_key("vca comp"))
+        self.assertNotEqual(qm.model_key("Plate (Lush)"), qm.model_key("Plate"))
+        models = [
+            fake_model(6005, "Digital Delay (M)", "Delay", FakeSpec(0, "FEEDBACK", 0.0, 100.0, "%")),
+            fake_model(6011, "Digital Delay (ST)", "Delay", FakeSpec(0, "FEEDBACK", 0.0, 100.0, "%")),
+        ]
+        doc = qm.catalog_to_doc(NS(models={m.id: m for m in models}), "CorOS d14e")
+        mapping = {"models": {"Digital Delay": {"kind": "delay.digital", "verified": False, "params": {
+            "FEEDBACK": {"param": "feedback", "unit": "%", "transform": "linear"}}}}}
+        result = qm.check_mapping(doc, mapping)
+        self.assertEqual(result["summary"]["modelsFound"], 1)
+        self.assertEqual([m["id"] for m in result["models"][0]["matches"]], [6005, 6011])
+        self.assertEqual(result["models"][0]["params"][0]["foundOn"], [6005, 6011])
+        self.assertIs(qm.mapping_entry(mapping, "Digital Delay (ST)"), mapping["models"]["Digital Delay"])
 
     def test_real_mapping_runs_and_is_not_modified(self):
         before = hashlib.sha256(MAPPING_PATH.read_bytes()).hexdigest()

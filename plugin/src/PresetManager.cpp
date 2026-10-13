@@ -1,5 +1,6 @@
 #include "PresetManager.h"
 #include "AppIdentity.h"
+#include "LibraryPaths.h"
 // For TONE3000Processor::ensureWritableDir: preset saves share the app-data
 // folder whose permissions a sudo'd install script can mangle (github
 // issue #76).
@@ -14,13 +15,7 @@ namespace {
 constexpr const char* kUserPrefix = "user:";
 constexpr const char* kFactoryPrefix = "factory:";
 
-juce::File presetsRootDir() {
-  juce::File base = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
-#if JUCE_MAC
-  base = base.getChildFile("Application Support");
-#endif
-  return base.getChildFile(kAppDataFolderName).getChildFile("Presets");
-}
+juce::File presetsRootDir() { return LibraryPaths::appDataDir().getChildFile("Presets"); }
 
 juce::String stripPrefix(const juce::String& id, const char* prefix) {
   return id.fromFirstOccurrenceOf(prefix, false, false);

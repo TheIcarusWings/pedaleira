@@ -46,7 +46,8 @@ struct AgentSession;
 class CommandTransport {
 public:
   // One client. receive and send may be called from one thread while close
-  // is called from another.
+  // is called from another: close only ends the traffic, and the connection
+  // is let go of the socket when it is destroyed, after that thread is done.
   class Connection {
   public:
     enum class Received { message, nothing, closed, tooLong };
@@ -66,9 +67,21 @@ public:
   // Blocks until a client connects or stopListening is called (then null).
   virtual std::unique_ptr<Connection> accept() = 0;
   virtual void stopListening() = 0;
+  // Closes the listening socket. Called once no thread waits in accept any
+  // more (after stopListening and the accepting thread's end), since closing
+  // it under that thread is the same race as shutDownSocket describes.
+  virtual void releaseListener() {}
   // The name written to the connection file ("tcp-ndjson").
   virtual juce::String name() const = 0;
 };
+
+// Ends a socket's traffic from another thread without closing it: a read or
+// write waiting in it returns, but the handle stays the socket's own until
+// the thread that uses it is done and the socket is destroyed. Closing it
+// from that other thread instead (StreamingSocket::close) frees the handle
+// and changes the object under the thread still using them, and the next
+// accept can be handed the same handle number.
+void shutDownSocket(juce::StreamingSocket& socket);
 
 // Newline-delimited JSON over TCP on 127.0.0.1, with JUCE's sockets.
 std::unique_ptr<CommandTransport> makeTcpLineTransport();

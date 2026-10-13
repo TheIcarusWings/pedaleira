@@ -220,6 +220,13 @@ class HelpersTest(unittest.TestCase):
         self.assertIsNone(qd.convert_value(spec, None))
         self.assertEqual(qd.convert_value(spec, 0.5), {"value": 0.5})
 
+    def test_a_curved_parameter_is_read_on_the_units_curve(self):
+        # Measured on a unit: Digital Delay's DELAY TIME plays 7 + 5993 * wire ^ (5/3).
+        spec = FakeSpec(0, "DELAY TIME", 7.0, 6000.0, "ms")
+        self.assertAlmostEqual(qd.convert_value(spec, 0.14614, 5.0 / 3.0)["value"], 250.0, delta=0.1)
+        self.assertIn(qd._curve_key("DELAY TIME"), qd.CURVES[qd._curve_key("Digital Delay (ST)")])
+        self.assertEqual(qd._curve_key("VCA Comp (S/C)"), qd._curve_key("VCA Comp"))
+
     def test_safe_file_name(self):
         self.assertEqual(qd.safe_file_name("28C", "AC/DC: Live?"), "28C AC-DC- Live.json")
         self.assertEqual(qd.safe_file_name("", ""), "preset.json")

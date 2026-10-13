@@ -46,6 +46,7 @@
 //
 // Build: cmake --build build --target PedaleiraRender
 #include "EngineCommands.h"
+#include "LibraryPaths.h"
 #include "PresetManager.h"
 #include "Processor.h"
 
@@ -416,6 +417,10 @@ int run(int argc, char** argv) {
     juce::Logger::setCurrentLogger(&quietLogger);
     juce::ScopedJuceInitialiser_GUI juceInit;
     TONE3000Processor::disableMachineDefaultParametersForTesting();
+    // The user's app data folder is neither read nor made (the processor looks
+    // at it as it starts).
+    ScopedTempDir appData;
+    LibraryPaths::setAppDataDirForTesting(appData.dir);
     ScopedTempDir settings;
     TONE3000Processor::setFootswitchSettingsFileForTesting(
         settings.dir.getChildFile("footswitch.settings"));
@@ -452,6 +457,13 @@ int run(int argc, char** argv) {
   juce::Logger::setCurrentLogger(&quietLogger);
   juce::ScopedJuceInitialiser_GUI juceInit;
   TONE3000Processor::disableMachineDefaultParametersForTesting();
+
+  // The user's app data folder (settings, presets, model stash, plugin cache,
+  // the agent layer's files) is a scratch one too, so the processor's start-up
+  // neither reads nor makes it. What has a hook of its own below is put
+  // somewhere more specific.
+  ScopedTempDir appData;
+  LibraryPaths::setAppDataDirForTesting(appData.dir);
 
   // The preset goes through the real preset load (which also sets the
   // faceplate parameters, unlike a bare chain-snapshot restore), straight

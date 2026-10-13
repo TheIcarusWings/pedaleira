@@ -50,6 +50,9 @@ VERSION = 1
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_MAPPING = REPO / "resources" / "import" / "quad-cortex.json"
+CURVES_PATH = REPO / "resources" / "import" / "quad-cortex-curves.json"
+# Filled at the bottom of the module, once load_curves exists.
+CURVES: Dict[str, Dict[str, float]] = {}
 
 DEFAULT_SCRATCH_PRESET = "Brit 2203"
 DEFAULT_QC_INPUT = "USB_5_6"
@@ -215,6 +218,21 @@ def norm(text: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(text).lower())
 
 
+FORMAT_MARKERS = ("m", "st", "s/c", "sc", "mono", "stereo")
+
+
+def model_key(name: Any) -> str:
+    """A model name as the importer looks it up in the mapping table: "Digital Delay (M)" and
+    "Digital Delay (ST)" are one model, so a trailing parenthesis holding only a mono or stereo
+    marker is dropped first (stripFormatSuffix in plugin/src/PresetImporter.cpp)."""
+    text = str(name).strip()
+    if text.endswith(")"):
+        open_at = text.rfind("(")
+        if open_at > 0 and text[open_at + 1 : -1].strip().lower() in FORMAT_MARKERS:
+            text = text[:open_at].strip()
+    return norm(text)
+
+
 def clean_number(value: float) -> float:
     return float(f"{value:.6g}")
 
@@ -245,9 +263,9 @@ def load_json(path: Path) -> Any:
 def mapping_entry(mapping: Dict[str, Any], model_name: Optional[str]) -> Optional[Dict[str, Any]]:
     if not model_name:
         return None
-    wanted = norm(model_name)
+    wanted = model_key(model_name)
     for name, entry in (mapping.get("models") or {}).items():
-        if norm(name) == wanted:
+        if model_key(name) == wanted:
             return entry
     return None
 
@@ -542,7 +560,9 @@ def build_preset(name: str, kind: Optional[str], params: Dict[str, float]) -> Di
                 "id": "b1",
                 "type": "kind",
                 "enabled": True,
-                "mix": 0.5,
+                # Fully wet, as the app adds a block (BlockKindInfo::defaultMix);
+                # a plan that sets MIX changes it with a command after the load.
+                "mix": 1.0,
                 "children": [
                     {
                         "node": "KindState",
@@ -879,7 +899,26 @@ class UnitSetting:
     note: str = ""
 
 
-def plan_setting(spec: Any, shown: Any) -> UnitSetting:
+def load_curves(path: Path = CURVES_PATH) -> Dict[str, Dict[str, float]]:
+    """{model key: {parameter key: exponent}} from resources/import/quad-cortex-curves.json."""
+    if not path.is_file():
+        return {}
+    document = load_json(path)
+    curves: Dict[str, Dict[str, float]] = {}
+    for model, params in (document.get("models") or {}).items():
+        for name, spec in (params or {}).items():
+            curves.setdefault(model_key(model), {})[norm(name)] = float(spec["exponent"])
+    return curves
+
+
+CURVES.update(load_curves())
+
+
+def curve_exponent(curves: Dict[str, Dict[str, float]], model_name: str, param_name: str) -> Optional[float]:
+    return curves.get(model_key(model_name), {}).get(norm(param_name))
+
+
+def plan_setting(spec: Any, shown: Any, exponent: Optional[float] = None) -> UnitSetting:
     units = getattr(spec, "units", "") or ""
     if isinstance(shown, dict):
         return UnitSetting(spec.name, shown["wire"], "wire 0..1", {"value": float(shown["wire"])})
@@ -898,6 +937,13 @@ def plan_setting(spec: Any, shown: Any) -> UnitSetting:
     low, high = float(spec.minimum), float(spec.maximum)
     if not low <= float(shown) <= high:
         note = f"outside the unit's range {fmt(low)} to {fmt(high)} {units}: the library clamps it"
+    if exponent and high > low:
+        # The unit plays min + span * wire ^ exponent; pyquadcortex's own
+        # conversion is linear (resources/import/quad-cortex-curves.json).
+        fraction = min(1.0, max(0.0, (float(shown) - low) / (high - low)))
+        wire = fraction ** (1.0 / exponent)
+        curve = f"on the unit's curve (exponent {fmt(round(exponent, 4))}): wire {wire:.5f}"
+        return UnitSetting(spec.name, shown, units, {"value": wire}, f"{note}; {curve}" if note else curve)
     return UnitSetting(spec.name, shown, units, {"real": float(shown)}, note)
 
 
@@ -921,7 +967,8 @@ def prepare_take(take: Take, catalog: Any, mapping: Dict[str, Any]) -> PreparedT
         prepared.model = resolve_model(catalog, take.model)
         prepared.ours = derive_ours(take, mapping, prepared.model.name)
         for name, shown in take.params.items():
-            prepared.settings.append(plan_setting(find_parameter(prepared.model, name), shown))
+            exponent = curve_exponent(CURVES, prepared.model.name, name)
+            prepared.settings.append(plan_setting(find_parameter(prepared.model, name), shown, exponent))
         entry = mapping_entry(mapping, prepared.model.name)
         table = {norm(k): v for k, v in ((entry or {}).get("params") or {}).items()}
         for setting in prepared.settings:
@@ -1192,6 +1239,9 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
     results: List[TakeResult] = []
     code = EXIT_OK
     qc: Optional[GuardedClient] = None
+    # The scratch preset this session recalled, recalled afresh at the end so its
+    # edits do not stay on the grid (the next session would refuse to start).
+    recalled: Optional[Tuple[Any, Any]] = None
     try:
         check_files(opts)
         in_port = port_value(kit.inputs, opts.qc_input, "input")
@@ -1220,6 +1270,7 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
             setlist = kit.setlists.FACTORY if opts.scratch_setlist == "factory" else kit.setlists.USER
             position = opts.scratch_slot or qc.find_preset(opts.scratch_preset, setlist).index
             preset = qc.read_preset(setlist, position)
+            recalled = (setlist, position)
         info.scratch = f"{getattr(preset, 'name', '') or info.scratch} ({scratch_description(opts)})"
 
         free = list(kit.free_rows(preset))
@@ -1294,6 +1345,21 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
         else:
             raise
     finally:
+        if qc is not None and recalled is not None:
+            # Only the session's own edits are discarded: the unit had none
+            # when it started, and the scratch preset was recalled by it.
+            # Recalling the preset that is already loaded does not reload it on
+            # the unit (seen on CorOS d14e: the edits stayed), so another preset
+            # of the same setlist is recalled first, then the scratch one.
+            setlist, position = recalled
+            other = 0 if position != 0 else 1
+            try:
+                qc.read_preset(setlist, other)
+                qc.read_preset(setlist, position)
+                print("\nThe scratch preset was recalled again: the session's edits are gone from the grid.")
+            except Exception as error:
+                print(f"\nCould not recall the scratch preset again ({error}); recall any preset on the unit to clear the session's edits.",
+                      file=sys.stderr)
         if qc is not None:
             try:
                 qc.close()
@@ -1449,13 +1515,13 @@ def check_mapping(doc: Dict[str, Any], mapping: Dict[str, Any]) -> Dict[str, Any
     unit_models = doc.get("models", [])
     by_name: Dict[str, List[Dict[str, Any]]] = {}
     for model in unit_models:
-        by_name.setdefault(norm(model["name"]), []).append(model)
+        by_name.setdefault(model_key(model["name"]), []).append(model)
 
     report_models = []
     counts = {"modelsMapped": 0, "modelsFound": 0, "paramsMapped": 0, "paramsFound": 0, "issues": 0}
     for name, entry in (mapping.get("models") or {}).items():
         counts["modelsMapped"] += 1
-        matches = by_name.get(norm(name), [])
+        matches = by_name.get(model_key(name), [])
         item: Dict[str, Any] = {
             "mappingName": name,
             "kind": entry.get("kind"),
@@ -1662,7 +1728,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     ports.add_argument("--buffer", type=int, help="passed to PedaleiraMatch record --buffer")
     parser.add_argument("--settle", type=float, default=DEFAULT_SETTLE_S, help=f"seconds to wait after the grid edits (default {DEFAULT_SETTLE_S})")
     parser.add_argument("--tail", type=float, default=DEFAULT_TAIL_S, help=f"seconds PedaleiraRender renders past the signal (default {DEFAULT_TAIL_S:g})")
-    parser.add_argument("--render-out-channels", type=int, dest="out_channels", help="PedaleiraRender --out-channels (default: the input's)")
+    parser.add_argument("--render-out-channels", type=int, dest="out_channels", help="PedaleiraRender --out-channels (default: as many as --in-ch records)")
     parser.add_argument("--match-tool", default=str(default_tool("PedaleiraMatch")), help="path of PedaleiraMatch")
     parser.add_argument("--render-tool", default=str(default_tool("PedaleiraRender")), help="path of PedaleiraRender")
     parser.add_argument("--yes", action="store_true", help="do not ask before recalling the scratch preset")
@@ -1691,7 +1757,9 @@ def options_from(args: argparse.Namespace) -> Options:
         buffer=args.buffer,
         settle=args.settle,
         tail=args.tail,
-        out_channels=args.out_channels,
+        # Ours is rendered with as many channels as are recorded, so the
+        # comparison sees stereo on both sides (or mono on both).
+        out_channels=args.out_channels or len([c for c in args.in_ch.split(",") if c.strip()]),
         match_tool=args.match_tool,
         render_tool=args.render_tool,
         yes=args.yes,

@@ -14,8 +14,23 @@
 namespace LibraryPaths {
 
 // <user app data>/Pedaleira (with "Application Support" on macOS): the folder
-// the settings, presets and model stash already live in.
+// the settings, presets and model stash already live in. The one place that
+// names it: the settings file, the presets, the model stash, the plugin cache,
+// the agent layer's files and the scratch folder are all taken from here, and
+// so is the log when it is redirected (TONE3000Processor::getLogFile).
 juce::File appDataDir();
+// The user's own app data folder, whatever setAppDataDirForTesting says. For
+// the code that has to tell whether a folder is the user's.
+juce::File defaultAppDataDir();
+// Tests and tools: use `dir`, the folder itself, as the app data folder, so a
+// run never reads, writes or even makes the user's own. Process wide; an empty
+// File restores the default. Returns the previous override. Set it before the
+// first processor exists: its constructor looks at this folder. A hook that
+// names one file or folder (the model stash, the plugin cache, the agent
+// settings, the connection file, the scratch folder) still wins for that one.
+juce::File setAppDataDirForTesting(const juce::File& dir);
+// True while such an override is in place.
+bool appDataDirIsOverridden();
 
 // The library root every processor made without one of its own uses: the
 // setlists, the asset store and the guitar profiles.

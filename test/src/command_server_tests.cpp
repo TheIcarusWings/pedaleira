@@ -544,6 +544,10 @@ TEST(CommandServerTest, SubscribersAreToldWhenTheRevisionChanges) {
     // Stage 2: the client moves to a sandbox and edits it: the events
     // follow the rig it is working on.
     client.call("sandbox.create", R"({"from":"empty"})");
+    // A live event still on its way when the client moved (the live edit's
+    // revision can be sent after stage 1 stopped listening) is not the
+    // sandbox's: only what follows the move counts.
+    client.events.clear();
     client.call("chain.addBlock", R"({"kind":"utility.gain"})");
     for (int i = 0; i < 20; ++i) {
       const juce::var line = client.readLine(100);

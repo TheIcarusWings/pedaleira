@@ -59,6 +59,8 @@ const char* source(Icon icon) {
       return "M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM6 8.5h12v4H6zM7.5 "
              "10.5l1.5-1 1.5 2 1.5-2 1.5 1M7 16h.01M11 16h.01M15 16h.01";
     case Icon::play: return "M8 5v14l11-7z";
+    case Icon::power: return "M12 3v8M7.05 6.05a7 7 0 1 0 9.9 0";
+    case Icon::trash: return "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3";
   }
   return "";
 }

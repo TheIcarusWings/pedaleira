@@ -824,11 +824,11 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheCategoriesWeHave) {
       {"position":0,"model":"VCA Comp (M) ","category":"Compressor","enabled":true,
        "params":{"THRESHOLD":{"value":-24.5,"unit":"dB"}}},
       {"position":1,"model":"Digital Delay (ST) ","category":"Delay","enabled":true,
-       "params":{"FEEDBACK":{"value":45,"unit":"%"},"MIX":{"value":30,"unit":"%"},"TIME":{"value":380,"unit":"ms"}}},
+       "params":{"FEEDBACK":{"value":45,"unit":"%"},"MIX":{"value":30,"unit":"%"},"DELAY TIME":{"value":380,"unit":"ms"}}},
       {"position":2,"model":"Plate Lush","category":"Reverb","enabled":true,
        "params":{"PRE DELAY":{"value":40,"unit":"ms"},"MIX":{"value":25,"unit":"%"}}},
       {"position":3,"model":"Phaser","category":"Modulation","enabled":true,
-       "params":{"RATE":{"value":0.8,"unit":"Hz"},"DEPTH":{"value":65,"unit":"%"}}},
+       "params":{"SPEED":{"value":40},"DEPTH":{"value":65,"unit":"%"}}},
       {"position":4,"model":"Crying Wah","category":"Wah","enabled":true,"params":{}},
       {"position":5,"model":"Brit 2203","category":"Guitar Amplifier","enabled":true,"params":{"GAIN":{"value":6}}},
       {"position":6,"model":"Some Capture","category":"Neural Capture","enabled":true,"params":{}},
@@ -837,10 +837,11 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheCategoriesWeHave) {
   ASSERT_TRUE(result.ok) << result.error;
   const juce::var preset = result.preset;
   EXPECT_EQ(kindOf(slotNode(preset, 0, 0)), "dynamics.compressor");
-  EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 0), "thresholdDb")), -24.5, 1e-3);
+  EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 0), "thresholdDb")), -25.78, 1e-3);
   EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "delay.digital");
   EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 1), "feedback")), 45.0, 1e-3);
   EXPECT_NEAR(static_cast<double>(slotNode(preset, 0, 1)["mix"]), 0.3, 1e-6);
+  EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 1), "timeMs")), 380.0, 1e-3);
   EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "reverb.plate");
   EXPECT_NEAR(static_cast<double>(kindParam(slotNode(preset, 0, 2), "preDelayMs")), 40.0, 1e-3);
   EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "modulation.phaser");
@@ -855,8 +856,8 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheCategoriesWeHave) {
   EXPECT_EQ(countIn(report["unmapped"]), 3);
   EXPECT_EQ(entryAt(report["unmapped"], 0, 5)["role"].toString(), "amp");
   EXPECT_EQ(entryAt(report["unmapped"], 0, 6)["role"].toString(), "capture");
-  // The delay time is not in the table (its name is unconfirmed): it is named.
-  EXPECT_TRUE(entryAt(report["droppedParams"], 0, 1, "param", "TIME").isObject());
+  // The phaser's SPEED has no unit, so it is not taken as our rate in Hz: it is named.
+  EXPECT_TRUE(entryAt(report["droppedParams"], 0, 3, "param", "SPEED").isObject());
   EXPECT_FALSE(static_cast<bool>(entryAt(report["mapped"], 0, 0)["verified"]));
 }
 
@@ -960,7 +961,7 @@ TEST(PresetImporterCommandTest, ImportsIntoTheLibraryAndTheResultLoads) {
   for (const auto& param : *compressor["params"].getArray())
     if (param["id"].toString() == "thresholdDb")
       threshold = static_cast<double>(param["value"]);
-  EXPECT_NEAR(threshold, -20.0, 1e-3);
+  EXPECT_NEAR(threshold, -21.28, 1e-3);
   // The kind's own parameters tell the kind: feedback for the delay, decay for the hall.
   auto hasParam = [&rig](const std::string& blockId, const char* paramId) {
     const juce::var listed = rig.must("block.listParams", "{\"blockId\":" + quote(blockId) + "}");

@@ -11,8 +11,10 @@
 //
 // --port        the port to listen on (default 0: any free port)
 // --data        where settings, presets, the model stash and the connection
-//               file live (default: a scratch folder removed on exit, so the
-//               user's real settings, presets and library are never touched)
+//               file live: the host's app data folder, so the user's own
+//               folders are never read or made (default: a scratch folder
+//               removed on exit, so the user's real settings, presets and
+//               library are never touched)
 // --library     the library root, where guitar profiles live (default: a
 //               folder inside --data)
 // --preset      a preset to load into the rig at start
@@ -196,6 +198,11 @@ int run(int argc, char** argv) {
   if (!library.createDirectory().wasOk())
     throw HostError("cannot create the library folder " + library.getFullPathName().toStdString());
 
+  // The data folder is the host's app data folder as well, named by --data or
+  // not: whatever has no file of its own below (the settings, the log) lands
+  // in it, and the user's own folder is neither read nor made. Before the
+  // processor exists, whose constructor looks at that folder.
+  LibraryPaths::setAppDataDirForTesting(data);
   TONE3000Processor::disableMachineDefaultParametersForTesting();
   TONE3000Processor::setFootswitchSettingsFileForTesting(data.getChildFile("footswitch.settings"));
   data.getChildFile("LocalModels").createDirectory();

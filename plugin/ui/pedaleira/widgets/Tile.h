@@ -33,6 +33,10 @@ public:
   State getState() const { return state; }
 
   std::function<void()> onClick;
+  // The power switch in a block tile's lower right corner: a click there
+  // turns the block on or off instead of selecting it. Unset: no switch.
+  std::function<void()> onPower;
+  juce::Rectangle<float> powerArea() const;
 
   void paint(juce::Graphics& g) override;
   void mouseUp(const juce::MouseEvent& event) override;

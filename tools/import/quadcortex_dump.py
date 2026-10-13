@@ -35,6 +35,7 @@ import math
 import os
 import re
 import sys
+from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
 FORMAT = "pedaleira-foreign-preset"
@@ -85,7 +86,38 @@ def _clean_number(value: float) -> float:
     return float(f"{value:.6g}")
 
 
-def convert_value(spec: Any, stored: Any) -> Optional[Dict[str, Any]]:
+CURVES_PATH = Path(__file__).resolve().parents[2] / "resources" / "import" / "quad-cortex-curves.json"
+_FORMAT_MARKERS = ("m", "st", "s/c", "sc", "mono", "stereo")
+
+
+def _curve_key(text: Any) -> str:
+    """A name as the curves table keys it: "Digital Delay (M)" and "Digital Delay" alike."""
+    text = str(text).strip()
+    if text.endswith(")"):
+        open_at = text.rfind("(")
+        if open_at > 0 and text[open_at + 1 : -1].strip().lower() in _FORMAT_MARKERS:
+            text = text[:open_at].strip()
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def load_curves(path: Path = CURVES_PATH) -> Dict[str, Dict[str, float]]:
+    """{model key: {parameter key: exponent}}: the parameters the unit plays on a
+    power curve, min + span * wire ^ exponent, where pyquadcortex assumes a line."""
+    if not path.is_file():
+        return {}
+    with open(path, encoding="utf-8") as handle:
+        document = json.load(handle)
+    curves: Dict[str, Dict[str, float]] = {}
+    for model, params in (document.get("models") or {}).items():
+        for name, spec in (params or {}).items():
+            curves.setdefault(_curve_key(model), {})[_curve_key(name)] = float(spec["exponent"])
+    return curves
+
+
+CURVES = load_curves()
+
+
+def convert_value(spec: Any, stored: Any, exponent: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """One stored parameter value as { "value": ..., "unit": ... }, or None.
 
     `stored` is what pyquadcortex's param_state hands back: an Encoded (0..1 on
@@ -109,7 +141,13 @@ def convert_value(spec: Any, stored: Any) -> Optional[Dict[str, Any]]:
             return {"value": options[index]}
         return {"value": index}
     try:
-        real = _plain_number(spec.to_real(wire))
+        if exponent and 0.0 <= wire <= 1.0:
+            # On the unit's curve (resources/import/quad-cortex-curves.json),
+            # not pyquadcortex's linear conversion.
+            low, high = float(spec.minimum), float(spec.maximum)
+            real = low + (high - low) * wire ** exponent
+        else:
+            real = _plain_number(spec.to_real(wire))
     except (ValueError, TypeError):
         return None
     if not math.isfinite(real):
@@ -201,20 +239,22 @@ def build_foreign_preset(
             return not scenes_bypass[0] if scenes_bypass else True
 
         params: Dict[str, Any] = {}
+        curves = CURVES.get(_curve_key(model.name), {})
         for spec in getattr(model, "parameters", ()):
             if getattr(spec, "hidden", False):
                 continue
+            exponent = curves.get(_curve_key(spec.name))
             try:
                 state = kit.param_state(preset, cell, spec.index)
             except (IndexError, ValueError):
                 continue
-            base = convert_value(spec, _scene_values(state, default_scene))
+            base = convert_value(spec, _scene_values(state, default_scene), exponent)
             if base is None:
                 continue
             params[spec.name] = base
             if state.scene_mode:
                 for scene in range(scene_count):
-                    value = convert_value(spec, _scene_values(state, scene))
+                    value = convert_value(spec, _scene_values(state, scene), exponent)
                     if value is not None and value != base:
                         scenes_params[scene].setdefault(_key(cell.row, cell.column), {})[spec.name] = value["value"]
 

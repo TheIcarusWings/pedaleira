@@ -79,6 +79,15 @@ void Tile::paint(juce::Graphics& g) {
     g.drawText(sub, content.withTrimmedTop(narrow ? 46.0f : 44.0f).withHeight(14.0f),
                juce::Justification::centredLeft, true);
 
+    if (onPower != nullptr && state != State::missing) {
+      // Lit in the block's colour when it runs, faint when it is off.
+      const auto power = powerArea();
+      const bool on = state == State::active || state == State::loading;
+      g.setColour(on ? hue.withAlpha(0.18f) : colour::ground);
+      g.fillEllipse(power);
+      icons::draw(g, icons::path(icons::Icon::power), power.reduced(4.0f), on ? hue : colour::faint, 2.0f);
+    }
+
     if (footswitch.isNotEmpty()) {
       const auto badge = juce::Rectangle<float>(18.0f, 18.0f).withPosition(area.getRight() - 24.0f, area.getY() + 6.0f);
       g.setColour(colour::ground.withAlpha(0.6f));
@@ -95,8 +104,20 @@ void Tile::paint(juce::Graphics& g) {
   }
 }
 
+juce::Rectangle<float> Tile::powerArea() const {
+  const auto area = getLocalBounds().toFloat().reduced(2.0f);
+  return juce::Rectangle<float>(22.0f, 22.0f).withPosition(area.getRight() - 26.0f, area.getBottom() - 26.0f);
+}
+
 void Tile::mouseUp(const juce::MouseEvent& event) {
-  if (event.mouseWasClicked() && onClick)
+  if (!event.mouseWasClicked())
+    return;
+  const bool block = state != State::empty;
+  if (block && onPower != nullptr && powerArea().expanded(4.0f).contains(event.position)) {
+    onPower();
+    return;
+  }
+  if (onClick)
     onClick();
 }
 

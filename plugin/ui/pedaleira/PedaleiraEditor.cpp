@@ -37,6 +37,8 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   device = StandaloneDevice::create(processor);
 #endif
   settingsPage = std::make_unique<SettingsPage>(*client, device.get());
+  // The row menus name the device's inputs and outputs.
+  grid->deviceState = [this] { return device != nullptr ? device->state() : juce::var(); };
   shell->setPageComponent(Page::settings, settingsPage.get());
   live = std::make_unique<LivePage>(*client);
   shell->setPageComponent(Page::live, live.get());
@@ -58,6 +60,14 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   // The tempo set on the Live page shows in the header at once.
   live->onTempoChanged = [this] { shell->header().refresh(); };
   shell->onTunerRequested = [this] { live->showTab(LivePage::Tab::tuner); };
+  shell->onMeters = [this](const juce::var& meters) {
+    if (shell->currentPage() == Page::grid)
+      grid->showMeters(meters);
+  };
+  shell->header().onNewPreset = [this](bool unsaved) {
+    shell->showPage(Page::grid);
+    grid->newPreset(unsaved);
+  };
   shell->onRigChanged = [this] {
     grid->rigChanged();
     if (shell->currentPage() == Page::live)
@@ -117,6 +127,8 @@ PedaleiraEditor::~PedaleiraEditor() {
   shell->onRigChanged = nullptr;
   shell->onPageShown = nullptr;
   shell->onTunerRequested = nullptr;
+  shell->header().onNewPreset = nullptr;
+  shell->onMeters = nullptr;
   live->onTempoChanged = nullptr;
   gig->onExit = nullptr;
   library->onChanged = nullptr;
@@ -126,6 +138,7 @@ PedaleiraEditor::~PedaleiraEditor() {
   importer->onPickCapture = nullptr;
   grid->onOpenPluginWindow = nullptr;
   grid->onOpenModes = nullptr;
+  grid->deviceState = nullptr;
   // The tuner stops listening with the Gig View.
   shell->showGigView(false);
   removeAllChildren();

@@ -24,7 +24,9 @@ written, no global is changed (no I/O or USB levels, no global EQ, no MIDI, no t
   overwritten.
 - It then tells you which preset is recalled as the scratch preset (the audio cuts for a moment),
   and works on one **free row** of it only. Every change is an unsaved edit of the grid.
-- When it ends, it says that nothing was saved. **Recalling any preset on the unit restores it.**
+- When it ends, it recalls another preset of the same setlist and then the scratch preset again (the
+  unit does not reload a preset that is already loaded), which discards its own edits (the unit had none
+  of yours when it started). The audio cuts twice more. Then it says that nothing was saved. **Recalling any preset on the unit restores it.**
 
 ## Set up
 
@@ -55,6 +57,27 @@ name, for instance `USB_7_8`), `--out-ch`, `--in-ch`, `--device` (the name of th
 What the script does not touch, because they are settings and not grid edits: the USB input and
 output levels, the row's lane volume and its input gate. Leave them at unity and off, and check the
 `bypass` take (the unit's own path) against `identity` first.
+
+### A scratch preset of your own
+
+By default the session borrows a free row of the factory preset `Brit 2203`, which every unit has.
+An empty preset is cleaner: nothing else runs beside the take, and no preset you play is touched.
+The script cannot make one (that would be a save), so make it once yourself: a new empty preset on
+the unit, named for instance `Pedaleira Scratch`, saved to a free slot of My Presets. Then add
+`--scratch-preset "Pedaleira Scratch" --scratch-setlist user` to every run. The script only recalls
+it and edits one row without saving, and the end of the session reloads it empty.
+
+### Curved parameters
+
+pyquadcortex converts every parameter linearly between its catalogue minimum and maximum, but the
+unit plays some on a power curve: `min + (max - min) * wire ^ exponent`. A real unit (CorOS d14e)
+played Digital Delay's DELAY TIME 250 ms as 35 ms and VCA Comp's RATIO 4 as 2.8 until the values were
+sent on the curve. `resources/import/quad-cortex-curves.json` lists the parameters measured so far;
+this script and the dump script apply them. A parameter not in it is sent linearly, so a new one is
+worth one timing take before its results are trusted.
+
+Not every difference is a curve. VCA Comp compresses from 1.28 dB below the THRESHOLD it shows, at
+-20 and at -30 alike, so the import table (`quad-cortex.json`) takes that off as an offset instead.
 
 ## Run
 
@@ -131,9 +154,13 @@ has no mapping and is therefore set on the unit only. The delay time, for instan
 which is why the example gives `timeMs` itself. Keep the mix at 100% wet on the unit (and ours is then
 1.0) for the cleanest delay and decay figures; say so in the take name.
 
-The recording is stereo when `--in-ch` names two channels and ours is rendered with the input's
-channel count; if the comparison complains about channels, record one channel (`--in-ch 3`) or use
-`--render-out-channels 2`.
+The recording is stereo when `--in-ch` names two channels, and ours is rendered with as many
+channels as are recorded, so both sides are compared alike. `--render-out-channels` overrides it.
+
+A bypass take on a real unit (CorOS d14e, over USB) matches our empty chain except for one thing:
+our output's DC blocker (a 5 Hz high-pass) leaves a short tail after the burst (T60 about 0.22 s,
+over in 180 ms) and moves the lowest sweep bands by a quarter of a dB. Expect those two burst rows
+to fail on every take until that is decided.
 
 ## The report
 

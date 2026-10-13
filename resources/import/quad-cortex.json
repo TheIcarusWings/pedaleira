@@ -7,9 +7,13 @@
       "kind": "dynamics.compressor",
       "verified": false,
       "params": {
-        "THRESHOLD": { "param": "thresholdDb", "unit": "dB", "transform": "linear" }
+        "THRESHOLD": { "param": "thresholdDb", "unit": "dB", "transform": { "scale": 1, "offset": -1.28 } },
+        "RATIO": { "param": "ratio", "transform": "linear" },
+        "MAKEUP": { "param": "makeupDb", "transform": "linear" },
+        "ATTACK": { "param": "attackMs", "transform": "linear" },
+        "RELEASE": { "param": "releaseMs", "transform": "linear" }
       },
-      "notes": "THRESHOLD in dB is the one name pyquadcortex's documentation gives for this block. The unit runs -60 to +12 dB, ours -60 to 0, so a value above 0 is clamped and reported. Ratio, attack, release and the rest stay at our defaults until their names are known."
+      "notes": "The unit runs THRESHOLD -60 to +12 dB, ours -60 to 0, so a value above 0 is clamped and reported. Measured on a unit (CorOS d14e): the unit compresses from 1.28 dB below the threshold it shows (-1.23 to -1.36 over five takes at -20 and -30), hence the offset; RATIO matches exactly. ATTACK and RELEASE take the dump's real times (quad-cortex-curves.json), but the unit's envelope is shaped differently from ours, so the timing is close, not equal."
     },
     "Simple Gate": {
       "kind": "dynamics.gate",
@@ -36,10 +40,12 @@
       "kind": "delay.digital",
       "verified": false,
       "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "SYNC": { "param": "sync", "transform": "linear" },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "FEEDBACK and MIX are the manual's common delay controls; the percent units are assumed. The time is not mapped yet (its name and units are unconfirmed)."
+      "notes": "Names and units from a unit's catalogue (CorOS d14e), as Digital Delay (M) and (ST): DELAY TIME 7 to 6000 ms, SYNC on by default (then the time follows SYNC NOTE), FEEDBACK and MIX in percent. Not yet measured against the unit's sound."
     },
     "Analog Delay": {
       "kind": "delay.analog",
@@ -91,10 +97,11 @@
       "kind": "reverb.hall",
       "verified": false,
       "params": {
+        "DECAY": { "param": "decayS", "unit": "s", "transform": "linear" },
         "PRE DELAY": { "param": "preDelayMs", "unit": "ms", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Pre delay and mix only; decay and the filters are not mapped."
+      "notes": "Decay, pre delay and mix; the filters are not mapped. The unit's catalogue (CorOS d14e) gives DECAY 1 to 10 s and PRE DELAY 1 to 100 ms."
     },
     "Plate": {
       "kind": "reverb.plate",
@@ -145,10 +152,9 @@
       "kind": "modulation.chorus",
       "verified": false,
       "params": {
-        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
-        "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
+        "CHR RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" }
       },
-      "notes": "RATE and DEPTH are the manual's general modulation controls; the units are assumed."
+      "notes": "The unit's catalogue (CorOS d14e) has no RATE or DEPTH here: a chorus rate CHR RATE (0.3 to 3 Hz) and a vibrato section (VIB RATE, VIB DEPTH) beside MIX, WIDTH and MODE. Only the chorus rate is mapped."
     },
     "Chorus Engine": {
       "kind": "modulation.chorus",
@@ -190,10 +196,9 @@
       "kind": "modulation.phaser",
       "verified": false,
       "params": {
-        "RATE": { "param": "rateHz", "unit": "Hz", "transform": "linear" },
         "DEPTH": { "param": "depth", "unit": "%", "transform": "linear" }
       },
-      "notes": "Rate and depth only."
+      "notes": "The unit's catalogue (CorOS d14e) has no RATE: its speed is SPEED, 0 to 100 with no unit, so it is not mapped to our rate in Hz. DEPTH is on one of the two Phaser models only."
     },
     "Tremolo": {
       "kind": "modulation.tremolo",

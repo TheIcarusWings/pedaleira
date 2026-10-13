@@ -275,9 +275,27 @@ TEST(MatchTakeTest, CheckAcceptsACleanTake) {
   EXPECT_NEAR(check.levelGainDb, -6.0, 0.5);
 }
 
-TEST(MatchTakeTest, CheckRefusesAClippedTake) {
-  // The signal peaks at 0 dBFS in the staircase; at unity it touches the limit.
+TEST(MatchTakeTest, CheckAcceptsAUnityPathThatTouchesFullScale) {
+  // The staircase's top step is 0 dBFS: a clean unity path reaches full scale
+  // for a sample at each peak, which is not clipping (a real unit's bypass).
   const auto check = MatchTake::checkTake(delayedSignal(480, 1.0f), kRate, signalUnderTest());
+  EXPECT_FALSE(check.clipped);
+  EXPECT_TRUE(check.passed);
+}
+
+TEST(MatchTakeTest, CheckRefusesAClippedTake) {
+  // 3 dB too hot into a converter that stops at full scale: flat tops.
+  juce::AudioBuffer<float> hot = delayedSignal(480, 1.41f);
+  for (int n = 0; n < hot.getNumSamples(); ++n)
+    hot.setSample(0, n, juce::jlimit(-1.0f, 1.0f, hot.getSample(0, n)));
+  const auto check = MatchTake::checkTake(hot, kRate, signalUnderTest());
+  EXPECT_TRUE(check.clipped);
+  EXPECT_FALSE(check.passed);
+}
+
+TEST(MatchTakeTest, CheckRefusesSamplesPastFullScale) {
+  // A float path with no converter limit: past full scale is clipping too.
+  const auto check = MatchTake::checkTake(delayedSignal(480, 1.2f), kRate, signalUnderTest());
   EXPECT_TRUE(check.clipped);
   EXPECT_FALSE(check.passed);
 }

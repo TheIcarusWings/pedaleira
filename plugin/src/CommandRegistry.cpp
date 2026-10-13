@@ -328,6 +328,7 @@ CommandWork CommandRegistry::begin(const juce::String& name, const juce::var& ar
   if (auto problem = validate(name, args, validated, command))
     return CommandWork::done(*problem);
 
+  currentCommandMutates = command->mutates;
   if (beforeRun != nullptr)
     beforeRun();
   if (command->handler.isSlow())

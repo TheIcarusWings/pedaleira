@@ -438,6 +438,27 @@ public:
   /** Opaque state beyond the parameters (a hosted plugin's own chunk).
       Written as the node's `chunk` when not empty. */
   virtual void getStateChunk(juce::MemoryBlock& chunk) const { juce::ignoreUnused(chunk); }
+
+  /** A digest of what getStateChunk would give, for kinds whose chunk is
+      large and already cached. getKindState writes it in the chunk's place
+      while a ChunkDigestScope is open on the calling thread (the unsaved
+      changes signature, which only compares). False (the default) when the
+      kind has no cheaper way than the chunk itself. */
+  virtual bool getStateChunkDigest(juce::uint64& digest) const {
+    juce::ignoreUnused(digest);
+    return false;
+  }
+
+  /** While one is alive on a thread, getKindState on that thread writes a
+      "chunkDigest" property instead of the "chunk" bytes for kinds that
+      offer a digest. Never use the result to restore state. */
+  struct ChunkDigestScope {
+    ChunkDigestScope() noexcept;
+    ~ChunkDigestScope();
+    ChunkDigestScope(const ChunkDigestScope&) = delete;
+    ChunkDigestScope& operator=(const ChunkDigestScope&) = delete;
+    bool previous;
+  };
   virtual void setStateChunk(const juce::MemoryBlock& chunk, int version) {
     juce::ignoreUnused(chunk, version);
   }

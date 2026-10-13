@@ -290,7 +290,9 @@ back to a compressor at defaults), gates, a graphic EQ, five delays (feedback
 and mix), seven reverbs (pre delay and mix), the chorus, flanger, phaser,
 tremolo and vibrato blocks (rate and depth), envelope filter, auto wah, wahs,
 pitch shifter and octaver, and the factory drive models (overdrives,
-distortions, fuzzes, boosts and the bass drives) onto the `drive.*` kinds.
+distortions, fuzzes, boosts and the bass drives) onto the `drive.*` kinds, and the utility blocks Gain,
+Volume, Doubler and Phase Doctor onto `utility.*` (parameter names and units
+assumed, not read from a dump; Phase Doctor carries only its polarity switch).
 The drive entries come from the models' names and the usual controls of their
 kind, not from a dump: their knobs are assumed to read 0 to 10 and to carry
 the names the entries list (a name that does not match is reported as a

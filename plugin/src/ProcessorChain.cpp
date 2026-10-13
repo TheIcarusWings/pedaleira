@@ -1708,67 +1708,97 @@ juce::var TONE3000Processor::getMeterLevels() const {
   root->setProperty("correlation", stereoEnabled.load() ? stereoOffset.correlation()
                                                         : spread.correlation());
 
-  juce::DynamicObject::Ptr blocks = new juce::DynamicObject();
+  // Everything the chain owns is read into plain values under the lock, in
+  // one hold, with no allocation beyond the reserved vectors; the var
+  // objects (allocations the audio thread's try-lock would otherwise wait
+  // behind) are built after it is released.
+  struct BlockMeter {
+    std::string id;
+    float in{0.0f}, out{0.0f};
+    size_t firstReading{0}, numReadings{0};
+  };
+  struct ReadingValue {
+    juce::String id;
+    float value{0.0f};
+  };
+  struct RowMeter {
+    bool active{false};
+    float in[2]{-60.0f, -60.0f}, out[2]{-60.0f, -60.0f};
+  };
+  struct SplitMeter {
+    std::string id;
+    int row{0};
+    bool active{false};
+    float split[2]{-60.0f, -60.0f}, mix[2]{-60.0f, -60.0f};
+  };
+  struct OutputMeter {
+    int pair{0};
+    bool main{false};
+    float level[2]{0.0f, 0.0f};
+  };
+  std::vector<BlockMeter> blockMeters;
+  std::vector<ReadingValue> readingValues;
+  std::vector<RowMeter> rowMeters;
+  std::vector<SplitMeter> splitMeters;
+  std::vector<OutputMeter> outputMeters;
+  blockMeters.reserve(64);
+  readingValues.reserve(256);
+  rowMeters.reserve(static_cast<size_t>(kGridRows));
+  splitMeters.reserve(16);
+  outputMeters.reserve(static_cast<size_t>(kMaxIoPairs));
+  bool gridMode = false;
   {
-    // Meter values are atomics; the lock only guards chain iteration. Hold
-    // time is a few property writes, so contention with the audio thread is
-    // negligible even at per-frame polling rates.
     juce::ScopedLock lock(chainMutex);
     for (const auto& chain : lanes) {
       for (const auto& block : chain) {
         if (block->type == ChainBlockType::INSERT)
           continue;
-        juce::DynamicObject::Ptr levels = new juce::DynamicObject();
-        levels->setProperty("in", block->inputMeterDb.load());
-        levels->setProperty("out", block->outputMeterDb.load());
+        BlockMeter meter;
+        meter.id = block->id;
+        meter.in = block->inputMeterDb.load();
+        meter.out = block->outputMeterDb.load();
+        meter.firstReading = readingValues.size();
         // The processor is only swapped under chainMutex, held here.
         if (block->processor != nullptr) {
           const BlockReadingTable& table = block->processor->readingTable();
-          if (!table.empty()) {
-            juce::DynamicObject::Ptr readings = new juce::DynamicObject();
-            for (size_t i = 0; i < table.size(); ++i)
-              readings->setProperty(table[i].id,
-                                    block->processor->getReading(static_cast<int>(i)));
-            levels->setProperty("readings", juce::var(readings.get()));
-          }
+          for (size_t i = 0; i < table.size(); ++i)
+            readingValues.push_back(
+                {table[i].id, block->processor->getReading(static_cast<int>(i))});
+          meter.numReadings = readingValues.size() - meter.firstReading;
         }
-        blocks->setProperty(juce::String(block->id), juce::var(levels.get()));
+        blockMeters.push_back(std::move(meter));
       }
     }
-  }
-  root->setProperty("blocks", juce::var(blocks.get()));
 
-  // The grid's own meters: per row what entered it and what it sent, per
-  // output pair the level after its strip, and the plan CPU value. A legacy
-  // rig has no rows; its one output is the main pair.
-  juce::Array<juce::var> rows, outputs, splits;
-  {
-    juce::ScopedLock lock(chainMutex);
-    if (routingMode == RoutingMode::Grid) {
+    // The grid's own meters: per row what entered it and what it sent, per
+    // output pair the level after its strip, and the plan CPU value. A
+    // legacy rig has no rows; its one output is the main pair.
+    gridMode = routingMode == RoutingMode::Grid;
+    if (gridMode) {
       for (int row = 0; row < kGridRows; ++row) {
         const GridRow& gridRow = grid.rows[static_cast<size_t>(row)];
         const ProcessingPlan::RowInfo& info = activePlan.rowInfo[static_cast<size_t>(row)];
         const bool active = info.active;
-        juce::DynamicObject::Ptr levels = new juce::DynamicObject();
-        levels->setProperty("row", row);
-        levels->setProperty("active", active);
+        RowMeter meter;
+        meter.active = active;
         // What entered the row: from its strip or the rows that feed it,
         // or for the lower row of a split what the splitter sent down. What
         // it sent: to its bus or the row it feeds; a row that ends in a
         // mixer has the mixer's own meter instead.
         const SplitJunction* above = row > 0 ? splitOfRow(row - 1) : nullptr;
-        juce::var in = channelPair(-60.0f, -60.0f), out = channelPair(-60.0f, -60.0f);
-        if (active && info.source == ProcessingPlan::RowInfo::FromSplit && above != nullptr)
-          in = channelPair(above->splitMeterDb(1), above->splitMeterDb(1));
-        else if (active)
-          in = channelPair(gridRow.meterIn[0].load(), gridRow.meterIn[1].load());
-        if (active && info.sink == ProcessingPlan::RowInfo::ToMix && above != nullptr)
-          out = channelPair(above->mixMeterDb(1), above->mixMeterDb(1));
-        else if (active)
-          out = channelPair(gridRow.meterOut[0].load(), gridRow.meterOut[1].load());
-        levels->setProperty("in", in);
-        levels->setProperty("out", out);
-        rows.add(juce::var(levels.get()));
+        if (active && info.source == ProcessingPlan::RowInfo::FromSplit && above != nullptr) {
+          meter.in[0] = meter.in[1] = above->splitMeterDb(1);
+        } else if (active) {
+          meter.in[0] = gridRow.meterIn[0].load();
+          meter.in[1] = gridRow.meterIn[1].load();
+        }
+        if (active && info.sink == ProcessingPlan::RowInfo::ToMix && above != nullptr) {
+          meter.out[0] = meter.out[1] = above->mixMeterDb(1);
+        } else if (active) {
+          meter.out[0] = gridRow.meterOut[0].load();
+          meter.out[1] = gridRow.meterOut[1].load();
+        }
+        rowMeters.push_back(meter);
       }
       // Per split: what the splitter sent down each path (A stays in the
       // upper row, B goes to the lower one) and what reached the mixer from
@@ -1777,31 +1807,78 @@ juce::var TONE3000Processor::getMeterLevels() const {
         const bool active =
             activePlan.rowInfo[static_cast<size_t>(juce::jlimit(0, kGridRows - 1, junction->upperRow))]
                 .active;
-        juce::DynamicObject::Ptr levels = new juce::DynamicObject();
-        levels->setProperty("id", juce::String(junction->id));
-        levels->setProperty("row", junction->upperRow);
-        levels->setProperty("active", active);
-        levels->setProperty("split", active ? channelPair(junction->splitMeterDb(0),
-                                                          junction->splitMeterDb(1))
-                                            : channelPair(-60.0f, -60.0f));
-        levels->setProperty("mix", active && junction->hasRejoin()
-                                       ? channelPair(junction->mixMeterDb(0), junction->mixMeterDb(1))
-                                       : channelPair(-60.0f, -60.0f));
-        splits.add(juce::var(levels.get()));
+        SplitMeter meter;
+        meter.id = junction->id;
+        meter.row = junction->upperRow;
+        meter.active = active;
+        if (active) {
+          meter.split[0] = junction->splitMeterDb(0);
+          meter.split[1] = junction->splitMeterDb(1);
+          if (junction->hasRejoin()) {
+            meter.mix[0] = junction->mixMeterDb(0);
+            meter.mix[1] = junction->mixMeterDb(1);
+          }
+        }
+        splitMeters.push_back(std::move(meter));
       }
     }
     for (int b = 0; b < activePlan.numBuses && b < kMaxIoPairs; ++b) {
       const ProcessingPlan::Bus& bus = activePlan.buses[static_cast<size_t>(b)];
-      juce::DynamicObject::Ptr levels = new juce::DynamicObject();
-      levels->setProperty("pair", static_cast<int>(bus.pair) + 1);
-      levels->setProperty("main", bus.mainStrip);
-      levels->setProperty("level",
-                          bus.mainStrip
-                              ? channelPair(outputMeterLevelL.load(), outputMeterLevelR.load())
-                              : channelPair(outputBuses[static_cast<size_t>(b)].meterL.load(),
-                                            outputBuses[static_cast<size_t>(b)].meterR.load()));
-      outputs.add(juce::var(levels.get()));
+      OutputMeter meter;
+      meter.pair = static_cast<int>(bus.pair) + 1;
+      meter.main = bus.mainStrip;
+      meter.level[0] = bus.mainStrip ? outputMeterLevelL.load()
+                                     : outputBuses[static_cast<size_t>(b)].meterL.load();
+      meter.level[1] = bus.mainStrip ? outputMeterLevelR.load()
+                                     : outputBuses[static_cast<size_t>(b)].meterR.load();
+      outputMeters.push_back(meter);
     }
+  }
+
+  juce::DynamicObject::Ptr blocks = new juce::DynamicObject();
+  for (const auto& meter : blockMeters) {
+    juce::DynamicObject::Ptr levels = new juce::DynamicObject();
+    levels->setProperty("in", meter.in);
+    levels->setProperty("out", meter.out);
+    if (meter.numReadings > 0) {
+      juce::DynamicObject::Ptr readings = new juce::DynamicObject();
+      for (size_t i = 0; i < meter.numReadings; ++i) {
+        const ReadingValue& reading = readingValues[meter.firstReading + i];
+        readings->setProperty(reading.id, reading.value);
+      }
+      levels->setProperty("readings", juce::var(readings.get()));
+    }
+    blocks->setProperty(juce::String(meter.id), juce::var(levels.get()));
+  }
+  root->setProperty("blocks", juce::var(blocks.get()));
+
+  juce::Array<juce::var> rows, outputs, splits;
+  if (gridMode) {
+    int rowIndex = 0;
+    for (const auto& meter : rowMeters) {
+      juce::DynamicObject::Ptr levels = new juce::DynamicObject();
+      levels->setProperty("row", rowIndex++);
+      levels->setProperty("active", meter.active);
+      levels->setProperty("in", channelPair(meter.in[0], meter.in[1]));
+      levels->setProperty("out", channelPair(meter.out[0], meter.out[1]));
+      rows.add(juce::var(levels.get()));
+    }
+    for (const auto& meter : splitMeters) {
+      juce::DynamicObject::Ptr levels = new juce::DynamicObject();
+      levels->setProperty("id", juce::String(meter.id));
+      levels->setProperty("row", meter.row);
+      levels->setProperty("active", meter.active);
+      levels->setProperty("split", channelPair(meter.split[0], meter.split[1]));
+      levels->setProperty("mix", channelPair(meter.mix[0], meter.mix[1]));
+      splits.add(juce::var(levels.get()));
+    }
+  }
+  for (const auto& meter : outputMeters) {
+    juce::DynamicObject::Ptr levels = new juce::DynamicObject();
+    levels->setProperty("pair", meter.pair);
+    levels->setProperty("main", meter.main);
+    levels->setProperty("level", channelPair(meter.level[0], meter.level[1]));
+    outputs.add(juce::var(levels.get()));
   }
   root->setProperty("rows", rows);
   root->setProperty("splits", splits);
@@ -2204,48 +2281,66 @@ bool TONE3000Processor::setBlockParam(const std::string& blockId, const juce::St
 }
 
 juce::var TONE3000Processor::getBlockParams(const std::string& blockId) const {
-  juce::ScopedLock lock(chainMutex);
-  const ChainBlock* block = nullptr;
-  for (const auto& l : lanes)
-    for (const auto& b : l)
-      if (b->id == blockId)
-        block = b.get();
-  if (block == nullptr || block->type == ChainBlockType::INSERT)
-    return {};
-
+  // A hosted plugin's parameter text is a call into the plugin (message
+  // thread, and the VST3 wrapper may take the message-manager lock), so it
+  // is read after the chain lock is released, through the instance's
+  // shared_ptr: the block can be removed meanwhile, the instance cannot die.
+  std::shared_ptr<HostedPluginInstance> hostedInstance;
   juce::Array<juce::var> params;
-  const auto add = [&params](const BlockParamSpec& spec, const char* scope, double value) {
-    juce::var described = spec.toVar();
-    described.getDynamicObject()->setProperty("scope", scope);
-    described.getDynamicObject()->setProperty("value", value);
-    params.add(described);
-  };
+  {
+    juce::ScopedLock lock(chainMutex);
+    const ChainBlock* block = nullptr;
+    for (const auto& l : lanes)
+      for (const auto& b : l)
+        if (b->id == blockId)
+          block = b.get();
+    if (block == nullptr || block->type == ChainBlockType::INSERT)
+      return {};
 
-  for (const auto& spec : commonBlockParams()) {
-    double value = 0.0;
-    if (spec.id == "enabled")
-      value = block->enabled ? 1.0 : 0.0;
-    else if (spec.id == "normalize")
-      value = block->processorState.normalize ? 1.0 : 0.0;
-    else if (spec.id == "inputGain")
-      value = block->inputGainNormalized;
-    else if (spec.id == "outputGain")
-      value = block->outputGainNormalized;
-    else if (spec.id == "mix")
-      value = block->mixNormalized;
-    add(spec, "common", value);
+    const auto add = [&params](const BlockParamSpec& spec, const char* scope, double value) {
+      juce::var described = spec.toVar();
+      described.getDynamicObject()->setProperty("scope", scope);
+      described.getDynamicObject()->setProperty("value", value);
+      params.add(described);
+    };
+
+    for (const auto& spec : commonBlockParams()) {
+      double value = 0.0;
+      if (spec.id == "enabled")
+        value = block->enabled ? 1.0 : 0.0;
+      else if (spec.id == "normalize")
+        value = block->processorState.normalize ? 1.0 : 0.0;
+      else if (spec.id == "inputGain")
+        value = block->inputGainNormalized;
+      else if (spec.id == "outputGain")
+        value = block->outputGainNormalized;
+      else if (spec.id == "mix")
+        value = block->mixNormalized;
+      add(spec, "common", value);
+    }
+
+    if (const auto* hosted = HostedPluginBlockProcessor::from(block->processor.get())) {
+      hostedInstance = hosted->instance();
+    } else if (block->processor != nullptr) {
+      const BlockParamTable& table = block->processor->parameterTable();
+      for (size_t i = 0; i < table.size(); ++i)
+        add(table[i], "kind",
+            static_cast<double>(block->processor->getParameter(static_cast<int>(i))));
+    }
   }
 
-  if (block->processor != nullptr) {
-    const BlockParamTable& table = block->processor->parameterTable();
+  if (hostedInstance != nullptr) {
+    const BlockParamTable& table = hostedInstance->parameterTable();
     for (size_t i = 0; i < table.size(); ++i) {
-      add(table[i], "kind",
-          static_cast<double>(block->processor->getParameter(static_cast<int>(i))));
-      // What the value means, for kinds whose numbers are not real units (a
-      // hosted plugin's 0..1).
-      const juce::String text = block->processor->parameterText(static_cast<int>(i));
+      juce::var described = table[i].toVar();
+      described.getDynamicObject()->setProperty("scope", "kind");
+      described.getDynamicObject()->setProperty(
+          "value", static_cast<double>(hostedInstance->getParameter(static_cast<int>(i))));
+      // What the value means: the plugin's 0..1 is not a real unit.
+      const juce::String text = hostedInstance->parameterText(static_cast<int>(i));
       if (text.isNotEmpty())
-        params.getReference(params.size() - 1).getDynamicObject()->setProperty("text", text);
+        described.getDynamicObject()->setProperty("text", text);
+      params.add(described);
     }
   }
   return params;

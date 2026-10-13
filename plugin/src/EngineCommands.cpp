@@ -212,7 +212,11 @@ EngineCommands::EngineCommands(TONE3000Processor& p, Scope s) : processor(p), sc
   // Every command starts from current plugin state: an edit's undo snapshot
   // and a duplicate's copy read hosted plugins from a cache that only the
   // message thread, off the chain lock, can refresh.
-  commands.beforeRun = [this] { processor.serviceHostedPlugins(); };
+  // A command that only reads takes no snapshot: a plugin that keeps flagging
+  // changes is not read again for every poll of the UI.
+  commands.beforeRun = [this] {
+    processor.serviceHostedPlugins(false, /*throttled=*/!commands.runningCommandMutates());
+  };
 
   registerStateCommands();
   registerParameterCommands();

@@ -53,9 +53,19 @@ public:
   PedaleiraTestFx()
       : AudioProcessor(initialBuses()), layoutMode(environment("PEDALEIRA_TESTFX_LAYOUT")),
         throwInProcess(!environment("PEDALEIRA_TESTFX_THROW").empty()) {
-    addParameter(gain = new juce::AudioParameterFloat(juce::ParameterID{"gain", 1}, "Gain",
-                                                      juce::NormalisableRange<float>(0.0f, 2.0f),
-                                                      1.0f));
+    // PEDALEIRA_TESTFX_SLOW_MS makes every call a host can make slow (the
+    // parameter text and the state), as a plugin that waits on its own UI
+    // thread does; PEDALEIRA_TESTFX_STATE_KB pads the state chunk.
+    const int slow = slowMs;
+    addParameter(gain = new juce::AudioParameterFloat(
+                     juce::ParameterID{"gain", 1}, "Gain",
+                     juce::NormalisableRange<float>(0.0f, 2.0f), 1.0f,
+                     juce::AudioParameterFloatAttributes().withStringFromValueFunction(
+                         [slow](float value, int) {
+                           if (slow > 0)
+                             juce::Thread::sleep(slow);
+                           return juce::String(value, 3);
+                         })));
     addParameter(delay = new juce::AudioParameterInt(juce::ParameterID{"delaySamples", 1},
                                                      "Delay Samples", 0, kMaxDelay, 0));
     delay->addListener(this);
@@ -152,7 +162,11 @@ public:
   }
 
   void getStateInformation(juce::MemoryBlock& destData) override {
+    if (slowMs > 0)
+      juce::Thread::sleep(slowMs);
     juce::XmlElement state("PedaleiraTestFx");
+    if (stateKb > 0)
+      state.setAttribute("pad", juce::String::repeatedString("x", stateKb * 1024));
     state.setAttribute("gain", static_cast<double>(gain->get()));
     state.setAttribute("delaySamples", delay->get());
     copyXmlToBinary(state, destData);
@@ -182,6 +196,8 @@ private:
   juce::AudioParameterInt* delay = nullptr;
   const std::string layoutMode;
   const bool throwInProcess;
+  const int slowMs = std::atoi(environment("PEDALEIRA_TESTFX_SLOW_MS").c_str());
+  const int stateKb = std::atoi(environment("PEDALEIRA_TESTFX_STATE_KB").c_str());
   const bool withEditor = !environment("PEDALEIRA_TESTFX_EDITOR").empty();
   std::vector<float> lines[2];
   int writeIndex = 0;

@@ -290,8 +290,13 @@ public:
   // hosted plugins' cached state up to date, so whatever snapshot the
   // command takes is current).
   std::function<void()> beforeRun;
+  // Whether the command beforeRun is being called for edits the rig (its
+  // `mutates`). A poll or a refresh takes no snapshot, so the hook can do
+  // less for it.
+  bool runningCommandMutates() const noexcept { return currentCommandMutates; }
 
 private:
+  bool currentCommandMutates{true};
   std::optional<CommandResult> validate(const juce::String& name, const juce::var& args,
                                         juce::var& validatedArgs,
                                         const Command*& commandOut) const;

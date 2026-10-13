@@ -50,6 +50,7 @@ given as `null`.
 | [`assets.tag`](#assetstag) | yes | edit | Adds tags to a capture (.nam) or IR (.wav) and removes others, in the user's own index (asset-tags.json in the library folder). Tags are kept by the file's content, so they follow it through a move or a rename. A tag is lowercased, trimmed and at most 32 characters; a file carries at most 32. Returns the file's tags after the change. See assets.tagSummary for the tags in use and a suggested vocabulary. |
 | [`assets.tagSummary`](#assetstagsummary) | no | read | How far the user's captures and IRs are tagged (captures and irs: total and tagged, over the same files assets.list finds), every tag in use with how many files carry it, and a suggested vocabulary to keep tags consistent (gain, character, gear, speaker, use). Agents choose tones by these tags. |
 | [`block.listParams`](#blocklistparams) | no | read | Lists everything block.setParam can set on a block, with current values: the five common settings (scope common, knob positions from 0 to 1) and then the parameters of the block's kind (scope kind, real units), each with its range, unit, default and flags. A hosted plugin block lists the plugin's own automatable parameters (the first 256) as normalised 0 to 1 values under the plugin's parameter ids, with the plugin's display text for the current value in text. |
+| [`block.loadDescription`](#blockloaddescription) | yes | edit | Gives an amp.custom block an amp: loads an amp description file (JSON, format pedaleira-amp, see docs/amp-framework.md and docs/amp-description.schema.json) that lists the amp's parts as read off its schematic, and builds that amp. The file is checked first; if it is refused the answer is invalid_args with the loader's message, which names the field, and the block is left as it was. Otherwise the block takes the amp's name, its voicing is set to the description's default, and the description's text is kept in the block's state (saved presets do not depend on the file staying where it was). One undo step. A new amp.custom block starts as the shipped High Gain amp. Only blocks of a kind that takes a description (see kinds.list: amp.custom) accept a file. |
 | [`block.resetEq`](#blockreseteq) | yes | edit | Returns a block's EQ to its flat defaults, switched on and post-model. |
 | [`block.setEnabled`](#blocksetenabled) | yes | edit | Turns a block on or off (off passes the signal through untouched). A block of a kind with spillover (see kinds.list) whose spillover parameter is on keeps ringing after it is turned off: its input closes and its tail plays out over the dry signal, for as long as the block's reported tail (at most 30 seconds); with the parameter off the tail is cut. The state belongs to the active scene: a block is in the same state in every scene until this is first used on it, and from then on each scene has its own. |
 | [`block.setEqBand`](#blockseteqband) | yes | edit | Changes one band of a block's six-band EQ; fields left out keep their current value. |
@@ -323,6 +324,17 @@ Mutates state: no. Permission: read.
 | Parameter | Type | Required | Allowed | Description |
 |---|---|---|---|---|
 | `blockId` | string | yes |  | The tone block. |
+
+## block.loadDescription
+
+Gives an amp.custom block an amp: loads an amp description file (JSON, format pedaleira-amp, see docs/amp-framework.md and docs/amp-description.schema.json) that lists the amp's parts as read off its schematic, and builds that amp. The file is checked first; if it is refused the answer is invalid_args with the loader's message, which names the field, and the block is left as it was. Otherwise the block takes the amp's name, its voicing is set to the description's default, and the description's text is kept in the block's state (saved presets do not depend on the file staying where it was). One undo step. A new amp.custom block starts as the shipped High Gain amp. Only blocks of a kind that takes a description (see kinds.list: amp.custom) accept a file.
+
+Mutates state: yes. Permission: edit.
+
+| Parameter | Type | Required | Allowed | Description |
+|---|---|---|---|---|
+| `blockId` | string | yes |  | The tone block. |
+| `file` | string (path) | yes |  | The description file, an absolute path (a relative one is taken from the working directory). |
 
 ## block.resetEq
 

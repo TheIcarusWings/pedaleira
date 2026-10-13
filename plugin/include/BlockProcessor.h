@@ -419,6 +419,28 @@ public:
       registry's name for the kind. */
   virtual juce::String displayName() const { return {}; }
 
+  /** True for a kind that is configured by a description file (amp.custom,
+      docs/amp-framework.md). Such a kind keeps the description's text in its
+      state chunk, so it travels with presets and undo like the chunk of a
+      hosted plugin; block.loadDescription gives it a new one. */
+  virtual bool takesDescription() const noexcept { return false; }
+
+  /** Whether `text` is a description this kind can load; `error` says what is
+      wrong and where when it is not. Changes nothing. Any thread. */
+  virtual bool checkDescription(const juce::String& text, juce::String& error) const {
+    juce::ignoreUnused(text);
+    error = "this block takes no description";
+    return false;
+  }
+
+  /** Gives the kind the description in `text`. On failure the kind is left as
+      it was. The caller keeps the audio thread out (the chain lock). */
+  virtual bool loadDescription(const juce::String& text, juce::String& error) {
+    juce::ignoreUnused(text);
+    error = "this block takes no description";
+    return false;
+  }
+
   /** False for a kind whose chunk already holds every parameter (a hosted
       plugin): its node then carries no Param children, which would only
       repeat the chunk in every undo snapshot. */

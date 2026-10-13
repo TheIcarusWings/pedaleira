@@ -2280,6 +2280,33 @@ bool TONE3000Processor::setBlockParam(const std::string& blockId, const juce::St
   return true;
 }
 
+bool TONE3000Processor::setBlockDescription(const std::string& blockId, const juce::String& text,
+                                            juce::String& error) {
+  juce::ScopedLock lock(chainMutex);
+  ChainBlock* block = findBlockById(blockId);
+  if (block == nullptr || block->type != ChainBlockType::KIND || block->processor == nullptr ||
+      block->isMissingKind()) {
+    error = "the block is not a block of a kind that takes a description";
+    return false;
+  }
+  if (!block->processor->takesDescription()) {
+    error = "a '" + block->kindId + "' block takes no description";
+    return false;
+  }
+  // Validate before recording history, so a refused file never leaves an entry.
+  if (!block->processor->checkDescription(text, error))
+    return false;
+  pushChainHistory();
+  // The chain lock keeps the audio thread out while the kind rebuilds.
+  if (!block->processor->loadDescription(text, error)) {
+    return false;
+  }
+  if (const juce::String own = block->processor->displayName(); own.isNotEmpty())
+    block->kindName = own;
+  bumpChainRevision();
+  return true;
+}
+
 juce::var TONE3000Processor::getBlockParams(const std::string& blockId) const {
   // A hosted plugin's parameter text is a call into the plugin (message
   // thread, and the VST3 wrapper may take the message-manager lock), so it

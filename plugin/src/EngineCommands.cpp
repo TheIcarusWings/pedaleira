@@ -1115,6 +1115,43 @@ void EngineCommands::registerBlockCommands() {
   });
 
   commands.add({
+      "block.loadDescription",
+      "Gives an amp.custom block an amp: loads an amp description file (JSON, format "
+      "pedaleira-amp, see docs/amp-framework.md and docs/amp-description.schema.json) that lists "
+      "the amp's parts as read off its schematic, and builds that amp. The file is checked "
+      "first; if it is refused the answer is invalid_args with the loader's message, which "
+      "names the field, and the block is left as it was. Otherwise the block takes the amp's "
+      "name, its voicing is set to the description's default, and the description's text is "
+      "kept in the block's state (saved presets do not depend on the file staying where it "
+      "was). One undo step. A new amp.custom block starts as the shipped High Gain amp. Only "
+      "blocks of a kind that takes a description (see kinds.list: amp.custom) accept a file.",
+      {blockIdParam,
+       P::required("file", T::string,
+                   "The description file, an absolute path (a relative one is taken from the "
+                   "working directory).")
+           .path()},
+      true,
+      CommandPermission::edit,
+      [this](const juce::var& args) {
+        const juce::String blockId = args["blockId"].toString();
+        BlockRef ref;
+        if (auto error = toneBlockError(processor.getChainState(-1), blockId, &ref))
+          return *error;
+        const juce::File file =
+            juce::File::getCurrentWorkingDirectory().getChildFile(args["file"].toString());
+        if (!file.existsAsFile())
+          return fail(CommandError::notFound, "file not found: " + file.getFullPathName());
+        if (file.getSize() > 4 * 1024 * 1024)
+          return fail(CommandError::invalidArgs, "block.loadDescription: the file is over 4 MB, "
+                                                 "which no amp description is");
+        juce::String error;
+        if (!processor.setBlockDescription(blockId.toStdString(), file.loadFileAsString(), error))
+          return fail(CommandError::invalidArgs, "block.loadDescription: " + error);
+        return blockResult(blockId);
+      },
+  });
+
+  commands.add({
       "block.setParam",
       "Sets one of a block's settings. The common ones are knob positions: inputGain, "
       "outputGain and mix from 0 to 1 (0.5 is unity for the gains), enabled and normalize as "

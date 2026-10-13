@@ -902,6 +902,23 @@ void AccessibilityHandler::postAnnouncement (const String& announcementString, A
     endif()
 endif()
 
+# chowdsp_wdf: wave digital filter circuit modelling (BSD-3, header only), for
+# the amp framework's wave digital stages (plugin/include/amp/WdfTriodeStage.h).
+# Pinned to an exact release tag. DOWNLOAD_ONLY: the library's own CMake file
+# would pull in its tests and benchmarks and a second copy of CPM; all that is
+# needed is its include folder, exposed as the interface target PedaleiraWdf,
+# which cmake/AmpFramework.cmake links to the targets that compile the effects.
+CPMAddPackage(
+    NAME chowdsp_wdf
+    GITHUB_REPOSITORY Chowdhury-DSP/chowdsp_wdf
+    GIT_TAG v1.0.0
+    VERSION 1.0.0
+    SOURCE_DIR ${LIB_DIR}/chowdsp_wdf
+    DOWNLOAD_ONLY YES
+)
+add_library(PedaleiraWdf INTERFACE)
+target_include_directories(PedaleiraWdf SYSTEM INTERFACE ${LIB_DIR}/chowdsp_wdf/include)
+
 # Download GoogleTest Framework using CPM
 CPMAddPackage(
     NAME GOOGLETEST

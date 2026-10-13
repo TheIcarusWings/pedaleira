@@ -34,32 +34,40 @@ int PushButton::idealWidth() const {
   return juce::roundToInt(juce::GlyphArrangement::getStringWidth(font, getButtonText())) + 28 + (icon != nullptr ? 24 : 0);
 }
 
-void PushButton::paintButton(juce::Graphics& g, bool highlighted, bool down) {
-  const auto area = getLocalBounds().toFloat();
+void PushButton::buttonStateChanged() {
+  hover.setTarget(isOver() && isEnabled() ? 1.0f : 0.0f);
+  press.setTarget(isDown() && isEnabled() ? 1.0f : 0.0f);
+}
+
+void PushButton::paintButton(juce::Graphics& g, bool, bool) {
+  const float lit = hover.value(), sink = press.value();
+  // Pressed, it sinks a pixel and darkens.
+  g.addTransform(juce::AffineTransform::translation(0.0f, sink));
+  const auto area = getLocalBounds().toFloat().withTrimmedBottom(1.0f);
   const float alpha = isEnabled() ? 1.0f : 0.45f;
   juce::Colour textColour = colour::text;
   switch (kind) {
     case Kind::primary: {
-      const juce::Colour fill = highlighted && !down ? colour::irisHover : colour::iris;
+      const juce::Colour fill = colour::iris.interpolatedWith(colour::irisHover, lit).darker(0.25f * sink);
       g.setColour(fill.withMultipliedAlpha(alpha));
       g.fillRoundedRectangle(area, size::buttonRadius);
       textColour = colour::ground;
       break;
     }
     case Kind::secondary: {
-      const juce::Colour fill = down ? colour::control : highlighted ? colour::control : colour::raised;
+      const juce::Colour fill = colour::raised.interpolatedWith(colour::control, juce::jmax(lit, sink)).darker(0.2f * sink);
       g.setColour(fill.withMultipliedAlpha(alpha));
       g.fillRoundedRectangle(area, size::buttonRadius);
-      g.setColour(colour::line.withMultipliedAlpha(alpha));
+      g.setColour(colour::line.interpolatedWith(colour::dim, 0.5f * lit).withMultipliedAlpha(alpha));
       g.drawRoundedRectangle(area.reduced(0.5f), size::buttonRadius, 1.0f);
       break;
     }
     case Kind::ghost:
-      if (highlighted) {
-        g.setColour(colour::raised);
+      if (lit > 0.0f) {
+        g.setColour(colour::raised.withAlpha(lit));
         g.fillRoundedRectangle(area, size::buttonRadius);
       }
-      textColour = highlighted ? colour::text : colour::muted;
+      textColour = colour::muted.interpolatedWith(colour::text, lit);
       break;
   }
   if (hasKeyboardFocus(false)) {
@@ -97,12 +105,15 @@ void SelectBox::setChoice(const juce::String& newText) {
   repaint();
 }
 
-void SelectBox::paintButton(juce::Graphics& g, bool highlighted, bool) {
+void SelectBox::buttonStateChanged() { hover.setTarget(isOver() && isEnabled() ? 1.0f : 0.0f); }
+
+void SelectBox::paintButton(juce::Graphics& g, bool, bool) {
   const auto area = getLocalBounds().toFloat();
   const float alpha = isEnabled() ? 1.0f : 0.45f;
-  g.setColour((highlighted ? colour::control : colour::raised).withMultipliedAlpha(alpha));
+  const float lit = hover.value();
+  g.setColour(colour::raised.interpolatedWith(colour::control, lit).withMultipliedAlpha(alpha));
   g.fillRoundedRectangle(area, size::buttonRadius);
-  g.setColour(colour::line.withMultipliedAlpha(alpha));
+  g.setColour(colour::line.interpolatedWith(colour::dim, 0.5f * lit).withMultipliedAlpha(alpha));
   g.drawRoundedRectangle(area.reduced(0.5f), size::buttonRadius, 1.0f);
   if (hasKeyboardFocus(false)) {
     g.setColour(colour::iris);
@@ -134,6 +145,9 @@ void SegmentedControl::setSelected(int index, juce::NotificationType notificatio
   if (index == selected)
     return;
   selected = index;
+  const auto segment = segmentBounds(selected);
+  pillX.setTarget(segment.getX());
+  pillWidth.setTarget(segment.getWidth());
   repaint();
   if (notification != juce::dontSendNotification && onChange)
     onChange(selected);
@@ -173,17 +187,24 @@ void SegmentedControl::paint(juce::Graphics& g) {
   if (!isEnabled())
     g.beginTransparencyLayer(0.45f);
   paint::panel(g, getLocalBounds().toFloat(), colour::surface, 10.0f);
+  if (!options.isEmpty()) {
+    // The pill, where the selection is or on its way there.
+    const auto at = segmentBounds(selected);
+    const auto pill = juce::Rectangle<float>(pillX.value(), at.getY(), pillWidth.value(), at.getHeight());
+    g.setColour(colour::drop);
+    g.fillRoundedRectangle(pill.translated(0.0f, 1.0f), 7.0f);
+    g.setColour(colour::control);
+    g.fillRoundedRectangle(pill, 7.0f);
+  }
   for (int i = 0; i < options.size(); ++i) {
     const auto segment = segmentBounds(i);
     const bool on = i == selected;
-    if (on) {
-      g.setColour(colour::drop);
-      g.fillRoundedRectangle(segment.translated(0.0f, 1.0f), 7.0f);
-      g.setColour(colour::control);
-      g.fillRoundedRectangle(segment, 7.0f);
+    if (!on && i == hovered) {
+      g.setColour(colour::raised);
+      g.fillRoundedRectangle(segment.reduced(1.0f), 7.0f);
     }
     g.setFont(type::button());
-    g.setColour(on ? colour::text : colour::muted);
+    g.setColour(on || i == hovered ? colour::text : colour::muted);
     g.drawText(options[i], segment, juce::Justification::centred, true);
   }
   if (hasKeyboardFocus(false)) {
@@ -192,6 +213,29 @@ void SegmentedControl::paint(juce::Graphics& g) {
   }
   if (!isEnabled())
     g.endTransparencyLayer();
+}
+
+void SegmentedControl::resized() {
+  if (options.isEmpty())
+    return;
+  const auto segment = segmentBounds(selected);
+  pillX.snapTo(segment.getX());
+  pillWidth.snapTo(segment.getWidth());
+}
+
+void SegmentedControl::mouseMove(const juce::MouseEvent& event) {
+  const int now = isEnabled() ? segmentAt(event.position) : -1;
+  if (now != hovered) {
+    hovered = now;
+    repaint();
+  }
+}
+
+void SegmentedControl::mouseExit(const juce::MouseEvent&) {
+  if (hovered >= 0) {
+    hovered = -1;
+    repaint();
+  }
 }
 
 void SegmentedControl::mouseUp(const juce::MouseEvent& event) {
@@ -239,14 +283,28 @@ Toggle::Toggle(const juce::String& accessibleName) : juce::Button(accessibleName
   setMouseCursor(juce::MouseCursor::PointingHandCursor);
 }
 
+void Toggle::buttonStateChanged() { hover.setTarget(isOver() && isEnabled() ? 1.0f : 0.0f); }
+
+void Toggle::clicked() {
+  // A click slides the knob; a state set from outside (a scene, an undo)
+  // shows at once, below.
+  slide.setTarget(getToggleState() ? 1.0f : 0.0f);
+}
+
 void Toggle::paintButton(juce::Graphics& g, bool, bool) {
+  const float target = getToggleState() ? 1.0f : 0.0f;
+  if (!seen || (!slide.moving() && slide.value() != target)) {
+    seen = true;
+    slide.snapTo(target);
+  }
+  const float t = slide.value(), lit = hover.value();
   const auto track = getLocalBounds().toFloat().withSizeKeepingCentre(40.0f, 22.0f);
-  const bool on = getToggleState();
-  g.setColour(on ? colour::iris : colour::line);
+  g.setColour(colour::line.interpolatedWith(colour::dim, 0.35f * lit)
+                  .interpolatedWith(colour::iris.interpolatedWith(colour::irisHover, lit), t));
   g.fillRoundedRectangle(track, 11.0f);
   const float knob = 18.0f;
-  const float x = on ? track.getRight() - 2.0f - knob : track.getX() + 2.0f;
-  g.setColour(on ? colour::ground : colour::muted);
+  const float x = track.getX() + 2.0f + (track.getWidth() - 4.0f - knob) * t;
+  g.setColour(colour::muted.interpolatedWith(colour::text, 0.4f * lit).interpolatedWith(colour::ground, t));
   g.fillEllipse(x, track.getCentreY() - knob * 0.5f, knob, knob);
   if (hasKeyboardFocus(false)) {
     g.setColour(colour::irisHover);

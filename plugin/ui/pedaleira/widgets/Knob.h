@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../Tokens.h"
+#include "Motion.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -38,9 +39,13 @@ public:
   std::function<void()> onContextMenu;
 
   void paint(juce::Graphics& g) override;
+  void mouseEnter(const juce::MouseEvent& event) override;
+  void mouseExit(const juce::MouseEvent& event) override;
   void mouseDown(const juce::MouseEvent& event) override;
   void mouseDrag(const juce::MouseEvent& event) override;
+  void mouseUp(const juce::MouseEvent& event) override;
   void mouseDoubleClick(const juce::MouseEvent& event) override;
+  void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
   bool keyPressed(const juce::KeyPress& key) override;
 
 private:
@@ -54,6 +59,10 @@ private:
   Assignment assignment = Assignment::none;
   bool bypassed = false;
   int diameter = 64;
+  // The mouse over the knob (a halo and a brighter track), and a turn in
+  // progress (the value lights up and the cap grows a little).
+  Tween hover{*this};
+  Tween turning{*this, 0.0f, motion::pressMs};
 };
 
 // A horizontal level meter, -60 to 0 dB, green into amber into red, with an

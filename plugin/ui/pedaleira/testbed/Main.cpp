@@ -16,6 +16,7 @@
 #include "SetlistLibrary.h"
 #include "CaptureScenes.h"
 #include "FakeDevice.h"
+#include "widgets/Motion.h"
 #include "Gallery.h"
 #include "pages/CapturePage.h"
 #include "pages/ComingSoon.h"
@@ -357,6 +358,15 @@ const std::vector<Scenario>& scenarios() {
       {"picker-delay", "The block library filtered to delays", Page::grid, kFullRig, false, "", "", "picker:0:6:delay"},
       {"editor-effect", "A tape echo's editor: time with tempo sync, its other parameters, output", Page::grid,
        kEditorRig, false, "", "", "editor:$slot:0:4"},
+      {"editor-geq", "The graphic equaliser's editor: band sliders over their curve", Page::grid,
+       R"([{"command":"grid.convert","args":{"to":"grid"}},
+           {"command":"chain.addBlock","args":{"kind":"eq.graphic10","row":0,"slot":0}},
+           {"command":"block.setParam","args":{"blockId":"$slot:0:0","param":"band63","value":4}},
+           {"command":"block.setParam","args":{"blockId":"$slot:0:0","param":"band250","value":-3}},
+           {"command":"block.setParam","args":{"blockId":"$slot:0:0","param":"band1k","value":5.5}},
+           {"command":"block.setParam","args":{"blockId":"$slot:0:0","param":"band4k","value":-6}},
+           {"command":"block.setParam","args":{"blockId":"$slot:0:0","param":"band16k","value":2}}])",
+       false, "", "", "editor:$slot:0:0"},
       {"editor-reverb", "A plate reverb's editor: no tempo, one parameters section and the output", Page::grid,
        kEditorRig, false, "", "", "editor:$slot:0:5"},
       {"editor-nam", "A NAM capture's editor: capture info, levels, block EQ and meters", Page::grid, kEditorRig,
@@ -1138,6 +1148,8 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
 
 int main(int argc, char** argv) {
   juce::ScopedJuceInitialiser_GUI juceInit;
+  // Pictures show where things end up, never halfway through a motion.
+  pedaleira::ui::motion::setEnabled(false);
   juce::StringArray arguments;
   for (int i = 1; i < argc; ++i)
     arguments.add(juce::String::fromUTF8(argv[i]));

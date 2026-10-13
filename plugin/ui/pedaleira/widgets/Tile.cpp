@@ -31,8 +31,33 @@ void Tile::setEmpty() {
 }
 
 void Tile::setSelected(bool isSelected) {
+  if (selected == isSelected)
+    return;
   selected = isSelected;
+  ring.setTarget(selected ? 1.0f : 0.0f);
   repaint();
+}
+
+void Tile::mouseEnter(const juce::MouseEvent& event) {
+  hover.setTarget(1.0f);
+  mouseMove(event);
+}
+
+void Tile::mouseExit(const juce::MouseEvent&) {
+  hover.setTarget(0.0f);
+  powerHover.setTarget(0.0f);
+  press.setTarget(0.0f);
+}
+
+void Tile::mouseMove(const juce::MouseEvent& event) {
+  const bool overPower = state != State::empty && onPower != nullptr && state != State::missing &&
+                         powerArea().expanded(4.0f).contains(event.position);
+  powerHover.setTarget(overPower ? 1.0f : 0.0f);
+}
+
+void Tile::mouseDown(const juce::MouseEvent& event) {
+  if (!event.mods.isPopupMenu())
+    press.setTarget(1.0f);
 }
 
 void Tile::setFootswitch(const juce::String& letter) {
@@ -41,14 +66,22 @@ void Tile::setFootswitch(const juce::String& letter) {
 }
 
 void Tile::paint(juce::Graphics& g) {
+  const float lit = hover.value(), held = press.value();
+  // Held down, the tile settles a little (2 % smaller, about its centre).
+  if (held > 0.0f) {
+    const float scale = 1.0f - 0.02f * held;
+    g.addTransform(juce::AffineTransform::scale(scale, scale, getWidth() * 0.5f, getHeight() * 0.5f));
+  }
   const auto area = getLocalBounds().toFloat().reduced(2.0f);
   const float radius = size::panelRadius;
 
   if (state == State::empty) {
-    g.setColour(colour::ground);
+    // An empty slot answers the mouse: the outline and the plus brighten.
+    g.setColour(colour::ground.interpolatedWith(colour::surface, lit));
     g.fillRoundedRectangle(area, radius);
-    paint::dashedOutline(g, area, radius, colour::line);
-    icons::draw(g, icons::path(icons::Icon::plus), area.withSizeKeepingCentre(20.0f, 20.0f), colour::faint);
+    paint::dashedOutline(g, area, radius, colour::line.interpolatedWith(colour::dim, lit));
+    icons::draw(g, icons::path(icons::Icon::plus), area.withSizeKeepingCentre(20.0f, 20.0f),
+                colour::faint.interpolatedWith(colour::text, lit));
   } else {
     const bool grey = state == State::bypassed || state == State::missing;
     const juce::Colour hue = grey ? colour::dim : categoryColour(category);
@@ -58,6 +91,13 @@ void Tile::paint(juce::Graphics& g) {
       paint::dashedOutline(g, area, radius, state == State::missing ? colour::warn : colour::faint);
     } else {
       paint::raised(g, area, radius, categoryTint(category));
+    }
+    // Under the mouse a block lights up a little, its edge in its own colour.
+    if (lit > 0.0f) {
+      g.setColour(juce::Colours::white.withAlpha(0.04f * lit));
+      g.fillRoundedRectangle(area, radius);
+      g.setColour(hue.withAlpha(0.45f * lit));
+      g.drawRoundedRectangle(area.reduced(0.5f), radius, 1.0f);
     }
     if (state == State::loading)
       g.setOpacity(0.55f);
@@ -83,9 +123,11 @@ void Tile::paint(juce::Graphics& g) {
       // Lit in the block's colour when it runs, faint when it is off.
       const auto power = powerArea();
       const bool on = state == State::active || state == State::loading;
-      g.setColour(on ? hue.withAlpha(0.18f) : colour::ground);
+      const float over = powerHover.value();
+      g.setColour(on ? hue.withAlpha(0.18f + 0.22f * over) : colour::ground.interpolatedWith(colour::control, over));
       g.fillEllipse(power);
-      icons::draw(g, icons::path(icons::Icon::power), power.reduced(4.0f), on ? hue : colour::faint, 2.0f);
+      icons::draw(g, icons::path(icons::Icon::power), power.reduced(4.0f),
+                  on ? hue.brighter(0.3f * over) : colour::faint.interpolatedWith(colour::text, over), 2.0f);
     }
 
     if (footswitch.isNotEmpty()) {
@@ -98,8 +140,10 @@ void Tile::paint(juce::Graphics& g) {
     }
   }
 
-  if (selected || hasKeyboardFocus(false)) {
-    g.setColour(colour::iris);
+  // The selection ring fades in; keyboard focus shows it at once.
+  const float shown = hasKeyboardFocus(false) ? 1.0f : ring.value();
+  if (shown > 0.0f) {
+    g.setColour(colour::iris.withAlpha(shown));
     g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), radius + 1.0f, 2.0f);
   }
 }
@@ -110,6 +154,7 @@ juce::Rectangle<float> Tile::powerArea() const {
 }
 
 void Tile::mouseUp(const juce::MouseEvent& event) {
+  press.setTarget(0.0f);
   if (!event.mouseWasClicked())
     return;
   const bool block = state != State::empty;
@@ -216,8 +261,9 @@ void Footswitch::setSelected(bool isSelected) {
 
 void Footswitch::paint(juce::Graphics& g) {
   const FootswitchMetrics m = metricsOf(sizeClass);
+  const float sink = press.value() * m.drop, lit = hover.value();
   const auto circle = juce::Rectangle<float>(m.diameter, m.diameter)
-                          .withCentre({getWidth() * 0.5f, m.glow + m.diameter * 0.5f});
+                          .withCentre({getWidth() * 0.5f, m.glow + m.diameter * 0.5f + sink});
   const bool filled = look == Look::active || (look == Look::tap && blink);
   const bool dashed = look == Look::empty || look == Look::tap;
   const juce::Colour borderColour = look == Look::stomp    ? ring
@@ -233,9 +279,11 @@ void Footswitch::paint(juce::Graphics& g) {
   }
   if (look != Look::empty) {
     g.setColour(colour::drop);
-    g.fillEllipse(circle.translated(0.0f, m.drop));
+    g.fillEllipse(circle.translated(0.0f, m.drop - sink));
   }
-  g.setColour(filled ? colour::iris : look == Look::empty ? colour::surface : colour::control);
+  g.setColour(filled ? colour::iris.interpolatedWith(colour::irisHover, lit)
+              : look == Look::empty ? colour::surface.interpolatedWith(colour::raised, lit)
+                                    : colour::control.interpolatedWith(colour::line, 0.5f * lit));
   g.fillEllipse(circle);
   if (look != Look::empty && !filled) {
     // The 1 px highlight along the top edge.
@@ -328,11 +376,13 @@ void Footswitch::paint(juce::Graphics& g) {
 }
 
 void Footswitch::mouseDown(const juce::MouseEvent&) {
+  press.setTarget(1.0f);
   if (onPress)
     onPress();
 }
 
 void Footswitch::mouseUp(const juce::MouseEvent&) {
+  press.setTarget(0.0f);
   if (onRelease)
     onRelease();
 }

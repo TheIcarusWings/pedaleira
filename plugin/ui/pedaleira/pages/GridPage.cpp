@@ -61,11 +61,14 @@ void ScenesStrip::paint(juce::Graphics& g) {
     const GridScene& scene = scenes[i];
     const auto area = buttonBounds(static_cast<int>(i));
     // Active: iris; a scene with a name of its own: raised; the rest plain.
-    const juce::Colour fill = scene.active ? colour::iris : scene.named ? colour::raised : juce::Colours::transparentBlack;
-    const juce::Colour fg = scene.active ? colour::ground : scene.named ? colour::text : colour::muted;
+    const bool lit = static_cast<int>(i) == hovered;
+    juce::Colour fill = scene.active ? colour::iris : scene.named ? colour::raised : juce::Colours::transparentBlack;
+    if (lit)
+      fill = scene.active ? colour::irisHover : colour::control;
+    const juce::Colour fg = scene.active ? colour::ground : scene.named || lit ? colour::text : colour::muted;
     g.setColour(fill);
     g.fillRoundedRectangle(area, size::buttonRadius);
-    g.setColour(scene.active ? colour::iris : colour::line);
+    g.setColour(scene.active ? colour::iris : lit ? colour::dim : colour::line);
     g.drawRoundedRectangle(area.reduced(0.5f), size::buttonRadius, 1.0f);
     auto inner = area.reduced(10.0f, 0.0f);
     g.setFont(type::mono(13.0f));
@@ -77,14 +80,38 @@ void ScenesStrip::paint(juce::Graphics& g) {
   }
   if (scenes.size() < 8) {
     const auto area = buttonBounds(static_cast<int>(scenes.size()));
-    paint::dashedOutline(g, area, size::buttonRadius, colour::line);
+    const bool lit = hovered == static_cast<int>(scenes.size());
+    if (lit) {
+      g.setColour(colour::raised);
+      g.fillRoundedRectangle(area, size::buttonRadius);
+    }
+    paint::dashedOutline(g, area, size::buttonRadius, lit ? colour::dim : colour::line);
     auto inner = area.reduced(10.0f, 0.0f);
     icons::draw(g, icons::path(icons::Icon::plus), inner.removeFromLeft(14.0f).withSizeKeepingCentre(14.0f, 14.0f),
                 colour::muted);
     inner.removeFromLeft(8.0f);
     g.setFont(type::button());
-    g.setColour(colour::muted);
+    g.setColour(lit ? colour::text : colour::muted);
     g.drawText("Add scene", inner, juce::Justification::centredLeft, true);
+  }
+}
+
+void ScenesStrip::mouseMove(const juce::MouseEvent& event) {
+  int now = -1;
+  for (size_t i = 0; i <= scenes.size() && i < 8; ++i)
+    if (buttonBounds(static_cast<int>(i)).contains(event.position))
+      now = static_cast<int>(i);
+  if (now != hovered) {
+    hovered = now;
+    repaint();
+  }
+  setMouseCursor(now >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void ScenesStrip::mouseExit(const juce::MouseEvent&) {
+  if (hovered >= 0) {
+    hovered = -1;
+    repaint();
   }
 }
 
@@ -224,12 +251,54 @@ void GridView::setLevels(const std::array<RowLevels, 4>& now) {
         clipUntil[r][1] = time + 2000;
     }
   }
-  levels = now;
+  targets = now;
+  if (!motion::enabled()) {
+    levels = now;
+    timerCallback();
+    return;
+  }
+  if (!isTimerRunning())
+    startTimerHz(30);
+}
+
+void GridView::timerCallback() {
+  // Up at once, down at 24 dB a second (0.8 dB a frame at 30 frames).
+  bool settled = true;
+  const auto follow = [&settled](float& shown, float target) {
+    shown = target >= shown ? target : juce::jmax(target, shown - 0.8f);
+    settled = settled && shown == target;
+  };
+  for (size_t r = 0; r < 4; ++r)
+    for (size_t c = 0; c < 2; ++c) {
+      follow(levels[r].in[c], targets[r].in[c]);
+      follow(levels[r].out[c], targets[r].out[c]);
+    }
+  if (settled)
+    stopTimer();
   const int outputX = kFirstSlotX + 8 * kSlotPitch;
   for (size_t v = 0; v < shown.size(); ++v) {
     repaint(kInputX, rowTop(static_cast<int>(v)), kInputWidth, kSlotHeight);
     repaint(outputX, rowTop(static_cast<int>(v)), kOutputWidth, kSlotHeight);
   }
+}
+
+GridView::Hover GridView::hoverAt(juce::Point<float> position) const {
+  const auto [row, part] = levelPartAt(position);
+  switch (part) {
+    case LevelPart::trim: return {row, HoverPart::trim};
+    case LevelPart::volume: return {row, HoverPart::volume};
+    case LevelPart::mute: return {row, HoverPart::mute};
+    case LevelPart::solo: return {row, HoverPart::solo};
+    case LevelPart::none: break;
+  }
+  juce::Rectangle<int> box;
+  if (const auto input = rowInputAt(position.toInt(), &box))
+    return {*input, HoverPart::input};
+  if (const auto output = rowOutputAt(position.toInt(), &box))
+    return {*output, HoverPart::output};
+  if (shown.size() < 4 && addRowBounds().toFloat().contains(position))
+    return {-1, HoverPart::addRow};
+  return {};
 }
 
 juce::Rectangle<float> GridView::inputMeterArea(int visibleIndex) const {
@@ -383,9 +452,19 @@ void GridView::paint(juce::Graphics& g) {
     const bool ownInput = row.source == "device";
     g.setColour(colour::surface);
     g.fillRoundedRectangle(input, size::panelRadius);
+    const bool inputLit = hovering.row == row.index && hovering.part == HoverPart::input;
+    if (inputLit) {
+      g.setColour(colour::raised);
+      g.fillRoundedRectangle(input, size::panelRadius);
+    }
     if (ownInput) {
-      g.setColour(colour::line);
+      g.setColour(inputLit ? colour::dim : colour::line);
       g.drawRoundedRectangle(input.reduced(0.5f), size::panelRadius, 1.0f);
+      // A chevron says the box opens a menu.
+      if (inputLit)
+        icons::draw(g, icons::path(icons::Icon::chevronDown),
+                    juce::Rectangle<float>(12.0f, 12.0f).withPosition(input.getRight() - 20.0f, input.getY() + 30.0f),
+                    colour::muted, 2.0f);
     } else {
       paint::dashedOutline(g, input, size::panelRadius, colour::line);
     }
@@ -401,6 +480,11 @@ void GridView::paint(juce::Graphics& g) {
     const juce::uint32 time = juce::Time::getMillisecondCounter();
     const auto& level = levels[static_cast<size_t>(row.index)];
     const auto& hold = holds[static_cast<size_t>(row.index)];
+    if ((hovering.row == row.index && hovering.part == HoverPart::trim) ||
+        (levelDrag && levelDrag->row == row.index && levelDrag->part == LevelPart::trim)) {
+      g.setColour(colour::dim);
+      g.drawRoundedRectangle(inputMeterArea(static_cast<int>(i)).expanded(3.0f, 3.0f), 4.0f, 1.0f);
+    }
     paintMeterPair(g, inputMeterArea(static_cast<int>(i)), level.in, hold.in,
                    time < clipUntil[static_cast<size_t>(row.index)][0]);
     // The trim shows once it is not 0 dB.
@@ -417,6 +501,14 @@ void GridView::paint(juce::Graphics& g) {
     if (row.sink == "device") {
       paint::panel(g, output);
       auto inner = output.reduced(10.0f);
+      const auto nameLine = inner.withHeight(24.0f).withTrimmedRight(64.0f);
+      if (hovering.row == row.index && hovering.part == HoverPart::output) {
+        g.setColour(colour::control);
+        g.fillRoundedRectangle(nameLine.expanded(4.0f, 0.0f), 6.0f);
+        icons::draw(g, icons::path(icons::Icon::chevronDown),
+                    juce::Rectangle<float>(12.0f, 12.0f).withCentre({nameLine.getRight() - 6.0f, nameLine.getCentreY()}),
+                    colour::muted, 2.0f);
+      }
       g.setFont(type::sans(13.0f, type::Weight::semibold));
       g.setColour(colour::text);
       g.drawText(row.outputName, inner.withHeight(24.0f), juce::Justification::centredLeft, true);
@@ -425,7 +517,9 @@ void GridView::paint(juce::Graphics& g) {
         const bool on = b == 0 ? row.outputMute : row.outputSolo;
         g.setColour(on ? (b == 0 ? colour::warn : colour::iris) : colour::raised);
         g.fillRoundedRectangle(box, 6.0f);
-        g.setColour(colour::line);
+        const bool boxLit = hovering.row == row.index &&
+                            hovering.part == (b == 0 ? HoverPart::mute : HoverPart::solo);
+        g.setColour(boxLit ? colour::dim : colour::line);
         g.drawRoundedRectangle(box.reduced(0.5f), 6.0f, 1.0f);
         g.setFont(type::sans(11.0f, type::Weight::bold));
         g.setColour(on ? colour::ground : colour::muted);
@@ -454,8 +548,16 @@ void GridView::paint(juce::Graphics& g) {
       g.setColour(colour::line);
       g.fillRect(juce::Rectangle<float>(bar.getX() + bar.getWidth() * (60.0f / 72.0f) - 0.5f, fader.getY() + 2.0f, 1.0f,
                                         fader.getHeight() - 4.0f));
+      const bool faderLit = (hovering.row == row.index && hovering.part == HoverPart::volume) ||
+                            (levelDrag && levelDrag->row == row.index && levelDrag->part == LevelPart::volume);
+      const float handle = faderLit ? 13.0f : 10.0f;
+      if (faderLit) {
+        g.setColour(colour::text.withAlpha(0.15f));
+        g.fillEllipse(juce::Rectangle<float>(handle + 8.0f, handle + 8.0f)
+                          .withCentre({bar.getX() + bar.getWidth() * filled, bar.getCentreY()}));
+      }
       g.setColour(colour::text);
-      g.fillEllipse(juce::Rectangle<float>(10.0f, 10.0f).withCentre({bar.getX() + bar.getWidth() * filled, bar.getCentreY()}));
+      g.fillEllipse(juce::Rectangle<float>(handle, handle).withCentre({bar.getX() + bar.getWidth() * filled, bar.getCentreY()}));
       g.setFont(type::mono(11.0f));
       g.setColour(colour::muted);
       g.drawText(row.outputVolumeDb <= -59.95 ? juce::String("Off") : signedDb(row.outputVolumeDb),
@@ -498,13 +600,18 @@ void GridView::paint(juce::Graphics& g) {
   // Add a row, while one is left to add.
   if (shown.size() < 4) {
     const auto area = addRowBounds().toFloat();
-    paint::dashedOutline(g, area, size::panelRadius, colour::line);
+    const bool lit = hovering.part == HoverPart::addRow;
+    if (lit) {
+      g.setColour(colour::surface);
+      g.fillRoundedRectangle(area, size::panelRadius);
+    }
+    paint::dashedOutline(g, area, size::panelRadius, lit ? colour::dim : colour::line);
     auto inner = addRowBounds().reduced(16, 0);
     icons::draw(g, icons::path(icons::Icon::plus), inner.removeFromLeft(18).toFloat().withSizeKeepingCentre(18.0f, 18.0f),
-                colour::muted);
+                lit ? colour::text : colour::muted);
     inner.removeFromLeft(10);
     g.setFont(type::button());
-    g.setColour(colour::muted);
+    g.setColour(lit ? colour::text : colour::muted);
     g.drawText("Add a row", inner, juce::Justification::centredLeft, false);
     g.setFont(type::sans(12.0f));
     g.drawText("For a second input or a separate path. Rows also appear when you split a path.", inner,
@@ -594,9 +701,17 @@ void GridView::paintOverChildren(juce::Graphics& g) {
 }
 
 void GridView::mouseMove(const juce::MouseEvent& event) {
-  const LevelPart part = levelPartAt(event.position).second;
-  if (part == LevelPart::trim || part == LevelPart::volume) {
+  const Hover now = hoverAt(event.position);
+  if (now != hovering) {
+    hovering = now;
+    repaint();
+  }
+  if (now.part == HoverPart::trim || now.part == HoverPart::volume) {
     setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+    return;
+  }
+  if (now.part != HoverPart::none) {
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
     return;
   }
   const bool onPoint = pointAt(event.position).has_value();
@@ -609,8 +724,9 @@ void GridView::mouseMove(const juce::MouseEvent& event) {
 }
 
 void GridView::mouseExit(const juce::MouseEvent&) {
-  if (hoverCable.row >= 0) {
+  if (hoverCable.row >= 0 || hovering.part != HoverPart::none) {
     hoverCable = {};
+    hovering = {};
     repaint();
   }
 }
@@ -1764,6 +1880,7 @@ void GridPage::openEditor(const juce::String& blockId) {
   point.reset();
   editor.open(model, blockId);
   setEditorShown(true);
+  motion::fadeIn(editor);
   editor.grabKeyboardFocus();
 }
 
@@ -1785,16 +1902,21 @@ void GridPage::setEditorShown(bool shown) {
 }
 
 void GridPage::selectBlock(const juce::String& blockId) {
+  // Another block: its panel fades in over the last one's.
+  const bool other = blockId != selected || panel != Panel::selection;
   selected = blockId;
   point.reset();
   panel = Panel::selection;
   refreshViews();
+  if (other)
+    motion::fadeIn(blockPanel, motion::selectMs);
 }
 
 void GridPage::openPicker(int row, int slot) {
   ensureGrid();
   library.openFor(row, slot);
   library.setVisible(true);
+  motion::fadeIn(library);
   library.toFront(true);
 }
 

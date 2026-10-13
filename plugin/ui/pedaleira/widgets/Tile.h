@@ -4,6 +4,7 @@
 #pragma once
 
 #include "../Tokens.h"
+#include "Motion.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -39,6 +40,10 @@ public:
   juce::Rectangle<float> powerArea() const;
 
   void paint(juce::Graphics& g) override;
+  void mouseEnter(const juce::MouseEvent& event) override;
+  void mouseExit(const juce::MouseEvent& event) override;
+  void mouseMove(const juce::MouseEvent& event) override;
+  void mouseDown(const juce::MouseEvent& event) override;
   void mouseUp(const juce::MouseEvent& event) override;
   bool keyPressed(const juce::KeyPress& key) override;
 
@@ -48,6 +53,12 @@ private:
   State state = State::empty;
   bool selected = false;
   juce::String footswitch;
+  // The mouse over the tile, over its power switch, the tile held down, and
+  // the selection ring coming in.
+  Tween hover{*this};
+  Tween powerHover{*this};
+  Tween press{*this, 0.0f, motion::pressMs};
+  Tween ring{*this, 0.0f, motion::selectMs};
 };
 
 // A footswitch (the board "Design system", "Footswitches"): round, 72 px on
@@ -99,6 +110,11 @@ private:
   juce::Colour ring = colour::iris;
   bool blink = false;
   bool selected = false;
+  // Pressed, the switch sinks into its shadow, as a real one travels.
+  Tween press{*this, 0.0f, motion::pressMs};
+  Tween hover{*this};
+  void mouseEnter(const juce::MouseEvent& event) override { hover.setTarget(1.0f); }
+  void mouseExit(const juce::MouseEvent& event) override { hover.setTarget(0.0f); }
 };
 
 }  // namespace pedaleira::ui

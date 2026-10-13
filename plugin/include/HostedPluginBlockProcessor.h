@@ -53,6 +53,10 @@ public:
   // The chunk as last cached. Safe under the chain lock: it never calls the
   // plugin (see serviceOnMessageThread for where the cache comes from).
   juce::MemoryBlock cachedState() const;
+  // A 64-bit digest of the cached chunk (with its size), kept in step with
+  // it. False when there is no chunk. Lets the unsaved-changes signature
+  // compare plugin state without copying the chunk under the chain lock.
+  bool cachedStateDigest(juce::uint64& digest) const;
   // False while the plugin has reported a change (or a parameter was set)
   // that the cache has not caught up with.
   bool cacheIsCurrent() const noexcept {
@@ -67,12 +71,19 @@ public:
     bool tailChanged{false};
     // prepare() was asked for off the message thread.
     bool needsPrepare{false};
+    // The plugin reported a change but its chunk was captured too recently
+    // (throttled call); the cache stays out of date and the caller should
+    // ask again later.
+    bool captureDeferred{false};
   };
   // Everything the plugin's notifications left for later: parameter sets
   // made while no audio was running, and the cached chunk, re-read from the
   // plugin when it reported a change (or always, with `forceStateRefresh`,
   // for a save). Never called with the chain lock held.
-  ServiceResult serviceOnMessageThread(bool forceStateRefresh);
+  // With `minCaptureIntervalMs` above 0 a change flagged within that long
+  // after the last capture is left for a later call (never with
+  // `forceStateRefresh`).
+  ServiceResult serviceOnMessageThread(bool forceStateRefresh, int minCaptureIntervalMs = 0);
 
   juce::String parameterText(int index) const;
 
@@ -175,8 +186,12 @@ private:
   std::atomic<double> tail{0.0};
 
   std::atomic<bool> stateDirty{false};
-  juce::CriticalSection stateLock;
+  mutable juce::CriticalSection stateLock;
   juce::MemoryBlock chunkCache;
+  juce::uint64 chunkDigest{0};
+  // Message thread only: when the plugin's state was last read.
+  juce::uint32 lastCaptureMs{0};
+  bool hasCaptured{false};
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HostedPluginInstance)
 };
@@ -287,6 +302,9 @@ public:
   bool savesParameterValues() const noexcept override { return false; }
   void appendKindState(juce::ValueTree& kindState) const override;
   void getStateChunk(juce::MemoryBlock& chunk) const override { chunk = hosted->cachedState(); }
+  bool getStateChunkDigest(juce::uint64& digest) const override {
+    return hosted->cachedStateDigest(digest);
+  }
   /** Adopt a saved node on the live instance: the chunk goes to the plugin.
       Message thread only (elsewhere it does nothing; the caller rebuilds the
       block instead, see TONE3000Processor::applyKindState). */

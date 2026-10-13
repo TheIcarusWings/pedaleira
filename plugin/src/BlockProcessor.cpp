@@ -164,16 +164,30 @@ const BlockReadingTable& BlockProcessor::readingTable() const noexcept {
   return none;
 }
 
+namespace {
+thread_local bool chunkDigestWanted = false;
+}
+
+BlockProcessor::ChunkDigestScope::ChunkDigestScope() noexcept : previous(chunkDigestWanted) {
+  chunkDigestWanted = true;
+}
+BlockProcessor::ChunkDigestScope::~ChunkDigestScope() { chunkDigestWanted = previous; }
+
 juce::ValueTree BlockProcessor::getKindState(const juce::String& displayName) const {
   juce::ValueTree state("KindState");
   state.setProperty("kind", juce::String(kindId()), nullptr);
   state.setProperty("version", kindStateVersion(), nullptr);
   state.setProperty("name", displayName, nullptr);
 
-  juce::MemoryBlock chunk;
-  getStateChunk(chunk);
-  if (!chunk.isEmpty())
-    state.setProperty("chunk", juce::var(chunk), nullptr);
+  juce::uint64 digest = 0;
+  if (chunkDigestWanted && getStateChunkDigest(digest)) {
+    state.setProperty("chunkDigest", juce::String(static_cast<juce::int64>(digest)), nullptr);
+  } else {
+    juce::MemoryBlock chunk;
+    getStateChunk(chunk);
+    if (!chunk.isEmpty())
+      state.setProperty("chunk", juce::var(chunk), nullptr);
+  }
 
   if (savesParameterValues()) {
     const BlockParamTable& table = parameterTable();

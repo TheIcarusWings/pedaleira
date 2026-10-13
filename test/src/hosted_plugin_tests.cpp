@@ -25,6 +25,8 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -941,6 +943,165 @@ TEST(HostedPluginTest, MonoAndStereoLanesThroughEveryLayout) {
 // ---------------------------------------------------------------------------
 // Failure
 // ---------------------------------------------------------------------------
+
+// ####################
+// THE CHAIN LOCK AND A SLOW PLUGIN
+// ####################
+// The audio thread waits for chainMutex when a message-thread edit holds it.
+// A call into a hosted plugin (its parameter text, its state) can take as
+// long as the plugin likes, so none may run under the lock. The plugin here
+// sleeps in both (PEDALEIRA_TESTFX_SLOW_MS) and carries a 4 MB state; a probe
+// thread tries the lock all the while and reports the longest stretch in
+// which it could not get it.
+namespace {
+
+constexpr int kSlowPluginMs = 40;
+// What counts as "not held": far below the plugin's own delay, with room for
+// a loaded machine's scheduling.
+constexpr double kMaxHoldMs = 4.0;
+
+class LockHoldProbe {
+public:
+  explicit LockHoldProbe(const TONE3000Processor& processor)
+      : watched(processor), worker([this] { run(); }) {}
+  ~LockHoldProbe() { stop(); }
+
+  // The longest time the lock was out of reach, in ms.
+  double stop() {
+    running.store(false);
+    if (worker.joinable())
+      worker.join();
+    return longestMs;
+  }
+
+private:
+  void run() {
+    double blockedSince = -1.0;
+    while (running.load()) {
+      const double now = juce::Time::getMillisecondCounterHiRes();
+      if (watched.chainLockFreeForTesting()) {
+        if (blockedSince >= 0.0)
+          longestMs = std::max(longestMs, now - blockedSince);
+        blockedSince = -1.0;
+      } else if (blockedSince < 0.0) {
+        blockedSince = now;
+      }
+      std::this_thread::sleep_for(std::chrono::microseconds(50));
+    }
+    if (blockedSince >= 0.0)
+      longestMs = std::max(longestMs, juce::Time::getMillisecondCounterHiRes() - blockedSince);
+  }
+
+  const TONE3000Processor& watched;
+  std::atomic<bool> running{true};
+  double longestMs{0.0};
+  std::thread worker;
+};
+
+}  // namespace
+
+TEST(HostedPluginTest, ListingParametersDoesNotHoldTheChainLockThroughThePlugin) {
+  ScannerSandbox sandbox;
+  const juce::String identifier = scanTestPlugin();
+  ScopedEnvironment slow("PEDALEIRA_TESTFX_SLOW_MS", std::to_string(kSlowPluginMs));
+  Rig rig;
+  const std::string id = rig.addPlugin(identifier);
+
+  juce::var listed;
+  double held = 0.0;
+  const double started = juce::Time::getMillisecondCounterHiRes();
+  {
+    LockHoldProbe probe(rig.proc);
+    for (int i = 0; i < 3; ++i)
+      listed = rig.proc.getBlockParams(id);
+    held = probe.stop();
+  }
+  const double took = juce::Time::getMillisecondCounterHiRes() - started;
+
+  // The plugin really was slow, and its text still made it into the list.
+  EXPECT_GT(took, kSlowPluginMs * 3 * 0.8);
+  bool sawText = false;
+  if (const auto* params = listed.getArray())
+    for (const auto& entry : *params)
+      if (entry["scope"].toString() == "kind" && entry["name"].toString() == "Gain")
+        sawText = entry["text"].toString().isNotEmpty();
+  EXPECT_TRUE(sawText);
+  EXPECT_LT(held, kMaxHoldMs) << "getBlockParams held the chain lock for " << held << " ms";
+}
+
+TEST(HostedPluginTest, TheUnsavedCheckAndTheMetersDoNotHoldTheChainLockThroughThePlugin) {
+  ScannerSandbox sandbox;
+  const juce::String identifier = scanTestPlugin();
+  ScopedEnvironment slow("PEDALEIRA_TESTFX_SLOW_MS", std::to_string(kSlowPluginMs));
+  ScopedEnvironment big("PEDALEIRA_TESTFX_STATE_KB", "4096");
+  Rig rig;
+  const std::string id = rig.addPlugin(identifier);
+
+  // A saved preset gives hasUnsavedChanges something to compare with.
+  ASSERT_TRUE(rig.run("preset.save", R"({"name":"Slow"})").ok);
+  EXPECT_FALSE(rig.proc.hasUnsavedChanges());
+
+  double heldUnsaved = 0.0, heldMeters = 0.0;
+  {
+    LockHoldProbe probe(rig.proc);
+    for (int i = 0; i < 5; ++i)
+      EXPECT_FALSE(rig.proc.hasUnsavedChanges());
+    heldUnsaved = probe.stop();
+  }
+  {
+    LockHoldProbe probe(rig.proc);
+    for (int i = 0; i < 20; ++i)
+      rig.proc.getMeterLevels();
+    heldMeters = probe.stop();
+  }
+  EXPECT_LT(heldUnsaved, kMaxHoldMs) << "hasUnsavedChanges held the chain lock for " << heldUnsaved
+                                     << " ms";
+  EXPECT_LT(heldMeters, kMaxHoldMs) << "getMeterLevels held the chain lock for " << heldMeters
+                                    << " ms";
+  const juce::var meters = rig.proc.getMeterLevels();
+  EXPECT_TRUE(meters["blocks"].getDynamicObject()->hasProperty(juce::String(id)));
+
+  // The digest still sees an edit of the plugin: the flag follows the cache,
+  // which a looking-only caller refreshes a few hundred ms after the change.
+  rig.setParam(id, "Gain", kHalfGain);
+  const auto deadline = juce::Time::getMillisecondCounter() + 5000;
+  bool unsaved = false;
+  while (!unsaved && juce::Time::getMillisecondCounter() < deadline) {
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(50);
+    unsaved = rig.proc.hasUnsavedChanges();
+  }
+  EXPECT_TRUE(unsaved) << "an edit of the plugin was not seen as unsaved";
+}
+
+TEST(HostedPluginTest, AChattyPluginHasItsStateReadAtMostOncePerInterval) {
+  ScannerSandbox sandbox;
+  const juce::String identifier = scanTestPlugin();
+  Rig rig;
+  const std::string id = rig.addPlugin(identifier);
+  const auto instance = rig.proc.hostedPluginInstance(id);
+  ASSERT_NE(instance, nullptr);
+
+  instance->serviceOnMessageThread(/*forceStateRefresh=*/true);
+  EXPECT_TRUE(instance->cacheIsCurrent());
+
+  // Flagged again right away: a throttled look leaves it for later...
+  instance->setParameter(0, 0.3f);
+  EXPECT_FALSE(instance->cacheIsCurrent());
+  auto result = instance->serviceOnMessageThread(false, 500);
+  EXPECT_TRUE(result.captureDeferred);
+  EXPECT_FALSE(instance->cacheIsCurrent());
+  // ...a save (or a snapshot, which does not throttle) does not wait...
+  result = instance->serviceOnMessageThread(false, 0);
+  EXPECT_FALSE(result.captureDeferred);
+  EXPECT_TRUE(instance->cacheIsCurrent());
+
+  // ...and a throttled look reads it once the interval has passed.
+  instance->setParameter(0, 0.6f);
+  std::this_thread::sleep_for(std::chrono::milliseconds(600));
+  result = instance->serviceOnMessageThread(false, 500);
+  EXPECT_FALSE(result.captureDeferred);
+  EXPECT_TRUE(instance->cacheIsCurrent());
+}
 
 #if !JUCE_WINDOWS
 // A C++ exception crossing from a plugin's module into the host's is only

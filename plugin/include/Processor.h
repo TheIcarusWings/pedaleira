@@ -244,7 +244,12 @@ public:
   // with `forceStateRefresh` so plugins that never report changes are saved
   // as they are. Does nothing off the message thread. Never call it with
   // chainMutex held.
-  void serviceHostedPlugins(bool forceStateRefresh = false);
+  // `throttled` is for callers that only look (the poll timer, a query, the
+  // unsaved-changes check): a plugin that keeps flagging changes then has
+  // its state re-read at most every kHostedStateCaptureIntervalMs. Callers
+  // that are about to snapshot the rig (an edit's undo entry, a save) leave
+  // it off and get a current cache.
+  void serviceHostedPlugins(bool forceStateRefresh = false, bool throttled = false);
   // The running plugin instance of block `blockId`, or null when that block
   // is not a hosted plugin (or its plugin is still loading or missing). For
   // the plugin's own editor window, which has no command: the UI holds the
@@ -283,12 +288,12 @@ public:
   // because the new TONE3000 model_url endpoints reject anonymous requests.
   void setAccessToken(const juce::String& token);
   juce::String getAccessToken() const;
-  
+
   // Background loading (called by thread pool jobs)
   void loadToneInBackground(const std::string& blockId, int firstModelId,
                             const juce::String& modelUrl, const juce::String& modelName,
                             ChainBlockType type);
-  void switchModelInBackground(const std::string& blockId, int modelId, 
+  void switchModelInBackground(const std::string& blockId, int modelId,
                                const juce::String& modelUrl, const juce::String& modelName);
 
   // Chain state for the UI. `knownRevision` is the last revision the caller
@@ -1128,7 +1133,7 @@ private:
   // is in the file's own sample rate, like the cap passed to loadImpulseResponse.
   float computeIrNormalizationGain(const juce::File& irFile, size_t maxIrFileSamples);
   juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
-  
+
   // Tone loading helpers
   std::vector<uint8_t> fetchModelFromUrl(const juce::String& modelUrl);
   // Cache-hit loads bypass fetchModelFromUrl, so this keeps the stash
@@ -2340,7 +2345,7 @@ private:
   // thread; written by the UI thread via `setAccessToken`.
   juce::String accessToken;
   mutable juce::CriticalSection accessTokenMutex;
-  
+
   // Thread pool for background model loading
   juce::ThreadPool loadingThreadPool;
 

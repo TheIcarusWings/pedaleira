@@ -32,6 +32,9 @@
 namespace {
 
 constexpr int kHostedServiceIntervalMs = 100;
+// A plugin that keeps flagging changes has its state read at most this often
+// by the looking-only callers (see serviceHostedPlugins).
+constexpr int kHostedStateCaptureIntervalMs = 500;
 
 bool isHostedPluginNode(const juce::ValueTree& blockNode) {
   return blockNode.getChildWithName("KindState").getProperty("kind").toString() ==
@@ -41,7 +44,7 @@ bool isHostedPluginNode(const juce::ValueTree& blockNode) {
 }  // namespace
 
 void TONE3000Processor::HostedPluginTimer::timerCallback() {
-  processor.serviceHostedPlugins();
+  processor.serviceHostedPlugins(false, /*throttled=*/true);
 
   // Nothing left to watch: no hosted block, and no block waiting for a
   // plugin a later scan might find.
@@ -379,7 +382,7 @@ void TONE3000Processor::reviveMissingPluginBlocks() {
   editFade.releaseWhenChainLoadsSettle();
 }
 
-void TONE3000Processor::serviceHostedPlugins(bool forceStateRefresh) {
+void TONE3000Processor::serviceHostedPlugins(bool forceStateRefresh, bool throttled) {
   if (!juce::MessageManager::existsAndIsCurrentThread() || servicingHostedPlugins)
     return;
   const juce::ScopedValueSetter<bool> guard(servicingHostedPlugins, true);
@@ -415,11 +418,19 @@ void TONE3000Processor::serviceHostedPlugins(bool forceStateRefresh) {
 
   bool refreshWanted = false;
   bool prepareWanted = false;
+  bool captureDeferred = false;
   for (const auto& instance : instances) {
-    const auto result = instance->serviceOnMessageThread(forceStateRefresh);
+    const auto result = instance->serviceOnMessageThread(
+        forceStateRefresh, throttled ? kHostedStateCaptureIntervalMs : 0);
+    captureDeferred = captureDeferred || result.captureDeferred;
     refreshWanted = refreshWanted || result.latencyPending || result.tailChanged;
     prepareWanted = prepareWanted || result.needsPrepare;
   }
+
+  // A change left for later: make the next call look again (the timer, 100
+  // ms on, is that call).
+  if (captureDeferred)
+    hostedAttentionSeen = attention - 1;
 
   if (prepareWanted) {
     // A prepare reached these instances on a thread that may not touch a

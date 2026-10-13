@@ -223,6 +223,21 @@ void HostedPluginInstance::prepare(double sampleRate, int maxBlockSize) {
   prepared.store(true);
 }
 
+namespace {
+// 64-bit FNV-1a over the bytes, mixed with the size. Computed where the
+// chunk is stored (message thread, no chain lock), so the signature never
+// has to touch the bytes.
+juce::uint64 digestOf(const juce::MemoryBlock& chunk) noexcept {
+  juce::uint64 hash = 1469598103934665603ull;
+  const auto* bytes = static_cast<const unsigned char*>(chunk.getData());
+  for (size_t i = 0; i < chunk.getSize(); ++i) {
+    hash ^= bytes[i];
+    hash *= 1099511628211ull;
+  }
+  return hash ^ (static_cast<juce::uint64>(chunk.getSize()) * 0x9e3779b97f4a7c15ull);
+}
+}  // namespace
+
 void HostedPluginInstance::applyState(const juce::MemoryBlock& chunk) {
   if (!onMessageThread())
     return;
@@ -238,6 +253,7 @@ void HostedPluginInstance::applyState(const juce::MemoryBlock& chunk) {
   {
     juce::ScopedLock scoped(stateLock);
     chunkCache = chunk;
+    chunkDigest = digestOf(chunkCache);
   }
   // The plugin reports the state it was just given as a change; the cache
   // already holds it.
@@ -254,8 +270,18 @@ void HostedPluginInstance::captureState() {
     juce::Logger::writeToLog("[Plugin] " + pluginIdentity.name + " threw while saving its state");
     return;
   }
+  const juce::uint64 digest = digestOf(fresh);
   juce::ScopedLock scoped(stateLock);
   chunkCache = std::move(fresh);
+  chunkDigest = digest;
+}
+
+bool HostedPluginInstance::cachedStateDigest(juce::uint64& digest) const {
+  juce::ScopedLock scoped(stateLock);
+  if (chunkCache.isEmpty())
+    return false;
+  digest = chunkDigest;
+  return true;
 }
 
 juce::MemoryBlock HostedPluginInstance::cachedState() const {
@@ -264,7 +290,7 @@ juce::MemoryBlock HostedPluginInstance::cachedState() const {
 }
 
 HostedPluginInstance::ServiceResult
-HostedPluginInstance::serviceOnMessageThread(bool forceStateRefresh) {
+HostedPluginInstance::serviceOnMessageThread(bool forceStateRefresh, int minCaptureIntervalMs) {
   ServiceResult result;
   if (!onMessageThread())
     return result;
@@ -274,10 +300,20 @@ HostedPluginInstance::serviceOnMessageThread(bool forceStateRefresh) {
   if (anyDirty.exchange(false))
     flushPendingParameters();
 
-  if (stateDirty.exchange(false) || forceStateRefresh) {
+  const bool captureTooSoon =
+      !forceStateRefresh && minCaptureIntervalMs > 0 && hasCaptured &&
+      juce::Time::getMillisecondCounter() - lastCaptureMs <
+          static_cast<juce::uint32>(minCaptureIntervalMs);
+  if (captureTooSoon && stateDirty.load()) {
+    // Still flagged, so the cache stays out of date (cacheIsCurrent) until a
+    // later call gets to read it.
+    result.captureDeferred = true;
+  } else if (stateDirty.exchange(false) || forceStateRefresh) {
     const double tailBefore = tail.load();
     refreshMirrors();
     captureState();
+    lastCaptureMs = juce::Time::getMillisecondCounter();
+    hasCaptured = true;
     refreshTail();
     result.tailChanged = !juce::exactlyEqual(tail.load(), tailBefore);
   }

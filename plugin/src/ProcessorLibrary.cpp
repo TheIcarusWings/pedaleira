@@ -926,6 +926,9 @@ juce::Result TONE3000Processor::setPresetFavourite(const juce::String& presetId,
 juce::MemoryBlock TONE3000Processor::presetChainSignatureLocked() const {
   // The settings-only snapshot undo works with: everything a preset holds
   // of the chain but the model bytes, which no edit changes on their own.
+  // Hosted plugins contribute a digest of their cached chunk, not the bytes:
+  // this runs under the chain lock on every rig change.
+  const BlockProcessor::ChunkDigestScope digestScope;
   juce::ValueTree snapshot = captureChainSnapshot(false);
   // Solo is not part of a preset (see buildPresetTree).
   juce::ValueTree gridNode = snapshot.getChildWithName("Grid");
@@ -955,8 +958,9 @@ void TONE3000Processor::markPresetBaseline() {
 }
 
 bool TONE3000Processor::hasUnsavedChanges() {
-  // The snapshot below reads hosted plugins from their cached chunks.
-  serviceHostedPlugins();
+  // The snapshot below reads hosted plugins from their cached chunks. A
+  // chatty plugin is read at most every few hundred ms here.
+  serviceHostedPlugins(false, /*throttled=*/true);
 
   juce::ScopedLock lock(chainMutex);
   // No preset to differ from: upstream's own notion, a rig that is not the

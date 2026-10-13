@@ -65,36 +65,109 @@
         "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
         "SYNC": { "param": "sync", "transform": "linear" },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Names and units from a unit's catalogue (CorOS d14e), as Digital Delay (M) and (ST): DELAY TIME 7 to 6000 ms, SYNC on by default (then the time follows SYNC NOTE), FEEDBACK and MIX in percent. Not yet measured against the unit's sound."
+      "notes": "Names and units from a unit's catalogue (CorOS d14e), as Digital Delay (M) and (ST): DELAY TIME 7 to 6000 ms, SYNC on by default (then the time follows SYNC NOTE), FEEDBACK and MIX in percent. Not yet measured against the unit's sound. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
     },
     "Analog Delay": {
       "kind": "delay.analog",
       "verified": false,
       "params": {
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Feedback and mix only; the time is not mapped."
+      "notes": "Feedback and mix only; the time is not mapped. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
     },
     "Tape Delay": {
       "kind": "delay.tape",
       "verified": false,
       "params": {
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Feedback and mix only; the time, wow, flutter and drive are not mapped."
+      "notes": "Feedback and mix only; the time, wow, flutter and drive are not mapped. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
     },
     "Simple Delay": {
       "kind": "delay.simple",
       "verified": false,
       "params": {
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
+      },
+      "notes": "Feedback and mix only; the time is not mapped. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
+    },
+    "Slapback Delay": {
+      "kind": "delay.slapback",
+      "verified": false,
+      "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
+      },
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 40 to 200 ms, FEEDBACK and MIX in percent, LOW PASS and HIGH PASS in Hz. LOW PASS becomes our tone sweep; HIGH PASS has no counterpart here and is dropped, and the saturation and wobble are ours and stay at their defaults. A FEEDBACK above our 60% is clamped and reported. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. The curve of DELAY TIME has not been measured, so the dump's value is taken as milliseconds."
+    },
+    "Dual Delay": {
+      "kind": "delay.dual",
+      "verified": false,
+      "params": {
+        "DELAY TIME L": { "param": "leftTimeMs", "unit": "ms", "transform": "linear" },
+        "DELAY TIME R": { "param": "rightTimeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK L": { "param": "leftFeedback", "unit": "%", "transform": "linear" },
+        "FEEDBACK R": { "param": "rightFeedback", "unit": "%", "transform": "linear" },
+        "X-FEEDBACK": { "param": "crossFeedback", "unit": "%", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "unit": "Hz", "transform": "linear" },
+        "LOW PASS": { "param": "highCutHz", "unit": "Hz", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
+        "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
+        "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
+      },
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME L and R 7 to 6000 ms, FEEDBACK L and R and X-FEEDBACK in percent, HIGH PASS 20 to 800 Hz and LOW PASS 1000 to 16000 Hz (the L and R names are the catalogue's wording, not yet seen in a dump). HIGH PASS is our low cut and LOW PASS our high cut. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. The curve of the times has not been measured, so the dump's values are taken as milliseconds."
+    },
+    "Reverse Delay": {
+      "kind": "delay.reverse",
+      "verified": false,
+      "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Feedback and mix only; the time is not mapped."
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 20 to 4000 ms (ours is 100 to 2000, so a value outside is clamped and reported), FEEDBACK and MIX in percent, HIGH PASS and LOW PASS in Hz. LOW PASS becomes our tone; HIGH PASS has no counterpart here and is dropped. The curve of DELAY TIME has not been measured."
+    },
+    "Dual Reverse Delay": {
+      "kind": "delay.reverse",
+      "verified": false,
+      "params": {
+        "DELAY TIME L": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK L": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Placed on our reverse delay, which has one side: only the left time and feedback are taken and the right ones are dropped (the L and R names are the catalogue's wording, not yet seen in a dump). LOW PASS becomes our tone; HIGH PASS is dropped."
+    },
+    "Circular Delay": {
+      "kind": "delay.multitap",
+      "verified": false,
+      "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "DIFFUSION": { "param": "diffusion", "unit": "%", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "unit": "Hz", "transform": "linear" },
+        "LOW PASS": { "param": "highCutHz", "unit": "Hz", "transform": "linear" },
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+      },
+      "notes": "Placed on our multi-tap delay, a diffused cluster of repeats. From a unit's catalogue (CorOS d14e): DELAY TIME 27 to 2000 ms, FEEDBACK 0 to 95 %, DIFFUSION and MIX in percent, HIGH PASS and LOW PASS in Hz. HIGH PASS is our low cut and LOW PASS our high cut. The tap count and pattern are ours and stay at their defaults. The sound is a neighbour of the unit's, not a copy."
     },
     "Simple Ping Pong Delay": {
       "kind": "delay.pingpong",

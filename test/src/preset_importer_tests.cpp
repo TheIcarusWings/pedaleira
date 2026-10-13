@@ -1246,4 +1246,117 @@ TEST(PresetImporterCommandTest, PathsMeetTheRulesOfEveryOtherPathArgument) {
   EXPECT_EQ(rig.mustLocal("preset.list")["presets"].size(), 1);
 }
 
+TEST(PresetImporterTest, TheBuiltInTableMapsTheFactoryDelayModels) {
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  struct Expected {
+    const char* model;
+    const char* kind;
+  };
+  const Expected expected[] = {
+      {"Digital Delay", "delay.digital"},       {"Analog Delay", "delay.analog"},
+      {"Tape Delay", "delay.tape"},             {"Simple Delay", "delay.simple"},
+      {"Slapback Delay", "delay.slapback"},     {"Dual Delay", "delay.dual"},
+      {"Reverse Delay", "delay.reverse"},       {"Dual Reverse Delay", "delay.reverse"},
+      {"Circular Delay", "delay.multitap"},
+  };
+  for (const Expected& item : expected) {
+    const juce::var model = table["models"][item.model];
+    ASSERT_TRUE(model.isObject()) << item.model;
+    EXPECT_EQ(model["kind"].toString(), item.kind) << item.model;
+    EXPECT_FALSE(static_cast<bool>(model["verified"])) << item.model;
+    EXPECT_TRUE(model["notes"].toString().isNotEmpty()) << item.model;
+  }
+  // The ducking of the unit's delays, and only of those.
+  for (const char* model : {"Digital Delay", "Analog Delay", "Tape Delay", "Simple Delay",
+                            "Slapback Delay", "Dual Delay"}) {
+    const juce::var params = table["models"][model]["params"];
+    EXPECT_EQ(params["DYN DEPTH"]["param"].toString(), "duckDb") << model;
+    EXPECT_EQ(params["RELEASE"]["param"].toString(), "duckReleaseMs") << model;
+  }
+  for (const char* model : {"Reverse Delay", "Dual Reverse Delay", "Circular Delay",
+                            "Simple Ping Pong Delay"})
+    EXPECT_FALSE(table["models"][model]["params"]["DYN DEPTH"].isObject()) << model;
+}
+
+TEST(PresetImporterTest, DelayModelsGetTheirKindsAndValuesOnOurScales) {
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  const juce::var foreign = parseJson(R"json({"format":"pedaleira-foreign-preset","version":1,
+    "source":"quad-cortex","name":"Delays","rows":[{"index":0,"blocks":[
+      {"position":0,"model":"Slapback Delay (M)","category":"Delay","enabled":true,
+       "params":{"DELAY TIME":{"value":95,"unit":"ms"},"FEEDBACK":{"value":20,"unit":"%"},
+                 "MIX":{"value":40,"unit":"%"},"LOW PASS":{"value":4000,"unit":"Hz"},
+                 "HIGH PASS":{"value":120,"unit":"Hz"}}},
+      {"position":1,"model":"Dual Delay (ST)","category":"Delay","enabled":true,
+       "params":{"DELAY TIME L":{"value":300,"unit":"ms"},"DELAY TIME R":{"value":450,"unit":"ms"},
+                 "FEEDBACK L":{"value":30,"unit":"%"},"FEEDBACK R":{"value":45,"unit":"%"},
+                 "X-FEEDBACK":{"value":60,"unit":"%"},"HIGH PASS":{"value":200,"unit":"Hz"},
+                 "LOW PASS":{"value":9000,"unit":"Hz"},"MIX":{"value":35,"unit":"%"},
+                 "DYN DEPTH":{"value":40,"unit":"dB"},"RELEASE":{"value":600,"unit":"ms"}}},
+      {"position":2,"model":"Reverse Delay (M)","category":"Delay","enabled":true,
+       "params":{"DELAY TIME":{"value":1200,"unit":"ms"},"FEEDBACK":{"value":50,"unit":"%"},
+                 "LOW PASS":{"value":6000,"unit":"Hz"},"MIX":{"value":50,"unit":"%"}}},
+      {"position":3,"model":"Dual Reverse Delay (ST)","category":"Delay","enabled":true,
+       "params":{"DELAY TIME L":{"value":800,"unit":"ms"},"DELAY TIME R":{"value":900,"unit":"ms"},
+                 "FEEDBACK L":{"value":25,"unit":"%"}}},
+      {"position":4,"model":"Circular Delay (M)","category":"Delay","enabled":true,
+       "params":{"DELAY TIME":{"value":700,"unit":"ms"},"FEEDBACK":{"value":55,"unit":"%"},
+                 "DIFFUSION":{"value":65,"unit":"%"},"HIGH PASS":{"value":150,"unit":"Hz"},
+                 "LOW PASS":{"value":5000,"unit":"Hz"},"MIX":{"value":25,"unit":"%"}}},
+      {"position":5,"model":"Digital Delay (M)","category":"Delay","enabled":true,
+       "params":{"DELAY TIME":{"value":250,"unit":"ms"},"DYN DEPTH":{"value":12,"unit":"dB"},
+                 "RELEASE":{"value":300,"unit":"ms"}}}]}]})json");
+  const importer::ImportResult result = importer::convertForeignPreset(foreign, table);
+  ASSERT_TRUE(result.ok) << result.error;
+  const juce::var preset = result.preset;
+  const auto number = [&](int position, const char* id) {
+    return static_cast<double>(kindParam(slotNode(preset, 0, position), id));
+  };
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 0)), "delay.slapback");
+  EXPECT_NEAR(number(0, "timeMs"), 95.0, 1e-3);
+  EXPECT_NEAR(number(0, "feedback"), 20.0, 1e-3);
+  EXPECT_NEAR(number(0, "toneHz"), 4000.0, 1e-2);
+  EXPECT_NEAR(static_cast<double>(slotNode(preset, 0, 0)["mix"]), 0.4, 1e-6);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "delay.dual");
+  EXPECT_NEAR(number(1, "leftTimeMs"), 300.0, 1e-3);
+  EXPECT_NEAR(number(1, "rightTimeMs"), 450.0, 1e-3);
+  EXPECT_NEAR(number(1, "leftFeedback"), 30.0, 1e-3);
+  EXPECT_NEAR(number(1, "rightFeedback"), 45.0, 1e-3);
+  EXPECT_NEAR(number(1, "crossFeedback"), 60.0, 1e-3);
+  EXPECT_NEAR(number(1, "lowCutHz"), 200.0, 1e-2);
+  EXPECT_NEAR(number(1, "highCutHz"), 9000.0, 1e-1);
+  EXPECT_NEAR(number(1, "duckDb"), 24.0, 1e-3) << "40 dB on the unit is clamped to our 24";
+  EXPECT_NEAR(number(1, "duckReleaseMs"), 600.0, 1e-3);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "delay.reverse");
+  EXPECT_NEAR(number(2, "timeMs"), 1200.0, 1e-3);
+  EXPECT_NEAR(number(2, "feedback"), 50.0, 1e-3);
+  EXPECT_NEAR(number(2, "toneHz"), 6000.0, 1e-2);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "delay.reverse");
+  EXPECT_NEAR(number(3, "timeMs"), 800.0, 1e-3) << "the left time only";
+  EXPECT_NEAR(number(3, "feedback"), 25.0, 1e-3);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 4)), "delay.multitap");
+  EXPECT_NEAR(number(4, "timeMs"), 700.0, 1e-3);
+  EXPECT_NEAR(number(4, "feedback"), 55.0, 1e-3);
+  EXPECT_NEAR(number(4, "diffusion"), 65.0, 1e-3);
+  EXPECT_NEAR(number(4, "lowCutHz"), 150.0, 1e-2);
+  EXPECT_NEAR(number(4, "highCutHz"), 5000.0, 1e-2);
+
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 5)), "delay.digital");
+  EXPECT_NEAR(number(5, "duckDb"), 12.0, 1e-3);
+  EXPECT_NEAR(number(5, "duckReleaseMs"), 300.0, 1e-3);
+
+  const juce::var report = result.report;
+  EXPECT_EQ(countIn(report["mapped"]), 6);
+  EXPECT_EQ(countIn(report["unmapped"]), 0);
+  // What our kinds have no place for is named, not guessed.
+  EXPECT_TRUE(entryAt(report["droppedParams"], 0, 0, "param", "HIGH PASS").isObject());
+  EXPECT_TRUE(entryAt(report["droppedParams"], 0, 3, "param", "DELAY TIME R").isObject());
+  // The ducking depth was out of our range and is reported as clamped.
+  EXPECT_TRUE(entryAt(report["approximated"], 0, 1, "param", "DYN DEPTH").isObject());
+}
+
 }  // namespace

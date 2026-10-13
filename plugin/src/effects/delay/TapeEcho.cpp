@@ -32,6 +32,8 @@ public:
     kFlutterRateHz,
     kSaturation,
     kAge,
+    kDuckDb,
+    kDuckReleaseMs,
     kSpillover
   };
 
@@ -71,6 +73,7 @@ public:
       // Fresh tape to worn: narrower at both ends, the head bump fading.
       t.push_back(BlockParamSpec::floatParam("age", "Age", "%", 0.0f, 100.0f, 30.0f)
                       .withAffectsTail());
+      appendDuckParams(t);
       t.push_back(spilloverParam());
       return t;
     }();
@@ -120,6 +123,8 @@ protected:
     ageAmount.prepare(sampleRate, 0.05);
     wowLfo.prepare(sampleRate);
     flutterLfo.prepare(sampleRate);
+    for (auto& duck : ducker)
+      duck.prepare(sampleRate);
     // The drift: white noise through two 2 Hz low-pass poles, scaled back to
     // unit RMS. Two poles, because after one the derivative is still white
     // noise (the read pointer would jitter by whole samples); after two it is
@@ -158,6 +163,8 @@ protected:
     wowLfo.reset(0.0);
     flutterLfo.reset(0.3);
     grid.reset();
+    for (auto& duck : ducker)
+      duck.reset();
     slewedDelay.store(0.0f, std::memory_order_relaxed);
   }
 
@@ -184,6 +191,8 @@ protected:
     ageAmount.setTarget(param(kAge) * 0.01f);
     wowLfo.setRateHz(wowRate);
     flutterLfo.setRateHz(flutterRate);
+    for (auto& duck : ducker)
+      duck.setTarget(param(kDuckDb), param(kDuckReleaseMs));
 
     // One transport carries both channels, so the wobble is common to them
     // (a stereo difference would not be tape, and dual mono must stay alike).
@@ -218,9 +227,11 @@ protected:
             highCut[ch][1].lowpass(highCut[ch][0].lowpass(lowCut[ch].highpass(raw))));
         // The record stage saturates everything that goes onto the tape: the
         // input, and the repeats. It is also the ceiling of the loop.
-        line.write(ch, saturate(channels[ch][i] + feedback * echo, drive, inverseDrive));
-        // Wet only: the dry signal and the balance are the block's mix.
-        channels[ch][i] = echo;
+        const float input = channels[ch][i];
+        line.write(ch, saturate(input + feedback * echo, drive, inverseDrive));
+        // Wet only: the dry signal and the balance are the block's mix. The
+        // ducking lowers it while the input is loud.
+        channels[ch][i] = echo * ducker[ch].next(input, input);
       }
     }
     slewedDelay.store(delay, std::memory_order_relaxed);
@@ -277,6 +288,7 @@ private:
   fx::SmoothedParam saturationAmount;
   fx::SmoothedParam ageAmount;
   ControlTick grid;
+  Ducker ducker[kMaxChannels];
   double sampleRate{48000.0};
   float driftGain{100.0f};
   std::atomic<double> lastBpm{120.0};

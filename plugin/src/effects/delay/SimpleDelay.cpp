@@ -4,6 +4,7 @@
 // in the fewest lines, and docs/effects.md walks through it.
 #include <atomic>
 #include <cmath>
+#include "DelayCommon.h"
 #include "effects/EffectDsp.h"
 
 namespace {
@@ -14,7 +15,7 @@ public:
 
   // Table order; the indices the audio path reads. The first three are the
   // standard time parameters (fx::appendTimeParams adds them in this order).
-  enum Param { kSync = 0, kDivision, kTimeMs, kFeedback, kToneHz, kSpillover };
+  enum Param { kSync = 0, kDivision, kTimeMs, kFeedback, kToneHz, kDuckDb, kDuckReleaseMs, kSpillover };
 
   // The longest delay the line can hold. The free time stops at 2 s; a
   // synced time that would be longer (a dotted whole note at a slow tempo)
@@ -34,6 +35,7 @@ public:
                       .withAffectsTail());
       t.push_back(BlockParamSpec::floatParam("toneHz", "Tone", "Hz", 500.0f, 20000.0f, 6000.0f)
                       .withSkew(0.4f));
+      delayfx::appendDuckParams(t);
       // Echoes ring out when the block is bypassed.
       t.push_back(spilloverParam());
       return t;
@@ -64,6 +66,8 @@ protected:
                  static_cast<int>(std::ceil(kMaxDelaySeconds * sampleRate)) + 1);
     delaySamples.prepare(sampleRate, kTimeGlideSeconds);
     feedbackGain.prepare(sampleRate, 0.02);
+    for (auto& duck : ducker)
+      duck.prepare(sampleRate);
     resetEffect();
   }
 
@@ -71,6 +75,8 @@ protected:
     line.clear();
     for (auto& filter : damping)
       filter.reset();
+    for (auto& duck : ducker)
+      duck.reset();
     // A block switched back on starts at its current settings, not gliding
     // from where it was when it went quiet.
     delaySamples.snapOnNextTarget();
@@ -89,6 +95,8 @@ protected:
     // turning the knob on a tape echo) rather than jumping it.
     delaySamples.setTarget(static_cast<float>(delaySeconds(ctx.transport.bpm) * sampleRate));
     feedbackGain.setTarget(param(kFeedback) * 0.01f);
+    for (auto& duck : ducker)
+      duck.setTarget(param(kDuckDb), param(kDuckReleaseMs));
     for (int ch = 0; ch < numChannels; ++ch)
       damping[ch].setCutoff(param(kToneHz), sampleRate);
 
@@ -102,9 +110,11 @@ protected:
       for (int ch = 0; ch < numChannels; ++ch) {
         // Hermite: exact at whole-sample delays, clean while the time glides.
         const float echo = line.readHermite(ch, delay);
-        line.write(ch, channels[ch][i] + feedback * damping[ch].lowpass(echo));
-        // Wet only: the dry signal and the balance are the block's mix.
-        channels[ch][i] = echo;
+        const float input = channels[ch][i];
+        line.write(ch, input + feedback * damping[ch].lowpass(echo));
+        // Wet only: the dry signal and the balance are the block's mix. The
+        // ducking (common to the delays) lowers it while the input is loud.
+        channels[ch][i] = echo * ducker[ch].next(input, input);
       }
     }
   }
@@ -124,6 +134,7 @@ private:
   fx::OnePole damping[kMaxChannels];
   fx::SmoothedParam delaySamples;
   fx::SmoothedParam feedbackGain;
+  delayfx::Ducker ducker[kMaxChannels];
   double sampleRate{48000.0};
   std::atomic<double> lastBpm{120.0};
 };

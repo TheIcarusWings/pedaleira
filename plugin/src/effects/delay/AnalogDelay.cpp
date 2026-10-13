@@ -18,7 +18,7 @@ class AnalogDelayProcessor final : public ParameterisedBlockProcessor {
 public:
   static constexpr const char* kKindId = "delay.analog";
 
-  enum Param { kSync = 0, kDivision, kTimeMs, kFeedback, kToneHz, kGrit, kSpillover };
+  enum Param { kSync = 0, kDivision, kTimeMs, kFeedback, kToneHz, kGrit, kDuckDb, kDuckReleaseMs, kSpillover };
 
   // The free time stops at 1.2 s, as a bucket-brigade chip does at a usable
   // clock rate. A synced time that would be longer is held at twice that.
@@ -39,6 +39,7 @@ public:
       t.push_back(BlockParamSpec::floatParam("toneHz", "Tone", "Hz", 800.0f, 12000.0f, 4000.0f)
                       .withSkew(0.4f));
       t.push_back(BlockParamSpec::floatParam("grit", "Grit", "%", 0.0f, 100.0f, 30.0f));
+      appendDuckParams(t);
       t.push_back(spilloverParam());
       return t;
     }();
@@ -70,6 +71,8 @@ protected:
     feedbackGain.prepare(sampleRate, 0.02);
     tone.prepare(sampleRate, 0.02);
     grit.prepare(sampleRate, 0.02);
+    for (auto& duck : ducker)
+      duck.prepare(sampleRate);
     resetEffect();
   }
 
@@ -86,6 +89,8 @@ protected:
     tone.snapOnNextTarget();
     grit.snapOnNextTarget();
     grid.reset();
+    for (auto& duck : ducker)
+      duck.reset();
     slewedDelay.store(0.0f, std::memory_order_relaxed);
   }
 
@@ -98,6 +103,8 @@ protected:
     feedbackGain.setTarget(param(kFeedback) * 0.01f);
     tone.setTarget(param(kToneHz));
     grit.setTarget(param(kGrit) * 0.01f);
+    for (auto& duck : ducker)
+      duck.setTarget(param(kDuckDb), param(kDuckReleaseMs));
 
     // Both channels are processed alike (there is no stereo image to make),
     // each with its own line and filters, so dual mono stays apart.
@@ -128,9 +135,11 @@ protected:
         // The coupling high-pass keeps a stray offset from piling up in the
         // loop (1 / (1 - feedback) at DC).
         const float fed = coupling[ch].highpass(echo);
-        line.write(ch, saturate(channels[ch][i] + feedback * fed, drive, inverseDrive));
-        // Wet only: the dry signal and the balance are the block's mix.
-        channels[ch][i] = echo;
+        const float input = channels[ch][i];
+        line.write(ch, saturate(input + feedback * fed, drive, inverseDrive));
+        // Wet only: the dry signal and the balance are the block's mix. The
+        // ducking lowers it while the input is loud.
+        channels[ch][i] = echo * ducker[ch].next(input, input);
       }
     }
     slewedDelay.store(delay, std::memory_order_relaxed);
@@ -166,6 +175,7 @@ private:
   fx::SmoothedParam tone;
   fx::SmoothedParam grit;
   ControlTick grid;
+  Ducker ducker[kMaxChannels];
   double sampleRate{48000.0};
   std::atomic<double> lastBpm{120.0};
   std::atomic<float> slewedDelay{0.0f};

@@ -511,7 +511,9 @@ TEST(AmpCustom, TheNewDescriptionsDefaultVoicingBecomesTheBlocksVoicing) {
 
 TEST(AmpCustom, APanelWithoutAControlLeavesThatPartAtMiddle) {
   // An amp with no treble knob: the Treble parameter does nothing, Bass does.
-  const std::string noTreble = edited(shipped(), "    \"treble\": { \"label\": \"Treble\", \"target\": \"tone_stack.treble_pot_ohm\" },\n", "");
+  // (Taken out of the faceplate's boxes too: a box may only hold what the panel has.)
+  const std::string noTreble = edited(edited(shipped(), "    \"treble\": { \"label\": \"Treble\", \"target\": \"tone_stack.treble_pot_ohm\" },\n", ""),
+                                      "\"middle\", \"treble\", \"bright\"", "\"middle\", \"bright\"");
   ASSERT_TRUE(parse(noTreble).ok) << parse(noTreble).error;
   const Stereo in = guitarLike(35u);
   auto render = [&](const Params& params) {

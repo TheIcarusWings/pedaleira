@@ -7,18 +7,21 @@ tubes, the resistors and capacitors around each of them, the pots, the tone stac
 amp and its supply) and the front panel (which knob moves which part). The `amp.custom` block
 loads a description and builds the amp it describes from a set of small, tested components.
 Our first amp, High Gain (`amp.highgain`), is one such description, `resources/amps/high-gain.json`;
-it has no code of its own.
+it has no code of its own. Every description in `resources/amps` ships in the binary and is a block
+kind of its own (see [choosing an amp](#choosing-an-amp)), with a faceplate drawn from its
+[panel style](#the-faceplate).
 
 ```
 resources/amps/high-gain.json        the high gain amp, as data (linked into the binary)
 resources/amps/high-gain-wdf.json    the same amp with the wave digital filter solver
 docs/amp-description.schema.json     JSON Schema of the format
 plugin/include/amp/                  the components (namespace amp, plain C++, no JUCE)
-plugin/src/effects/amp/              the amp kinds (amp.highgain, amp.custom) and the loader
+plugin/src/effects/amp/              the amp kinds (one per shipped description, and amp.custom) and the loader
 ```
 
 Contents: [the signal flow](#the-signal-flow), [the components](#the-components-and-what-each-models),
 [the two stage models](#the-two-stage-models), [the description format](#the-description-format),
+[the faceplate](#the-faceplate), [choosing an amp](#choosing-an-amp),
 [the high gain amp, annotated](#the-high-gain-amp-annotated), [loading a description](#loading-a-description),
 [from a schematic to a description](#from-a-schematic-to-a-description),
 [measuring an amp and fitting the description](#measuring-an-amp-or-a-capture-and-fitting-the-description),
@@ -134,6 +137,7 @@ Who made the description and under what terms.
 | `author` | string |  |  |  |  | Who wrote the description. |
 | `licence` | string |  |  |  | required | The licence of this description file (an SPDX identifier such as "MIT", "CC0-1.0", "CC-BY-4.0", or a name). The description is data you own; say what others may do with it. |
 | `summary` | string |  |  |  |  | A sentence or two about the amp and what the description is based on. |
+| `family` | string |  |  |  |  | `"high_gain"`, `"clean"` or `"crunch"`: the family the block picker files the amp under (High gain, Clean, Crunch) and its search finds it by. Leave it out for an amp that is none of them. |
 | `references` | array of strings |  |  |  |  | Where the values come from: schematic names, papers, measurements. |
 
 #### `model`
@@ -342,6 +346,87 @@ without one is complete. Every shipped amp names one.
                 "position_percent": 35, "distance_cm": 2.5}
 ```
 
+### The faceplate
+
+`panel.faceplate` says how a front end draws the panel: the colour, where the nameplate sits, the
+shape of the knobs, which controls sit in which box and in what order. It has no
+effect on the sound (the tests render `high-gain.json` with and without it and compare the samples).
+Every field is optional, and so is the whole object: an amp that gives none gets a plain default
+faceplate (below), so every amp, a user's own included, has one. A `panel` that has nothing but a
+`faceplate` has every control, as no `panel` does.
+
+| Field | Values | Default | Meaning |
+|---|---|---|---|
+| `accent` | `"#RRGGBB"` | the front end's amp colour | The accent of the faceplate: the nameplate, the rules over the boxes, the value arcs. |
+| `nameplate` | `"left"`, `"right"`, `"top"`, `"bottom"` | `"left"` | Where the nameplate sits: a card beside the boxes, or a banner above or under them. |
+| `tag` | text, 1 to 24 characters | none | The short style tag on the nameplate ("US Lead", "Brit Crunch", "German"). |
+| `character` | text, 1 to 96 characters | none | The line under the name that says what the amp is like. |
+| `strip` | `"none"`, `"slash"`, `"dots"`, `"wave"`, `"cells"`, `"zigzag"`, `"chevron"`, `"bells"`, `"arcs"`, `"crosses"`, `"ticks"`, `"flames"`, `"rings"`, `"steps"`, `"diamonds"`, `"ripple"` | `"none"` | The signature strip pattern on the nameplate. |
+| `knob_cap` | `"round"`, `"pointer"`, `"chicken_head"`, `"fader"` | `"round"` | The shape of the knob caps: a round cap with a pointer line, a wedge pointer, a chicken head that turns with the knob, or a fader (a vertical slider instead of a knob). |
+| `groups` | 1 to 6 boxes, each `{"title", "controls", "columns"}` | Preamp and Power | The boxes, left to right. `title` is 1 to 24 characters, `controls` the control ids in the order they are drawn, `columns` (1 to 6, optional) the columns the box lays its knobs out in (default one per knob). The switches (`bright`, `voicing`) go in a row under the knobs of their box. |
+
+A control that the panel has must be in exactly one box; a control the panel does not have cannot be
+in one. Without `groups` the default is a Preamp box (gain, bass, middle, treble, bright) and a
+Power box (presence, depth, master, voicing), with the controls the panel has. The loader says where
+a fault is: `panel.faceplate.groups[1].controls[2]: the gain control is already in a box`.
+
+Bright is always a toggle and Voicing always a segmented I / II / III (drawn only for an amp with two
+or three voicings), whatever the amp; the cards are flat, with no border and no rule. The output
+Level is not in a box: it is the block's own output knob (`levelDb`, not part of the
+description), shown in the slim strip under the faceplate beside the live Sag reading.
+
+```json
+"panel": {
+  "gain": { "label": "Gain", "target": "stages[0].gain_pot" },
+  "...": "the other controls",
+  "faceplate": {
+    "accent": "#E9EEF3",
+    "nameplate": "left",
+    "tag": "US Lead",
+    "character": "Hot 100 W lead channel, tight and singing",
+    "strip": "slash",
+    "knob_cap": "pointer",
+    "groups": [
+      {"title": "Preamp", "controls": ["gain", "bass", "middle", "treble", "bright"]},
+      {"title": "Power", "controls": ["presence", "depth", "master", "voicing"]}
+    ]
+  }
+}
+```
+
+A front end reads the resolved faceplate with `block.getFaceplate` (the style with the defaults
+filled in, the voicing names, and `styled: false` for an amp that gave none). The Pedaleira app draws
+an amp block in its block settings panel as this faceplate: the knobs, switches and nameplate are the
+block's parameters (a turn or a click runs `block.setParam`), hovering or dragging a knob shows its
+value in a bubble, and a slim strip under it carries the Level knob and the Sag the amp reports. The
+six high gain amps carry the designs of the design canvas, "Amp panels: overview and the 15 amps".
+
+### Choosing an amp
+
+Every description in `resources/amps` is a block kind of its own, registered when the program starts
+from the files linked into the binary (`plugin/src/effects/amp/BuiltinAmpKinds.cpp`). The kind id is
+`amp.` and the file name without `.json`, lower case, letters and digits only: `lead-100.json` is
+`amp.lead100`, `red-forty.json` is `amp.redforty`, and `high-gain.json` is `amp.highgain`, the id the
+first amp always had, so a saved preset that names it loads as it did. The kind's name is the
+description's `metadata.name`, its family `metadata.family`, its character line the faceplate's, and
+its parameters the ten of every amp with the description's own voicings.
+
+So an amp is chosen like any other block: `kinds.list` lists them with their `name`, `family` and
+`blurb`, `chain.addBlock` takes the kind id, and the block picker lists each under its own name with
+its family beside it and finds it by either:
+
+```json
+{"command": "kinds.list"}
+{"command": "chain.addBlock", "args": {"kind": "amp.lead100"}}
+{"command": "block.getFaceplate", "args": {"blockId": "..."}}
+```
+
+Adding an amp to the program is adding a file to `resources/amps` and re-running CMake: nothing else
+is edited (no kind to register, no list to keep), and the tests check every file that is there (it
+parses, has a family and a faceplate that places every control once, and is a kind of its own with a
+unique name and id). `amp.custom` stays the block that takes any description from a file
+(`block.loadDescription`); its faceplate is the loaded description's.
+
 ## The high gain amp, annotated
 
 `resources/amps/high-gain.json`, section by section. JSON has no comments, so they are here.
@@ -526,9 +611,8 @@ where it was); a block that still has the shipped description saves nothing extr
 
 A description that is shipped with the program is added by putting the file in `resources/amps` and
 re-running CMake (`cmake/AmpFramework.cmake` links every `*.json` there into the binary as
-`PedaleiraAmpData`); `plugin/include/effects/amp/BuiltinAmps.h` reads them. A new kind such as
-`amp.highgain` is then a small file under `plugin/src/effects/amp` that names its description, as
-`HighGainAmp.cpp` does.
+`PedaleiraAmpData`); `plugin/include/effects/amp/BuiltinAmps.h` reads them, and
+`BuiltinAmpKinds.cpp` makes a block kind of each (see [choosing an amp](#choosing-an-amp)).
 
 ## From a schematic to a description
 
@@ -677,6 +761,10 @@ from `high-gain.json` (the same four-stage topology) and moving only what the me
 | `modern-three.json` | Modern Three | Clean at low gain (a steep gain law), and a hard knee once driven: the power amp, with heavy feedback, clips first. |
 | `cell-four.json` | Cell Four | Lead-like gain with a deep low-end resonance around 50 to 63 Hz. |
 
+Each of them carries the faceplate the design canvas gives it (accent colour, nameplate, knob caps,
+strip, boxes, style tag and character line) and `"family": "high_gain"`; only their
+`metadata` and `panel` say so, the sound is the measured one.
+
 What was measured on each reference, with every knob but GAIN at 5: a 1 kHz staircase played 36 dB
 down (-96 to -36 dBFS in 3 dB steps), read as the small-signal gain Gs (the lowest steps), the
 bend (the input where the gain is 1 dB under Gs) and the ceiling (the highest output); the THD of a
@@ -716,6 +804,10 @@ and the controls of its circuit only:
 | `dust-forty.json` | Dust Forty | A tweed-style 6L6 crunch, a little feedback, a tube rectifier. | volume, bass, middle, treble, presence |
 | `bronze-twenty.json` | Bronze Twenty | A chiming EL84 crunch, no global feedback. | volume, bass, treble, tone cut |
 | `silk-hundred.json` | Silk Hundred | A smooth overdrive channel: four 12AX7 stages into a 6L6 power amp with feedback. | drive, bass, middle, treble, presence, master |
+
+Each carries `"family": "clean"` or `"crunch"` and the faceplate the design canvas gives it. The
+boxes hold the controls the amp's circuit has: an amp with only a volume, a tone cut and no tone
+stack knobs shows those, not the canvas's full set.
 
 These references were played 24 dB (clean) or 36 dB (crunch) under their nominal level: the
 staircase from -84 or -96 dBFS, the THD at the staircase's -18 dBFS step (-42 or -54 dBFS), and the

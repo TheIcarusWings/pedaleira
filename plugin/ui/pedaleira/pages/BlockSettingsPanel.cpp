@@ -31,6 +31,8 @@ juce::String whatIs(const juce::String& kindId) {
     return "Impulse response";
   if (kindId == "plugin")
     return "Hosted plugin";
+  if (kindId.startsWith("amp."))
+    return "Built-in model";
   return "Built-in effect";
 }
 
@@ -111,6 +113,8 @@ void BlockSettingsPanel::updateButtons() {
 juce::Rectangle<int> BlockSettingsPanel::contentBounds() const { return content->getBounds(); }
 
 std::optional<double> BlockSettingsPanel::shownValue(const juce::String& paramId) const {
+  if (faceplate != nullptr)
+    return faceplate->shownValue(paramId);
   if (effect != nullptr)
     for (const auto& spec : effect->currentParams())
       if (spec.id == paramId)
@@ -123,6 +127,7 @@ void BlockSettingsPanel::clearBlock() {
   context = {};
   viewport.setViewedComponent(nullptr, false);
   effect = nullptr;
+  faceplate = nullptr;
   body.reset();
   bodyKind.clear();
   visual.reset();
@@ -153,14 +158,31 @@ void BlockSettingsPanel::readKinds() {
 }
 
 void BlockSettingsPanel::makeBody() {
-  const juce::String kind = context.kindId == "nam" ? "nam" : context.kindId == "ir" ? "ir" : context.kindId == "plugin" ? "plugin" : "effect";
+  const juce::String kind = context.kindId == "nam" ? "nam"
+                            : context.kindId == "ir"      ? "ir"
+                            : context.kindId == "plugin"  ? "plugin"
+                            : context.kindId.startsWith("amp.") ? "amp"
+                                                                : "effect";
   viewport.setViewedComponent(nullptr, false);
   effect = nullptr;
+  faceplate = nullptr;
   body.reset();
   visual.reset();
   bodyKind = kind;
   if (kind == "plugin")
     return;
+  if (kind == "amp") {
+    // The faceplate is the control surface: no sections, no picture.
+    auto plate = std::make_unique<AmpFaceplate>(engine);
+    faceplate = plate.get();
+    content->addAndMakeVisible(*plate);
+    plate->onChanged = [this] {
+      if (onChanged)
+        onChanged();
+    };
+    body = std::move(plate);
+    return;
+  }
   if (kind == "nam") {
     body = std::make_unique<NamEditor>(engine);
   } else if (kind == "ir") {
@@ -213,7 +235,8 @@ void BlockSettingsPanel::showBlock(const GridModel& model, const juce::String& i
   updateButtons();
   content->setVisible(!collapsed);
   if (body != nullptr) {
-    body->setSize(juce::jmax(100, viewport.getWidth() - kScrollBar), juce::jmax(100, viewport.getHeight()));
+    if (faceplate == nullptr)
+      body->setSize(juce::jmax(100, viewport.getWidth() - kScrollBar), juce::jmax(100, viewport.getHeight()));
     body->showBlock(context);
   }
   if (visual != nullptr)
@@ -236,6 +259,8 @@ void BlockSettingsPanel::showMeters(const juce::var& meters) {
   const BlockLive live = BlockLive::fromVar(meters["blocks"][juce::Identifier(context.blockId)]);
   if (visual != nullptr)
     visual->setLive(live);
+  if (faceplate != nullptr)
+    faceplate->setLive(live);
   if (body != nullptr)
     body->tick();
   bool changed = live.readings.size() != readings.size();
@@ -293,7 +318,9 @@ void BlockSettingsPanel::resized() {
     const int kindWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(
         type::sans(12.0f), categoryName(context.category) + "  " + type::dot() + " " + kindLine()));
     const int left = kPadX + (collapsed ? 28 + 10 : 44 + 14) + juce::jmax(nameWidth, collapsed ? 0 : kindWidth) + 28;
-    readingsBounds = collapsed ? juce::Rectangle<int>() : juce::Rectangle<int>(left, header.getY(), juce::jmax(0, header.getRight() - left), header.getHeight());
+    // An amp shows its sag in the strip of its faceplate.
+    readingsBounds = collapsed || faceplate != nullptr ? juce::Rectangle<int>()
+                                                       : juce::Rectangle<int>(left, header.getY(), juce::jmax(0, header.getRight() - left), header.getHeight());
   } else {
     readingsBounds = {};
   }
@@ -304,6 +331,11 @@ void BlockSettingsPanel::resized() {
 
 void BlockSettingsPanel::layoutBody() {
   auto area = content->getLocalBounds();
+  if (faceplate != nullptr) {
+    // The whole area is the faceplate; there is nothing to scroll.
+    faceplate->setBounds(area);
+    return;
+  }
   if (visual != nullptr) {
     visual->setBounds(area.removeFromLeft(kPictureWidth));
     area.removeFromLeft(kBodyGap);

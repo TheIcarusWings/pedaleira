@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "Red Forty's circuit with a lower output trim: the reference amp behind it bends at the same inputs as Red Forty's and plays about 2 dB quieter. Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "high_gain",
     "references": [
       "D. T. Yeh and J. O. Smith, Discretization of the '59 Fender Bassman Tone Stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -119,7 +120,20 @@
     "presence": {"label": "Presence", "target": "power_amp.presence"},
     "depth": {"label": "Depth", "target": "power_amp.depth"},
     "master": {"label": "Master", "target": "master", "taper": 2.0},
-    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"}
+    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"},
+    "faceplate": {
+      "accent": "#9B5DE5",
+      "nameplate": "left",
+      "tag": "US Modern",
+      "character": "Red Forty's circuit, darker and heavier",
+      "strip": "zigzag",
+      "knob_cap": "pointer",
+      "groups": [
+        {"title": "Drive", "controls": ["gain", "depth"]},
+        {"title": "Voicing", "controls": ["bass", "middle", "treble", "presence"], "columns": 2},
+        {"title": "Master", "controls": ["master", "bright"]}
+      ]
+    }
   },
 
   "default_cab": {"speaker": "Granite", "size": "4x12", "back": "closed", "mic": "dynamic",

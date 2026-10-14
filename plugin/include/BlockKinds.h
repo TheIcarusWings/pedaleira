@@ -63,6 +63,11 @@ struct BlockKindInfo {
   // table). Empty for most kinds. Last, so the positional initialisers of
   // the built-in kinds stay as they are.
   BlockReadingTable readings;
+  // What a browser files the kind under within its category, and a line
+  // about it: the amps carry "High gain", "Clean" or "Crunch" and their
+  // character line. Empty for the kinds that have neither.
+  juce::String family;
+  juce::String blurb;
 };
 
 // The open set of block kinds. "A tone block is NAM or IR" used to be a

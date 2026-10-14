@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A tweed-style crunch amp: a 12AX7 input stage, the bright channel's volume pot, a second 12AX7 stage, a treble, middle and bass tone stack and a push-pull pair of 6L6 with a little global feedback and a presence control, a tube rectifier and no master volume. A typical topology of the kind, not the schematic of one product; its values were fitted to measurements of a reference amp (its VOLUME sweep, its response with every knob at 5 and its tone knob sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "crunch",
     "references": [
       "D. T. Yeh and J. O. Smith, the closed-form analysis of the treble, middle and bass tone stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -119,6 +120,19 @@
       "target": "tone_stack.treble_pot_ohm",
       "taper": {"value": 1.52, "provenance": "fitted", "note": "fitted to the Dust Forty measurements: the response with every knob at 5"}
     },
-    "presence": {"label": "Presence", "target": "power_amp.presence"}
+    "presence": {"label": "Presence", "target": "power_amp.presence"},
+    "faceplate": {
+      "accent": "#D8C79A",
+      "nameplate": "top",
+      "tag": "Tweed",
+      "character": "American tweed-style crunch",
+      "strip": "ticks",
+      "knob_cap": "pointer",
+      "groups": [
+        {"title": "Instrument", "controls": ["gain"]},
+        {"title": "Tone", "controls": ["treble", "middle", "bass"]},
+        {"title": "Bite", "controls": ["presence"]}
+      ]
+    }
   }
 }

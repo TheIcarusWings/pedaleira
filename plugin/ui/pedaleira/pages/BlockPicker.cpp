@@ -115,8 +115,11 @@ void BlockPicker::openFor(int row, int slot) {
       item.category = categoryFromId(kind["category"].toString());
       item.source = builtIn;
       item.badge = "Built-in";
+      // An amp is filed under its family (High gain, Clean, Crunch): shown in
+      // the detail column and found by the search.
+      item.detail = kind["family"].toString();
       item.id = kind["id"].toString();
-      item.keywords = (item.name + " " + item.badge).toLowerCase();
+      item.keywords = (item.name + " " + item.detail + " " + item.badge).toLowerCase();
       items.push_back(item);
     }
 
@@ -290,6 +293,14 @@ void BlockPicker::updateSourceViews() {
   if (online)
     tonePanel.show();
   resized();
+}
+
+juce::StringArray BlockPicker::shownEntries() const {
+  juce::StringArray entries;
+  for (const Row& row : rows)
+    if (!row.heading && row.item >= 0)
+      entries.add(items[static_cast<size_t>(row.item)].name + " | " + items[static_cast<size_t>(row.item)].detail);
+  return entries;
 }
 
 void BlockPicker::textEditorTextChanged(juce::TextEditor&) {

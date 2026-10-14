@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A small single-ended amp: a 12AX7 input stage, the volume pot, a 12AX7 driver, a bass and treble tone stack (the middle is a fixed resistor) and one EL84 in class A with no global feedback, no master volume. The framework's power stage is push-pull; class A without crossover is the nearest it has, and the even harmonics of the single-ended stage come from the driver. A typical topology of the kind, not the schematic of one product; its values were fitted to measurements of a reference amp (its VOLUME sweep, its response with every knob at 5 and its tone knob sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "clean",
     "references": [
       "D. T. Yeh and J. O. Smith, the closed-form analysis of the treble, middle and bass tone stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -116,6 +117,18 @@
       "label": "Treble",
       "target": "tone_stack.treble_pot_ohm",
       "taper": {"value": 2.23, "provenance": "fitted", "note": "fitted to the Ember Five measurements: the response with every knob at 5"}
+    },
+    "faceplate": {
+      "accent": "#FF7A59",
+      "nameplate": "left",
+      "tag": "Tweed",
+      "character": "Small single-ended amp that breaks up early",
+      "strip": "flames",
+      "knob_cap": "chicken_head",
+      "groups": [
+        {"title": "Volume", "controls": ["gain"]},
+        {"title": "Small controls", "controls": ["bass", "treble"]}
+      ]
     }
   }
 }

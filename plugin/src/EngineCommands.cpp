@@ -690,7 +690,10 @@ void EngineCommands::registerChainCommands() {
 
   commands.add({
       "kinds.list",
-      "Lists every block kind this build knows: id, name, category, whether chain.addBlock can "
+      "Lists every block kind this build knows: id, name, category, the family it is filed "
+      "under within its category and a line about it (family and blurb: every shipped amp is "
+      "a kind of its own, filed under High gain, Clean or Crunch with its character line; "
+      "empty for the other kinds), whether chain.addBlock can "
       "create it (nam and ir blocks come from chain.addToneFromFiles instead), the mix a new "
       "block of it starts at (defaultMix), how its mix knob blends dry and wet (mixLaw: "
       "crossfade is dry x (1 - mix) + wet x mix; dryPreserving keeps the dry signal at "
@@ -717,6 +720,8 @@ void EngineCommands::registerChainCommands() {
               {"name", info->name},
               {"category", blockCategoryToString(info->category)},
               {"addable", info->addable},
+              {"family", info->family},
+              {"blurb", info->blurb},
               // Rounded: a float 0.35 would otherwise print its binary tail.
               {"defaultMix", std::round(static_cast<double>(info->defaultMix) * 1000.0) / 1000.0},
               {"mixLaw", blockMixLawToString(info->mixLaw)},
@@ -1113,6 +1118,41 @@ void EngineCommands::registerBlockCommands() {
             {"category", ref.item["category"]},
             {"params", processor.getBlockParams(blockId.toStdString())},
         });
+      },
+  });
+
+  commands.add({
+      "block.getFaceplate",
+      "How a block's controls are drawn as a faceplate, for the blocks that have one (the amp "
+      "kinds; for any other kind the answer is invalid_args). It is the panel style of the "
+      "block's amp description (docs/amp-framework.md, The faceplate), with the defaults "
+      "filled in when the description gave none (styled false). Returns the amp's name, "
+      "family (High gain, Clean, Crunch, or empty), tag and character line, the accent colour "
+      "as #RRGGBB (empty: the front end's own), the nameplate position (left, right, top, "
+      "bottom), the knob cap (round, pointer, chicken_head, fader), the strip pattern, "
+      "the voicing names, and the groups: the boxes left "
+      "to right, each with a title, its controls in order (parameter ids from block.listParams: "
+      "gain, bass, middle, treble, presence, depth, master, bright, voicing, each with the "
+      "label the description gave it) and the columns for its knobs (0: one per knob). Every "
+      "control the amp's panel has is in exactly one group. Level is not in a group: it is the "
+      "block's output knob.",
+      {blockIdParam},
+      false,
+      CommandPermission::read,
+      [this](const juce::var& args) {
+        const juce::String blockId = args["blockId"].toString();
+        const juce::var chain = processor.getChainState(-1);
+        BlockRef ref;
+        if (auto error = toneBlockError(chain, blockId, &ref))
+          return *error;
+        const juce::var faceplate = processor.getBlockFaceplate(blockId.toStdString());
+        if (!faceplate.isObject())
+          return fail(CommandError::invalidArgs, "block.getFaceplate: a '" + ref.item["kindId"].toString() +
+                                                     "' block has no faceplate (only the amp kinds do)");
+        auto* answer = faceplate.getDynamicObject();
+        answer->setProperty("revision", chain["revision"]);
+        answer->setProperty("blockId", blockId);
+        return CommandResult::success(faceplate);
       },
   });
 

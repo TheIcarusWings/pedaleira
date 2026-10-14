@@ -50,6 +50,14 @@
           "type": "string",
           "description": "A sentence or two about the amp and what the description is based on."
         },
+        "family": {
+          "enum": [
+            "high_gain",
+            "clean",
+            "crunch"
+          ],
+          "description": "Which family the block picker files the amp under (High gain, Clean, Crunch). Leave it out for an amp that is none of them."
+        },
         "references": {
           "type": "array",
           "items": {
@@ -3234,6 +3242,113 @@
             "target"
           ],
           "description": "Targets: voicings"
+        },
+        "faceplate": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How the panel is drawn: colour, nameplate, knob caps, switch styles, the boxes the controls sit in. It does not touch the sound. Leave it out for a plain default panel.",
+          "properties": {
+            "accent": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$",
+              "description": "The accent colour, #RRGGBB."
+            },
+            "nameplate": {
+              "enum": [
+                "left",
+                "right",
+                "top",
+                "bottom"
+              ],
+              "description": "Where the nameplate sits. Default left."
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 24,
+              "description": "The short style tag on the nameplate, such as \"US Lead\"."
+            },
+            "character": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96,
+              "description": "The line under the amp name that says what it is like."
+            },
+            "strip": {
+              "enum": [
+                "none",
+                "slash",
+                "dots",
+                "wave",
+                "cells",
+                "zigzag",
+                "chevron",
+                "bells",
+                "arcs",
+                "crosses",
+                "ticks",
+                "flames",
+                "rings",
+                "steps",
+                "diamonds",
+                "ripple"
+              ],
+              "description": "The signature strip pattern on the nameplate. Default none."
+            },
+            "knob_cap": {
+              "enum": [
+                "round",
+                "pointer",
+                "chicken_head",
+                "fader"
+              ],
+              "description": "The shape of the knob caps. Default round. A fader is a vertical slider instead of a knob."
+            },
+            "groups": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 6,
+              "description": "The boxes of the panel, left to right, each with its controls in order. Every control of the panel must be in exactly one box.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "title",
+                  "controls"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 24
+                  },
+                  "controls": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "enum": [
+                        "gain",
+                        "bass",
+                        "middle",
+                        "treble",
+                        "presence",
+                        "depth",
+                        "master",
+                        "bright",
+                        "voicing"
+                      ]
+                    }
+                  },
+                  "columns": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 6,
+                    "description": "Columns the knobs of the box use. Default one per knob."
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

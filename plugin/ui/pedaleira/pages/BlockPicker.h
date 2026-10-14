@@ -61,6 +61,8 @@ public:
   // when there is none.
   const juce::String& noticeText() const { return notice; }
   void showNotice(const juce::String& text);
+  // Testbed: the entries the list shows now, in order, as "name | detail".
+  juce::StringArray shownEntries() const;
 
   // The kinds of entry the chips filter by, in the order of the chips.
   enum Source { all = 0, builtIn, captures, irs, plugins, recent, tone3000 };

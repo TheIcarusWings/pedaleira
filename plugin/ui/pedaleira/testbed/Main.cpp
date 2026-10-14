@@ -126,6 +126,9 @@ struct Scenario {
   // The TONE3000 feed of the block library: "none", "out" (signed out), "in"
   // (signed in) or "down" (TONE3000 can not be reached).
   const char* tone3000 = "none";
+  // The control of an amp's faceplate the mouse rests on (a parameter id, such as
+  // "gain"), so the picture shows its value bubble.
+  const char* hover = "";
 };
 
 // Joins command scripts (JSON arrays) into one.
@@ -418,6 +421,25 @@ Scenario settingsScenario(const char* name, const char* description, const char*
   return scenario;
 }
 
+// One amp in the first slot of a grid, its controls set as the design canvas
+// shows them (percent: the canvas reads them from 0 to 10). `file` is a
+// description given to an amp.custom block with block.loadDescription (see
+// writeAmpVariants), or null for an amp of its own kind.
+const char* ampRig(const char* kind, const char* file, std::initializer_list<std::pair<const char*, int>> values) {
+  static std::deque<std::string> kept;
+  std::string script = std::string(R"([{"command":"grid.convert","args":{"to":"grid"}},)") +
+                       R"({"command":"chain.addBlock","args":{"kind":")" + kind + R"(","row":0,"slot":0}},)" +
+                       R"({"command":"state.waitUntilLoaded","args":{}})";
+  if (file != nullptr)
+    script += std::string(R"(,{"command":"block.loadDescription","args":{"blockId":"$slot:0:0","file":")") + file + R"("}})";
+  for (const auto& [param, value] : values)
+    script += std::string(R"(,{"command":"block.setParam","args":{"blockId":"$slot:0:0","param":")") + param + R"(","value":)" +
+              std::to_string(value) + "}}";
+  script += "]";
+  kept.push_back(script);
+  return kept.back().c_str();
+}
+
 const std::vector<Scenario>& scenarios() {
   static const std::vector<Scenario> list = {
       {"gallery", "Every widget in every state, beside the board Design system", Page::grid, "[]", true},
@@ -520,6 +542,73 @@ const std::vector<Scenario>& scenarios() {
                        kFamiliesRig, "$slot:0:0", "expand", false, 1120, 700),
       settingsScenario("settings-amp", "Settings panel: the amp, its knobs drawn as a face", kFamiliesRig, "$slot:0:1", "",
                        true),
+      settingsScenario("settings-amp-lead100", "Faceplate: Lead 100, silver, nameplate left, wedge caps, slash strip",
+                       ampRig("amp.lead100", nullptr, {{"gain", 75}, {"bass", 50}, {"middle", 65}, {"treble", 60}, {"presence", 55},
+                                                       {"depth", 45}, {"master", 40}, {"bright", 1}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-redforty", "Faceplate: Red Forty, red, banner on top, round caps, dot strip",
+                       ampRig("amp.redforty", nullptr, {{"gain", 70}, {"bass", 60}, {"middle", 50}, {"treble", 65}, {"presence", 50},
+                                                        {"depth", 40}, {"master", 45}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-modernthree", "Faceplate: Modern Three, blue, round caps, wave strip",
+                       ampRig("amp.modernthree", nullptr, {{"gain", 80}, {"bass", 55}, {"middle", 40}, {"treble", 65}, {"presence", 60},
+                                                           {"depth", 50}, {"master", 35}, {"bright", 1}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-cellfour", "Faceplate: Cell Four, green, nameplate right, four boxes, cell strip",
+                       ampRig("amp.cellfour", nullptr, {{"gain", 65}, {"bass", 60}, {"middle", 55}, {"treble", 55}, {"presence", 45},
+                                                        {"depth", 55}, {"master", 40}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-heavyhot", "Faceplate: Heavy Hot, purple, wedge caps, a box of four knobs in two columns",
+                       ampRig("amp.heavyhot", nullptr, {{"gain", 85}, {"depth", 75}, {"bass", 70}, {"middle", 45}, {"treble", 55},
+                                                        {"presence", 65}, {"master", 35}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-highgain", "Faceplate: High Gain, three voicings on a segmented switch",
+                       ampRig("amp.highgain", nullptr, {{"gain", 72}, {"treble", 64}, {"bright", 1}, {"voicing", 2}}), "$slot:0:0", "",
+                       true),
+      settingsScenario("settings-amp-plain", "Faceplate: an amp.custom block whose description gives no style, the plain default",
+                       ampRig("amp.custom", "$tmp/plain-amp.json", {{"gain", 60}, {"bass", 55}, {"middle", 45}, {"treble", 65}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-chicken", "Faceplate: chicken head caps, nameplate at the bottom",
+                       ampRig("amp.custom", "$tmp/chicken-amp.json", {{"gain", 60}, {"bass", 50}, {"middle", 65}, {"treble", 55}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-fader", "Faceplate: faders instead of knobs, steps strip, nameplate right",
+                       ampRig("amp.custom", "$tmp/fader-amp.json", {{"gain", 30}, {"bass", 65}, {"middle", 50}, {"treble", 35}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-glassforty", "Faceplate: Glass Forty, clean, cyan, banner on top, ring strip",
+                       ampRig("amp.glassforty", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-bellthirty", "Faceplate: Bell Thirty, clean, pink, chicken head caps, bell strip",
+                       ampRig("amp.bellthirty", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-steady120", "Faceplate: Steady 120, clean, grey, faders, step strip",
+                       ampRig("amp.steady120", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-velvetfifty", "Faceplate: Velvet Fifty, clean, green, banner on top, diamond strip",
+                       ampRig("amp.velvetfifty", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-emberfive", "Faceplate: Ember Five, clean, orange red, chicken head caps, flame strip",
+                       ampRig("amp.emberfive", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-amberfifty", "Faceplate: Amber Fifty, crunch, yellow, nameplate right, chevron strip",
+                       ampRig("amp.amberfifty", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-coppereighteen", "Faceplate: Copper Eighteen, crunch, copper, cross strip",
+                       ampRig("amp.coppereighteen", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-dustforty", "Faceplate: Dust Forty, crunch, sand, banner on top, tick strip",
+                       ampRig("amp.dustforty", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-bronzetwenty", "Faceplate: Bronze Twenty, crunch, olive, nameplate right, arc strip",
+                       ampRig("amp.bronzetwenty", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      settingsScenario("settings-amp-silkhundred", "Faceplate: Silk Hundred, crunch, lilac, ripple strip",
+                       ampRig("amp.silkhundred", nullptr, {{"gain", 60}, {"bass", 50}, {"middle", 55}, {"treble", 60}, {"presence", 50}, {"master", 50}}),
+                       "$slot:0:0", "", true),
+      {.name = "settings-amp-hover", .description = "Faceplate: Lead 100 with the mouse on Gain, its value in a bubble",
+       .page = Page::grid,
+       .script = ampRig("amp.lead100", nullptr, {{"gain", 75}, {"bass", 50}, {"middle", 65}, {"treble", 60}, {"presence", 55},
+                                                 {"depth", 45}, {"master", 40}}),
+       .select = "$slot:0:0", .audio = true, .hover = "gain"},
       settingsScenario("settings-comp", "Settings panel: a compressor, transfer curve with live gain reduction",
                        kFamiliesRig, "$slot:0:2", "", true),
       settingsScenario("settings-delay", "Settings panel: a tape echo, the echoes on a time axis", kFamiliesRig, "$slot:0:5"),
@@ -839,11 +928,54 @@ void seedPluginCache(const juce::File& cacheFile) {
 }
 
 // The engine's files go to a scratch folder that goes with the process.
+// The shipped high-gain description with its panel style changed, for the
+// faceplate scenarios that need an amp the design canvas does not show: one
+// with no style at all (what a user's own description is) and two with the
+// caps and strips that none of the six high gain amps use. Written as text,
+// the same way the engine's tests edit a description.
+void writeAmpVariants(const juce::File& folder) {
+  const juce::File source = juce::File(PEDALEIRA_SOURCE_DIR).getChildFile("resources").getChildFile("amps").getChildFile("high-gain.json");
+  const std::string original = source.loadFileAsString().toStdString();
+  const size_t from = original.find(",\n    \"faceplate\": {");
+  // The faceplate object closes on a line of its own, four spaces in.
+  const size_t to = from == std::string::npos ? from : original.find("\n    }", from);
+  const size_t family = original.find("    \"family\": ");
+  if (from == std::string::npos || to == std::string::npos || family == std::string::npos)
+    return;
+  const auto make = [&](const char* file, const char* name, const char* style) {
+    std::string text = original;
+    text.erase(from, to + 6 - from);
+    // The new faceplate goes where the old one was, before anything above it changes length.
+    if (style != nullptr)
+      text.insert(from, std::string(",\n    \"faceplate\": ") + style);
+    text.erase(family, text.find('\n', family) + 1 - family);
+    const std::string key = "\"name\": \"High Gain\"";
+    const size_t at = text.find(key);
+    if (at != std::string::npos)
+      text.replace(at, key.size(), std::string("\"name\": \"") + name + "\"");
+    folder.getChildFile(file).replaceWithText(juce::String(text));
+  };
+  make("plain-amp.json", "My Own Amp", nullptr);
+  make("chicken-amp.json", "Chicken Test",
+       R"({"accent": "#F5C518", "nameplate": "bottom", "tag": "Brit Crunch", "character": "Chicken head caps on a custom amp",
+           "strip": "bells", "knob_cap": "chicken_head",
+           "groups": [{"title": "Input", "controls": ["gain", "bright"]},
+                      {"title": "Tone", "controls": ["bass", "middle", "treble", "presence"]},
+                      {"title": "Master", "controls": ["depth", "master", "voicing"]}]})");
+  make("fader-amp.json", "Fader Test",
+       R"({"accent": "#9AA4AF", "nameplate": "right", "tag": "Solid State", "character": "Faders on a custom amp",
+           "strip": "steps", "knob_cap": "fader",
+           "groups": [{"title": "Channel", "controls": ["gain", "bright"]},
+                      {"title": "Equaliser", "controls": ["bass", "middle", "treble", "presence", "depth", "voicing"]},
+                      {"title": "Master", "controls": ["master"]}]})");
+}
+
 struct ScratchEngine {
   explicit ScratchEngine(bool withPlugins = false) {
     data = juce::File::getSpecialLocation(juce::File::tempDirectory)
                .getChildFile("PedaleiraUiTestbed-" + juce::Uuid().toDashedString());
     data.createDirectory();
+    writeAmpVariants(data);
     const juce::File library = data.getChildFile("Library");
     library.createDirectory();
     // A few captures and IRs in the library, for the block library to list.
@@ -1025,6 +1157,40 @@ void clickAt(juce::Component& page, const juce::String& point) {
   const juce::MouseEvent event(juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 0.0f, 0.0f, 0.0f,
                                0.0f, 0.0f, &page, &page, now, at, now, 1, false);
   page.mouseDown(event);
+}
+
+// The mouse arriving on a component, as the pointer would.
+void moveOver(juce::Component& target) {
+  const juce::Point<float> at = target.getLocalBounds().getCentre().toFloat();
+  const juce::Time now = juce::Time::getCurrentTime();
+  const juce::MouseEvent event(juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f,
+                               0.0f, &target, &target, now, at, now, 0, false);
+  target.mouseEnter(event);
+}
+
+// The mouse leaving it.
+void moveOut(juce::Component& target) {
+  const juce::Point<float> at = target.getLocalBounds().getCentre().toFloat();
+  const juce::Time now = juce::Time::getCurrentTime();
+  const juce::MouseEvent event(juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f,
+                               0.0f, &target, &target, now, at, now, 0, false);
+  target.mouseExit(event);
+}
+
+// A press on the middle of a component, a drag of `dy` pixels (up is negative)
+// and the release; `whileDown` runs between the drag and the release.
+void dragBy(juce::Component& target, int dy, const std::function<void()>& whileDown) {
+  const juce::Point<float> start = target.getLocalBounds().getCentre().toFloat();
+  const juce::Point<float> end = start.translated(0.0f, static_cast<float>(dy));
+  const juce::Time now = juce::Time::getCurrentTime();
+  const auto event = [&](juce::Point<float> at, bool dragged) {
+    return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                            &target, &target, now, start, now, 1, dragged);
+  };
+  target.mouseDown(event(start, false));
+  target.mouseDrag(event(end, true));
+  whileDown();
+  target.mouseUp(event(end, true));
 }
 
 // The setlist id with this name.
@@ -1454,6 +1620,173 @@ int selfTest() {
   check(group(Category::utility, "somethingNew") == "Parameters", "an unknown parameter of an unknown kind is Parameters");
   check(group(Category::pitch, "dampingNew") == "Tone", "the keyword fallback groups a new parameter");
 
+  // The amps: every shipped amp is a block kind, listed by the library under
+  // its name and family, and drawn as its faceplate in the settings panel.
+  {
+    ScratchEngine amps;
+    const juce::var listed = amps.client->read("kinds.list");
+    std::vector<juce::var> ampKinds;
+    int highGain = 0;
+    for (const auto& kind : *listed["kinds"].getArray())
+      if (kind["family"].toString().isNotEmpty()) {
+        ampKinds.push_back(kind);
+        highGain += kind["family"].toString() == "High gain" ? 1 : 0;
+      }
+    check(ampKinds.size() >= 7, "every shipped amp is a block kind with a family");
+
+    GridPage library(*amps.client);
+    library.setSize(1368, 836);
+    library.openPicker(0, 0);
+    auto& picker = library.picker();
+    picker.setFilter("amp", 0, {});
+    const juce::StringArray everyAmp = picker.shownEntries();
+    bool listedWithFamily = true;
+    for (const auto& kind : ampKinds)
+      listedWithFamily = listedWithFamily && everyAmp.contains(kind["name"].toString() + " | " + kind["family"].toString());
+    check(listedWithFamily, "the block library lists each amp under its own name and its family");
+    picker.setFilter({}, 0, "high gain");
+    if (picker.shownEntries().size() != highGain)
+      std::cerr << "family search found: " << picker.shownEntries().joinIntoString(" / ") << " (wanted " << highGain << ")\n";
+    check(picker.shownEntries().size() == highGain, "a search for a family finds the amps of that family");
+    picker.setFilter({}, 0, "red forty");
+    check(picker.shownEntries().size() == 1 && picker.shownEntries()[0] == "Red Forty | High gain",
+          "a search for a name finds that amp");
+    picker.setFilter({}, 0, "clean");
+    check(picker.shownEntries().isEmpty() || !picker.shownEntries()[0].startsWith("Red Forty"), "and not the others");
+
+    amps.client->run("grid.convert", object({{"to", "grid"}}));
+    GridPage page(*amps.client);
+    page.setSize(1368, 836);
+    // The panel stays collapsed once a player collapsed it, in any page of the session.
+    page.setSettingsCollapsed(false);
+    const auto blockId = [&] { return resolve(*amps.client, juce::var("$slot:0:0")).toString(); };
+    const auto paramOf = [&](const juce::String& block, const juce::String& param) {
+      const juce::var params = amps.client->read("block.listParams", object({{"blockId", block}}));
+      for (const auto& item : *params["params"].getArray())
+        if (item["id"].toString() == param)
+          return static_cast<double>(item["value"]);
+      return -1.0;
+    };
+    // The layout of a faceplate: every box inside it, none over another, the
+    // nameplate clear of them, every knob inside its box, the strip below.
+    const auto checkLayout = [&](const AmpFaceplate& plate, const juce::String& label) {
+      const auto area = plate.getLocalBounds();
+      bool inside = true, apart = true, knobsInside = true;
+      for (int i = 0; i < static_cast<int>(plate.spec().groups.size()); ++i) {
+        const auto box = plate.groupBounds(i);
+        if (box.isEmpty())
+          continue;
+        inside = inside && area.contains(box) && box.getWidth() >= 90;
+        apart = apart && !box.intersects(plate.nameplateBounds());
+        for (int j = i + 1; j < static_cast<int>(plate.spec().groups.size()); ++j)
+          apart = apart && !box.intersects(plate.groupBounds(j));
+        for (const auto& control : plate.spec().groups[static_cast<size_t>(i)].controls)
+          if (const auto* knob = dynamic_cast<const ParamKnob*>(plate.controlFor(control.id)))
+            knobsInside = knobsInside && box.contains(knob->getBounds());
+      }
+      check(inside, ("the boxes sit inside the faceplate: " + label).toRawUTF8());
+      check(apart, ("no box overlaps another or the nameplate: " + label).toRawUTF8());
+      check(knobsInside, ("every knob sits inside its box: " + label).toRawUTF8());
+      check(plate.nameplateBounds().getWidth() > 100 && plate.nameplateBounds().getHeight() >= 40, ("the nameplate has room: " + label).toRawUTF8());
+      check(plate.knobDiameter() >= 34, ("the knobs are big enough to use: " + label).toRawUTF8());
+      check(plate.stripBounds().getHeight() == AmpFaceplate::kStripHeight && plate.stripBounds().getBottom() == area.getBottom(),
+            ("the slim strip runs along the bottom: " + label).toRawUTF8());
+      const auto* level = plate.controlFor("levelDb");
+      check(level != nullptr && plate.stripBounds().contains(level->getBounds()), ("the Level knob is in the strip: " + label).toRawUTF8());
+    };
+
+    for (const auto& kind : ampKinds) {
+      const juce::String name = kind["name"].toString();
+      amps.client->run("chain.addBlock", object({{"kind", kind["id"]}, {"row", 0}, {"slot", 0}}));
+      page.rigChanged();
+      page.selectBlock(blockId());
+      const AmpFaceplate* plate = page.settingsPanel().ampFaceplate();
+      check(plate != nullptr, ("an amp block shows its faceplate: " + name).toRawUTF8());
+      if (plate == nullptr)
+        continue;
+      check(!page.settingsPanel().hasPicture(), "and no picture and sections above it");
+      check(plate->spec().name == name && !plate->spec().groups.empty() && plate->spec().styled, ("the faceplate is the amp's own: " + name).toRawUTF8());
+      checkLayout(*plate, name);
+
+      // Every control of the description is drawn: a knob for each parameter that is one.
+      int wanted = 0;
+      bool all = true;
+      for (const auto& group : plate->spec().groups)
+        for (const auto& control : group.controls) {
+          const bool switchLike = control.id == "bright" || control.id == "voicing";
+          wanted += switchLike ? 0 : 1;
+          all = all && (plate->controlFor(control.id) != nullptr || (control.id == "voicing" && plate->spec().voicings.size() < 2));
+        }
+      check(all && plate->numKnobs() == wanted, ("every control of the panel is drawn: " + name).toRawUTF8());
+
+      // Turning a knob goes through block.setParam, and the panel shows it.
+      auto* gain = dynamic_cast<ParamKnob*>(plate->controlFor("gain"));
+      check(gain != nullptr, "the Gain knob is a parameter knob");
+      if (gain != nullptr) {
+        const juce::String block = blockId();
+        gain->setPosition(0.3, juce::sendNotification);
+        check(std::abs(paramOf(block, "gain") - 30.0) < 0.01, ("turning Gain sets the parameter: " + name).toRawUTF8());
+        page.rigChanged();
+        check(std::abs(page.settingsPanel().shownValue("gain").value_or(-1.0) - 30.0) < 0.01, "the panel shows the new value");
+        check(gain->getValueText() == "3.0", "and reads it on the 0 to 10 of the panel");
+        // Hovering shows the value in a bubble, and so does dragging.
+        check(plate->bubbleText().isEmpty(), "no bubble while the mouse is away");
+        moveOver(*gain);
+        check(plate->bubbleText() == gain->getName() + " 3.0", "hovering a knob shows its value in a bubble");
+        moveOut(*gain);
+        check(plate->bubbleText().isEmpty(), "the bubble goes when the mouse leaves");
+        dragBy(*gain, -40, [&] { check(plate->bubbleText() == gain->getName() + " " + gain->getValueText(), "dragging shows the value in the bubble"); });
+        // A knob turns 20 points for 40 px; a fader's travel is its own length.
+        const bool fader = plate->spec().cap == Knob::Cap::fader;
+        check(fader ? paramOf(block, "gain") > 31.0 : std::abs(paramOf(block, "gain") - 50.0) < 0.5,
+              ("dragging a knob up turns it up: " + name).toRawUTF8());
+      }
+      if (auto* bright = dynamic_cast<juce::Button*>(plate->controlFor("bright"))) {
+        const double before = paramOf(blockId(), "bright");
+        // A click toggles the button and runs its onClick (triggerClick is posted to the message loop).
+        bright->setToggleState(!bright->getToggleState(), juce::dontSendNotification);
+        bright->onClick();
+        check(paramOf(blockId(), "bright") == 1.0 - before, ("the Bright switch sets the parameter: " + name).toRawUTF8());
+      }
+      if (auto* voicing = dynamic_cast<FaceVoicingSwitch*>(plate->controlFor("voicing"))) {
+        voicing->setSelected(plate->spec().voicings.size() - 1, juce::sendNotification);
+        check(static_cast<int>(paramOf(blockId(), "voicing")) == plate->spec().voicings.size() - 1,
+              ("the Voicing switch sets the parameter: " + name).toRawUTF8());
+      }
+      amps.client->run("chain.removeBlock", object({{"blockId", blockId()}}));
+    }
+
+    // An amp whose description gives no style gets the plain default faceplate;
+    // two others use the caps, strips and switch styles the six above do not.
+    struct Variant {
+      const char* file;
+      const char* name;
+      bool styled;
+      Knob::Cap cap;
+    };
+    for (const Variant& variant : {Variant{"plain-amp.json", "My Own Amp", false, Knob::Cap::round},
+                                   Variant{"chicken-amp.json", "Chicken Test", true, Knob::Cap::chickenHead},
+                                   Variant{"fader-amp.json", "Fader Test", true, Knob::Cap::fader}}) {
+      amps.client->run("chain.addBlock", object({{"kind", "amp.custom"}, {"row", 0}, {"slot", 0}}));
+      const auto loaded = amps.client->run(
+          "block.loadDescription", object({{"blockId", blockId()}, {"file", resolve(*amps.client, juce::var(juce::String("$tmp/") + variant.file))}}));
+      check(loaded.ok, "the variant description loads");
+      page.rigChanged();
+      page.selectBlock(blockId());
+      const AmpFaceplate* plate = page.settingsPanel().ampFaceplate();
+      check(plate != nullptr && plate->spec().name == variant.name, (juce::String("a custom amp shows its faceplate: ") + variant.name).toRawUTF8());
+      if (plate != nullptr) {
+        check(plate->spec().styled == variant.styled, "styled or the plain default");
+        check(plate->spec().cap == variant.cap, "the cap of the description");
+        check(variant.styled || plate->spec().accent == categoryColour(Category::amp), "the plain default takes the amp category colour");
+        check(variant.styled || (plate->spec().groups.size() == 2 && plate->spec().strip == FaceStrip::none), "the plain default is two boxes and no strip");
+        check(plate->controlFor("treble") != nullptr && plate->controlFor("voicing") != nullptr, "the plain default has every control");
+        checkLayout(*plate, variant.name);
+      }
+      amps.client->run("chain.removeBlock", object({{"blockId", blockId()}}));
+    }
+  }
+
   std::cout << (total - failures) << " of " << total << " checks passed\n";
   return failures == 0 ? 0 : 1;
 }
@@ -1633,6 +1966,16 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
           grid.setSettingsCollapsed(false);
         else if (key == "collapse")
           grid.setSettingsCollapsed(true);
+      }
+    }
+    if (const juce::String hover(scenario.hover); hover.isNotEmpty() && !scenario.gallery) {
+      auto& grid = static_cast<pedaleira::ui::GridPage&>(*pages[0]);
+      const auto* plate = grid.settingsPanel().ampFaceplate();
+      if (plate == nullptr || plate->controlFor(hover) == nullptr) {
+        std::cerr << scenario.name << ": no control '" << hover << "' on the faceplate\n";
+        ++failures;
+      } else {
+        moveOver(*plate->controlFor(hover));
       }
     }
     // The live levels and readings the shell would hand the page.

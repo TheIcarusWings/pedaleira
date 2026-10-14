@@ -34,6 +34,43 @@ const char* panelIdName(PanelId id) noexcept {
   return "";
 }
 
+const char* ampFamilyId(AmpFamily family) noexcept {
+  switch (family) {
+    case AmpFamily::None: return "";
+    case AmpFamily::HighGain: return "high_gain";
+    case AmpFamily::Clean: return "clean";
+    case AmpFamily::Crunch: return "crunch";
+  }
+  return "";
+}
+
+const char* ampFamilyName(AmpFamily family) noexcept {
+  switch (family) {
+    case AmpFamily::None: return "";
+    case AmpFamily::HighGain: return "High gain";
+    case AmpFamily::Clean: return "Clean";
+    case AmpFamily::Crunch: return "Crunch";
+  }
+  return "";
+}
+
+namespace {
+constexpr const char* kNameplateIds[] = {"left", "right", "top", "bottom"};
+constexpr const char* kKnobCapIds[] = {"round", "pointer", "chicken_head", "fader"};
+constexpr const char* kStripIds[] = {"none",   "slash",    "dots",  "wave",  "cells", "zigzag", "chevron", "bells",
+                                     "arcs",   "crosses",  "ticks", "flames", "rings", "steps",  "diamonds", "ripple"};
+constexpr const char* kFamilyIds[] = {"high_gain", "clean", "crunch"};
+
+template <size_t N>
+const char* idOf(const char* const (&table)[N], int index) noexcept {
+  return index >= 0 && static_cast<size_t>(index) < N ? table[index] : "";
+}
+}  // namespace
+
+const char* nameplateId(Nameplate value) noexcept { return idOf(kNameplateIds, static_cast<int>(value)); }
+const char* knobCapId(KnobCap value) noexcept { return idOf(kKnobCapIds, static_cast<int>(value)); }
+const char* stripPatternId(StripPattern value) noexcept { return idOf(kStripIds, static_cast<int>(value)); }
+
 namespace {
 
 using json = nlohmann::json;
@@ -277,7 +314,7 @@ public:
   }
 
   void readMetadata(const json& obj) {
-    allowOnly(obj, "metadata", {"name", "author", "licence", "summary", "references"});
+    allowOnly(obj, "metadata", {"name", "author", "licence", "summary", "family", "references"});
     readString(obj, "metadata", "name", out.name, true);
     if (out.name.empty())
       fail("metadata.name", "must not be empty");
@@ -286,6 +323,16 @@ public:
     if (out.licence.empty())
       fail("metadata.licence", "must not be empty: say which licence this description is under");
     readString(obj, "metadata", "summary", out.summary, false);
+    std::string family;
+    if (readString(obj, "metadata", "family", family, false)) {
+      int found = -1;
+      for (int i = 0; i < 3; ++i)
+        if (family == kFamilyIds[i])
+          found = i;
+      if (found < 0)
+        fail("metadata.family", "must be \"high_gain\", \"clean\" or \"crunch\", not \"" + family + "\"");
+      out.family = static_cast<AmpFamily>(found + 1);
+    }
     if (const json* refs = find(obj, "references")) {
       if (!refs->is_array())
         fail("metadata.references", "must be an array of strings");
@@ -632,13 +679,24 @@ public:
       return;
     if (!panel->is_object())
       fail("panel", "must be an object keyed by control id");
+    // A panel that only carries a faceplate has every control, as no panel does.
+    bool anyControl = false;
+    for (auto it = panel->begin(); it != panel->end(); ++it)
+      anyControl = anyControl || it.key() != "faceplate";
+    if (!anyControl) {
+      readPanel(nullptr);
+      readFaceplate(find(*panel, "faceplate"));
+      return;
+    }
     for (auto it = panel->begin(); it != panel->end(); ++it) {
+      if (it.key() == "faceplate")
+        continue;
       int index = -1;
       for (int i = 0; i < kPanelControls; ++i)
         if (it.key() == panelIdName(static_cast<PanelId>(i)))
           index = i;
       if (index < 0)
-        fail(child("panel", it.key()), "unknown control; the controls are gain, bass, middle, treble, presence, depth, master, bright, voicing");
+        fail(child("panel", it.key()), "unknown control; the controls are gain, bass, middle, treble, presence, depth, master, bright, voicing (and faceplate, which says how they are drawn)");
       const PanelId id = static_cast<PanelId>(index);
       const std::string path = child("panel", it.key());
       const json& obj = it.value();
@@ -679,6 +737,109 @@ public:
         control.high = static_cast<float>(hi);
       }
     }
+    readFaceplate(find(*panel, "faceplate"));
+  }
+
+  /** One of the ids in `table`, as an index; fails with the list otherwise. */
+  template <size_t N>
+  static int readChoice(const json& obj, const std::string& path, const char* key, const char* const (&table)[N],
+                        int fallback) {
+    std::string value;
+    if (!readString(obj, path, key, value, false))
+      return fallback;
+    for (size_t i = 0; i < N; ++i)
+      if (value == table[i])
+        return static_cast<int>(i);
+    std::string list;
+    for (size_t i = 0; i < N; ++i)
+      list += std::string(i == 0 ? "" : ", ") + "\"" + table[i] + "\"";
+    fail(child(path, key), "must be one of " + list + ", not \"" + value + "\"");
+  }
+
+  static void readText(const json& obj, const std::string& path, const char* key, std::string& value, size_t longest) {
+    if (!readString(obj, path, key, value, false))
+      return;
+    if (value.empty() || value.size() > longest)
+      fail(child(path, key), "must be 1 to " + std::to_string(longest) + " characters");
+    // Plain text on one line: no control characters.
+    for (const char c : value)
+      if (static_cast<unsigned char>(c) < 0x20)
+        fail(child(path, key), "must be one line of plain text");
+  }
+
+  void readFaceplate(const json* plate) {
+    Faceplate& face = out.faceplate;
+    face = Faceplate{};
+    if (plate == nullptr)
+      return;
+    const std::string path = "panel.faceplate";
+    if (!plate->is_object())
+      fail(path, "must be an object");
+    allowOnly(*plate, path, {"accent", "nameplate", "tag", "character", "strip", "knob_cap", "groups"});
+    face.styled = true;
+    if (readString(*plate, path, "accent", face.accent, false)) {
+      bool valid = face.accent.size() == 7 && face.accent[0] == '#';
+      for (size_t i = 1; valid && i < face.accent.size(); ++i)
+        valid = std::isxdigit(static_cast<unsigned char>(face.accent[i])) != 0;
+      if (!valid)
+        fail(child(path, "accent"), "must be a colour as #RRGGBB, not \"" + face.accent + "\"");
+      for (char& c : face.accent)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    face.nameplate = static_cast<Nameplate>(readChoice(*plate, path, "nameplate", kNameplateIds, 0));
+    readText(*plate, path, "tag", face.tag, 24);
+    readText(*plate, path, "character", face.character, 96);
+    face.knobCap = static_cast<KnobCap>(readChoice(*plate, path, "knob_cap", kKnobCapIds, 0));
+    face.strip = static_cast<StripPattern>(readChoice(*plate, path, "strip", kStripIds, 0));
+
+    const json* groups = find(*plate, "groups");
+    if (groups == nullptr)
+      return;
+    if (!groups->is_array() || groups->empty() || groups->size() > 6)
+      fail(child(path, "groups"), "must be a list of 1 to 6 boxes");
+    bool placed[kPanelControls] = {};
+    for (size_t g = 0; g < groups->size(); ++g) {
+      const std::string where = element(child(path, "groups"), g);
+      const json& box = (*groups)[g];
+      if (!box.is_object())
+        fail(where, "must be an object with a title and controls");
+      allowOnly(box, where, {"title", "controls", "columns"});
+      PanelGroup group;
+      readString(box, where, "title", group.title, true);
+      if (group.title.empty() || group.title.size() > 24)
+        fail(child(where, "title"), "must be 1 to 24 characters");
+      const json* controls = find(box, "controls");
+      if (controls == nullptr || !controls->is_array() || controls->empty())
+        fail(child(where, "controls"), "must be a list of control ids");
+      for (size_t c = 0; c < controls->size(); ++c) {
+        const std::string at = element(child(where, "controls"), c);
+        if (!(*controls)[c].is_string())
+          fail(at, "must be a control id");
+        const std::string id = (*controls)[c].get<std::string>();
+        int index = -1;
+        for (int i = 0; i < kPanelControls; ++i)
+          if (id == panelIdName(static_cast<PanelId>(i)))
+            index = i;
+        if (index < 0)
+          fail(at, "unknown control \"" + id + "\"");
+        if (!out.panel[index].present)
+          fail(at, "the " + id + " control is not on this amp's panel");
+        if (placed[index])
+          fail(at, "the " + id + " control is already in a box");
+        placed[index] = true;
+        group.controls.push_back(static_cast<PanelId>(index));
+      }
+      if (const json* columns = find(box, "columns")) {
+        if (!columns->is_number_integer() || columns->get<int>() < 1 || columns->get<int>() > 6)
+          fail(child(where, "columns"), "must be a whole number from 1 to 6");
+        group.columns = columns->get<int>();
+      }
+      face.groups.push_back(std::move(group));
+    }
+    for (int i = 0; i < kPanelControls; ++i)
+      if (out.panel[i].present && !placed[i])
+        fail(child(path, "groups"), std::string("the ") + panelIdName(static_cast<PanelId>(i)) +
+                                        " control is on the panel but in no box");
   }
 
 private:
@@ -686,6 +847,26 @@ private:
 };
 
 }  // namespace
+
+Faceplate resolveFaceplate(const AmpDescription& description) {
+  Faceplate face = description.faceplate;
+  if (!face.groups.empty())
+    return face;
+  // The plain default: the knobs of the preamp, the knobs of the power amp.
+  const auto box = [&description](const char* title, std::initializer_list<PanelId> ids) {
+    PanelGroup group;
+    group.title = title;
+    for (const PanelId id : ids)
+      if (description.control(id).present)
+        group.controls.push_back(id);
+    return group;
+  };
+  for (PanelGroup group : {box("Preamp", {PanelId::Gain, PanelId::Bass, PanelId::Middle, PanelId::Treble, PanelId::Bright}),
+                           box("Power", {PanelId::Presence, PanelId::Depth, PanelId::Master, PanelId::Voicing})})
+    if (!group.controls.empty())
+      face.groups.push_back(std::move(group));
+  return face;
+}
 
 bool parseAmpDescription(const std::string& text, AmpDescription& out, std::string& error) {
   error.clear();

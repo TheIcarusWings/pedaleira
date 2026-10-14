@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A modern lead channel (a 12AX7 input stage, a gain pot with a steep law, three cascaded gain stages, a treble-middle-bass tone stack) into a push-pull 6L6 power amp with heavy global feedback, so it stays clean at low gain and clips hard once driven. The topology and the starting values are those of the High Gain description; the gain law, the levels, the clipping points, the tone stack and the feedback network were then fitted to measurements of a reference amp (its GAIN sweep, its responses at GAIN 2 and 5 and its tone knob sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "high_gain",
     "references": [
       "D. T. Yeh and J. O. Smith, Discretization of the '59 Fender Bassman Tone Stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -115,7 +116,20 @@
     "presence": {"label": "Presence", "target": "power_amp.presence"},
     "depth": {"label": "Depth", "target": "power_amp.depth"},
     "master": {"label": "Master", "target": "master", "taper": 2.0},
-    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"}
+    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"},
+    "faceplate": {
+      "accent": "#4D7CFF",
+      "nameplate": "left",
+      "tag": "Cali Modern",
+      "character": "Three-channel modern high gain, deep low end",
+      "strip": "wave",
+      "knob_cap": "round",
+      "groups": [
+        {"title": "Channel", "controls": ["gain", "bright"]},
+        {"title": "Equaliser", "controls": ["bass", "middle", "treble"]},
+        {"title": "Master", "controls": ["presence", "depth", "master"]}
+      ]
+    }
   },
 
   "default_cab": {"speaker": "Brass", "size": "2x12", "back": "closed", "mic": "dynamic",

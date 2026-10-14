@@ -74,6 +74,56 @@ struct PanelControl {
   float high{1.0f};
 };
 
+/** What kind of amp it is, for browsing: the family a block picker files it
+    under. None for a description that does not say (a user's own). */
+enum class AmpFamily { None, HighGain, Clean, Crunch };
+
+/** The id used in files ("high_gain") and the name a player reads ("High gain"). */
+const char* ampFamilyId(AmpFamily family) noexcept;
+const char* ampFamilyName(AmpFamily family) noexcept;
+
+// ---- The faceplate: how the panel is drawn --------------------------------
+// None of this touches the sound. It says how a front end draws the panel's
+// controls (docs/amp-framework.md, "The faceplate"); the controls themselves
+// are the PanelControls above.
+
+/** Where the nameplate sits on the faceplate. */
+enum class Nameplate { Left, Right, Top, Bottom };
+/** The cap of a knob: a round cap with a pointer line, a wedge pointer, a
+    chicken head that turns with the knob, or a fader (a vertical slider). */
+enum class KnobCap { Round, Pointer, ChickenHead, Fader };
+/** The pattern of the signature strip on the nameplate. */
+enum class StripPattern { None, Slash, Dots, Wave, Cells, Zigzag, Chevron, Bells, Arcs, Crosses, Ticks, Flames, Rings, Steps, Diamonds, Ripple };
+
+/** The id used in files, and the parse in the other direction (false: unknown). */
+const char* nameplateId(Nameplate value) noexcept;
+const char* knobCapId(KnobCap value) noexcept;
+const char* stripPatternId(StripPattern value) noexcept;
+
+/** One box of the faceplate: a title and the controls in it, in order. */
+struct PanelGroup {
+  std::string title;
+  std::vector<PanelId> controls;
+  /** Columns the knobs of the box are laid out in; 0 = one column per knob. */
+  int columns{0};
+};
+
+struct Faceplate {
+  /** True when the description gave a faceplate; false: the defaults below
+      (resolveFaceplate), which a front end draws as a plain panel. */
+  bool styled{false};
+  /** The accent colour as "#RRGGBB" (upper case); empty = the front end's own. */
+  std::string accent;
+  Nameplate nameplate{Nameplate::Left};
+  /** The short style tag on the nameplate ("US Lead"), and the line under the name. */
+  std::string tag;
+  std::string character;
+  KnobCap knobCap{KnobCap::Round};
+  StripPattern strip{StripPattern::None};
+  /** The boxes, left to right. */
+  std::vector<PanelGroup> groups;
+};
+
 /** The origin of one value, for the values the description gave a note or a
     non-default source for (and for every "fitted" one). */
 struct ValueNote {
@@ -178,6 +228,8 @@ struct AmpDescription {
   /** The licence of this description file (an SPDX identifier or a name). */
   std::string licence;
   std::string summary;
+  /** Which family a block picker files the amp under. */
+  AmpFamily family{AmpFamily::None};
 
   StageModel model{StageModel::Classic};
 
@@ -197,6 +249,8 @@ struct AmpDescription {
   PanelControl panel[kPanelControls];
   /** The cab the amp is meant for; `present` false when the file names none. */
   DefaultCab defaultCab;
+  /** How the panel is drawn (panel.faceplate); `faceplate.styled` says whether the file gave one. */
+  Faceplate faceplate;
 
   /** The stage that carries the gain pot, or -1. */
   int potStage{-1};
@@ -211,6 +265,12 @@ struct AmpDescription {
 
   const PanelControl& control(PanelId id) const noexcept { return panel[static_cast<int>(id)]; }
 };
+
+/** The faceplate to draw: the description's own when it has one, otherwise
+    a plain default (round caps, no strip, the nameplate on the left, a
+    Preamp box and a Power box). Either way every control the panel has is in
+    exactly one group, in order. */
+Faceplate resolveFaceplate(const AmpDescription& description);
 
 /** Reads a description from JSON text. On failure returns false and `error`
     says what is wrong and where (a path such as "stages[1].coupling"). Not for

@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A four-stage lead preamp (a 12AX7 input stage, a gain pot, three cascaded gain stages, a treble-middle-bass tone stack) into a push-pull EL34 power amp with presence and depth feedback. The topology and the starting values are those of the High Gain description; the gain law, the levels, the clipping points, the tone stack and the feedback network were then fitted to measurements of a reference lead amp (its GAIN sweep, its line-level responses and its tone knob sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "high_gain",
     "references": [
       "D. T. Yeh and J. O. Smith, Discretization of the '59 Fender Bassman Tone Stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -110,7 +111,19 @@
     "presence": {"label": "Presence", "target": "power_amp.presence"},
     "depth": {"label": "Depth", "target": "power_amp.depth"},
     "master": {"label": "Master", "target": "master", "taper": 2.0},
-    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"}
+    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"},
+    "faceplate": {
+      "accent": "#E9EEF3",
+      "nameplate": "left",
+      "tag": "US Lead",
+      "character": "Hot 100 W lead channel, tight and singing",
+      "strip": "slash",
+      "knob_cap": "pointer",
+      "groups": [
+        {"title": "Preamp", "controls": ["gain", "bass", "middle", "treble", "bright"]},
+        {"title": "Power", "controls": ["presence", "depth", "master"]}
+      ]
+    }
   },
 
   "default_cab": {"speaker": "Ember", "size": "4x12", "back": "closed", "mic": "dynamic",

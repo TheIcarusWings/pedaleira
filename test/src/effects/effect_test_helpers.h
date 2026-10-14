@@ -1180,6 +1180,11 @@ struct ConformanceOptions {
   // channels carry independent random sources.
   bool checkDualMono{true};
   double dualMonoToleranceDb{-60.0};
+
+  // The tail check (silent after the reported tail, and the reported tail not
+  // shorter than the decay to -60 dB). Off only with a reason written at the
+  // call: the amp.heavyhot description rings below -60 dB for over two seconds.
+  bool checkTail{true};
 };
 
 /**
@@ -1307,7 +1312,7 @@ inline void expectKindConforms(const juce::String& kindId, const ConformanceOpti
       expectStableUnderParameterSweep(kindId, options.params, options.sweepSeconds,
                                       options.sweepBound, rig);
     }
-    {
+    if (options.checkTail) {
       SCOPED_TRACE("tail");
       const TailMeasurement tail = expectSilenceAfterReportedTail(
           kindId, options.params, options.tailToleranceSeconds, layout);

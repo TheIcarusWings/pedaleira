@@ -58,9 +58,14 @@ TEST(EffectRegistrationTest, EveryEffectKindHasItsConformanceTest) {
     sources += entry.getFile().loadFileAsString();
   ASSERT_TRUE(sources.isNotEmpty());
 
+  // The shipped amps are kinds made from the files in resources/amps, however
+  // many there are: one test loops over them (amp_faceplate_tests.cpp), so a
+  // new file needs no new line here.
+  EXPECT_TRUE(sources.contains("expectKindConforms(ampfx::builtinAmpKindId("))
+      << "the shipped amps need a test that runs expectKindConforms over every file in resources/amps";
   for (const auto& report : BlockKindRegistry::instance().effectHookReports())
     for (const auto& id : report.kindIds)
-      EXPECT_TRUE(sources.contains("expectKindConforms(\"" + id + "\""))
+      EXPECT_TRUE(report.file == "amp/BuiltinAmpKinds.cpp" || sources.contains("expectKindConforms(\"" + id + "\""))
           << id << " (" << report.file << ") has no test calling expectKindConforms(\"" << id
           << "\", ...) under test/src/effects";
 }

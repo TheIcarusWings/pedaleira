@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A British-style 50 W crunch amp: a 12AX7 input stage, the gain pot, two cascaded 12AX7 stages, a treble, middle and bass tone stack, a master volume and a push-pull pair of EL34 with global feedback and a presence control. A typical topology of the kind, not the schematic of one product; its values were fitted to measurements of a reference amp (its GAIN sweep, its response with every knob at 5 and its tone knob sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "crunch",
     "references": [
       "D. T. Yeh and J. O. Smith, the closed-form analysis of the treble, middle and bass tone stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -136,6 +137,19 @@
       "taper": {"value": 1.02, "provenance": "fitted", "note": "fitted to the Amber Fifty measurements: the response with every knob at 5"}
     },
     "presence": {"label": "Presence", "target": "power_amp.presence"},
-    "master": {"label": "Master", "target": "master", "taper": 2}
+    "master": {"label": "Master", "target": "master", "taper": 2},
+    "faceplate": {
+      "accent": "#F5C518",
+      "nameplate": "right",
+      "tag": "Brit Crunch",
+      "character": "British 50 W EL34 crunch",
+      "strip": "chevron",
+      "knob_cap": "chicken_head",
+      "groups": [
+        {"title": "Input", "controls": ["gain"]},
+        {"title": "Tone", "controls": ["bass", "middle", "treble", "presence"]},
+        {"title": "Master", "controls": ["master"]}
+      ]
+    }
   }
 }

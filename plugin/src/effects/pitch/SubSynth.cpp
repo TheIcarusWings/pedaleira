@@ -14,10 +14,11 @@
 // Tracking, honestly. The synth knows the note only after the tracker has heard
 // two or more periods of it, so a new note is joined by its sub at the right
 // pitch about 15 ms later for high notes and 35 ms later for the low strings
-// (plugin tests measure it); until then it plays the previous note (a low E
-// before the first) at about a third of its level. While the tracker is not
-// sure of a pitch (the gap between two notes, a chord, noise) the synth keeps
-// the last note at that reduced level; it is shut only by silence. It is monophonic: play
+// (plugin tests measure it). The synth is gated by the tracker: it plays while
+// the tracker has a confident pitch (kept open for 15 ms across a frame that is
+// not sure) and is silent when it has none, the gap between two notes, a chord,
+// noise, the guitar's silence, with a short release (8 ms) so the cut does not
+// click. It never plays a note that was not heard. It is monophonic: play
 // single notes. The block has no latency (the guitar is not delayed); the synth
 // follows by the tracking time.
 //
@@ -173,14 +174,13 @@ private:
     // Every control step.
     void control(float cutoffHz, float q, float ratio, double rate) noexcept {
       tracker.step();
-      // The note held is the last confident one (a default low E before the
-      // first). The synth plays at full level while the tracker is sure, at
-      // kUnsureLevel while it is not (the gap between two notes, a chord, a
-      // pick scrape: the bass does not drop out, and does not follow noise
-      // either), and not at all when the guitar is silent.
+      // The pitch followed is the last confident one. The gate is open while
+      // the tracker is sure of a pitch (or was within the hold) and shut when
+      // it is not: the gap between two notes, a chord, a pick scrape, noise
+      // and silence all give no sound, rather than a bass note that was
+      // not played.
       targetFrequency = (tracker.hasNote() ? tracker.frequencyHz() : kDefaultHz) * ratio;
-      const bool silent = tracker.rms() < kSilenceRms;
-      gateTarget = silent ? 0.0f : (samplesSinceVoiced <= holdSamples ? 1.0f : kUnsureLevel);
+      gateTarget = samplesSinceVoiced <= holdSamples ? 1.0f : 0.0f;
       filter.set(cutoffHz, q, rate);
     }
 
@@ -196,8 +196,10 @@ private:
       // A new note is a jump of frequency; the gate is shut across it (the
       // tracker is not sure while two notes are in its window), and the
       // frequency slides the rest of the way.
+      // With the gate shut nobody hears the pitch move: it goes straight to
+      // the note the gate is about to open on.
       frequency += slide * (targetFrequency - frequency);
-      if (frequency < 1.0f)
+      if (frequency < 1.0f || gate < kGateShut)
         frequency = targetFrequency;
 
       const double increment = static_cast<double>(frequency) / rate;
@@ -243,9 +245,8 @@ private:
     // answers every 5 ms, so this is a few frames), and opens and closes with
     // one-pole smoothing.
     static constexpr double kHoldSeconds = 0.015;
-    static constexpr float kUnsureLevel = 0.35f;
     static constexpr float kDefaultHz = 82.407f;
-    static constexpr float kSilenceRms = 0.0015f;
+    static constexpr float kGateShut = 0.001f;
     static constexpr double kGateUpSeconds = 0.002;
     static constexpr double kGateDownSeconds = 0.008;
     static constexpr double kSlideSeconds = 0.005;

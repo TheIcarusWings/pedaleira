@@ -3,7 +3,8 @@
 // at one and two octaves under them (the frequency of its output against the
 // note played), its wave shapes, the filter's cutoff and resonance, the
 // envelope following the guitar, the gate across note changes, silence and
-// noise, the readings, and the dual mono layout.
+// noise (the synth is silent when the tracker has no pitch), the readings, and
+// the dual mono layout.
 #include "effects/pitch_test_signals.h"
 
 #include <gtest/gtest.h>
@@ -36,6 +37,10 @@ TEST(SubSynthTest, Conforms) {
   // The synth is silent for an impulse (the tracker has no note to follow), and
   // the guitar is not delayed: there is no latency to measure.
   options.latency = LatencyCheck::Skip;
+  // The synth is gated by the pitch tracker: noise gives no sound (tested
+  // below), so the tail is measured from a plucked-guitar-like note, which
+  // the synth does play.
+  options.tailBurst = [](double seconds, double) { return harmonicTone(seconds, 196.0, 0.25f); };
   options.cpuAverageBudgetNs = 25000.0;
   options.cpuWorstBudgetNs = 250000.0;
   expectKindConforms("pitch.subsynth", options);
@@ -183,24 +188,62 @@ TEST(SubSynthTest, TheLevelFollowsTheGuitarsEnvelope) {
   EXPECT_GT(rmsOf(slowOut, 52000, 76000), rmsOf(quickOut, 52000, 76000) * 1.5);
 }
 
-TEST(SubSynthTest, SilenceIsSilentAndNoiseOnlyHoldsTheLastNoteAtAReducedLevel) {
+TEST(SubSynthTest, ItIsSilentWheneverTheTrackerHasNoConfidentPitch) {
   EffectRig rig(kKind);
   EXPECT_EQ(peakOf(rig.renderSilence(24000)), 0.0f);
-  // Noise with no note ever heard: the synth plays its default note (a low E,
-  // so the sub is at 41 Hz) at a third of the level of the playing, bounded.
+
+  // Noise with no note ever heard: nothing plays, not a default low E.
   EffectRig noisy(kKind, bright(0.0, 0.0));
   const std::vector<float> hiss = noisy.render(noise(2.0, 8u, 0.3f, kRate));
   expectCleanSignal(hiss, 0.3f, "noise only");
-  EXPECT_GT(lineDb(hiss, 48000, hiss.size(), 41.2035), lineDb(hiss, 48000, hiss.size(), 98.0) + 10.0);
-  // A note, then noise: the synth keeps the note (98 Hz for a played 196 Hz), at
-  // a third of the level it had, and does not wander.
+  EXPECT_LT(peakOf(hiss, 4800), 1.0e-3f) << "the synth plays nothing for noise";
+
+  // A note, then noise (no pitch): the synth is gone within the tracker's
+  // window, the hold and the release (100 ms into the noise it is 20 dB under
+  // what it played), and it stays gone: it does not keep the last note at a
+  // lower level.
   EffectRig held(kKind, bright(0.0, 0.0));
   const std::vector<float> in = followedBy(sine(1.0, 196.0, 0.3f, kRate), noise(1.0, 9u, 0.3f, kRate));
   const std::vector<float> out = held.render(in);
   const double playing = rmsOf(out, 24000, 48000);
   EXPECT_GT(playing, 0.05);
-  EXPECT_LT(rmsOf(out, 48000 + 9600, 96000), playing * 0.5);
-  EXPECT_GT(lineDb(out, 60000, 96000, 98.0), lineDb(out, 60000, 96000, 41.2035) + 10.0);
+  const size_t noiseFrom = 48000;
+  EXPECT_LT(rmsOf(out, noiseFrom + 4800, noiseFrom + 9600), playing * 0.1)
+      << "100 ms into the noise the synth is quiet";
+  EXPECT_LT(peakOf(out, noiseFrom + 9600), 2.0e-3f) << "and silent after";
+  std::cout << "[ SUBSYNTH ] after a note, noise: " << juce::String(toDb(rmsOf(out, noiseFrom + 4800, noiseFrom + 9600) / playing), 1)
+            << " dB re the note 100 to 200 ms in, peak " << juce::String(peakOf(out, noiseFrom + 9600), 6) << " after" << std::endl;
+
+  // A chord (no single pitch) gives no bass either.
+  EffectRig chord(kKind, bright(0.0, 0.0));
+  std::vector<float> chordIn(static_cast<size_t>(2.0 * kRate), 0.0f);
+  for (const double hz : {196.0, 246.94, 293.66, 369.99})
+    for (size_t i = 0; i < chordIn.size(); ++i)
+      chordIn[i] += 0.08f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * hz * static_cast<double>(i) / kRate));
+  const std::vector<float> chordOut = chord.render(chordIn);
+  EXPECT_LT(peakOf(chordOut, 24000), 0.02f) << "a chord has no pitch to follow";
+}
+
+TEST(SubSynthTest, TheGateShutsQuicklyWhenTheNoteStops) {
+  // A note cut dead: the tracker hears the silence within its window, the
+  // hold and the 8 ms release shut the gate, the filter rings out. Within
+  // 100 ms the synth is 40 dB under what it played, and then it is silent.
+  EffectRig rig(kKind, bright(0.0, 0.0));
+  const std::vector<float> in = withSilence(sine(1.0, 196.0, 0.3f, kRate), 24000);
+  const std::vector<float> out = rig.render(in);
+  const double playing = rmsOf(out, 24000, 48000);
+  const size_t stop = 48000;
+  const size_t closed = [&] {
+    // The first 5 ms window after the stop that is 40 dB down.
+    for (size_t i = stop; i + 240 < out.size(); i += 48)
+      if (rmsOf(out, i, i + 240) < playing * 0.01)
+        return i - stop;
+    return out.size();
+  }();
+  std::cout << "[ SUBSYNTH ] a note cut dead: the synth is 40 dB down after "
+            << juce::String(1000.0 * static_cast<double>(closed) / kRate, 1) << " ms" << std::endl;
+  EXPECT_LT(closed, static_cast<size_t>(0.1 * kRate));
+  EXPECT_LT(peakOf(out, stop + 12000), 1.0e-4f);
 }
 
 TEST(SubSynthTest, TheReadingsReportTheNoteTheFrequencyAndTheConfidence) {
@@ -240,11 +283,9 @@ TEST(SubSynthTest, MonoAndStereoPlayTheSameSynthOnEverySide) {
 }
 
 TEST(SubSynthTest, HowLongTheSynthTakesToJoinANewNote) {
-  // The time from a note's first sample to the synth's first output. It starts
-  // at once, at the previous note's pitch and a third of the level, and reaches
-  // the new note when the tracker has it (pitch_tracker_tests print that: 10 to
-  // 38 ms); this prints the first and checks the second through the frequency
-  // 100 ms in.
+  // The time from a note's first sample to the synth's first output: the
+  // synth is gated by the tracker, so it starts when the tracker has the note
+  // (pitch_tracker_tests print that: 10 to 38 ms), at the right pitch.
   for (const double hz : {82.407, 110.0, 196.0, 329.628, 659.255}) {
     EffectRig rig(kKind, bright(0.0, 0.0));
     const size_t start = 12000;

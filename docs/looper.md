@@ -16,12 +16,27 @@ buses (a grid's extra outputs) have no looper.
 
 ## Design
 
-**Memory.** `prepare()` (from `prepareToPlay`, message thread) allocates five
-layers of two channels of 60 seconds each at the host rate: 115 MB of address
-space at 48 kHz. The blocks are `malloc`ed and never written, so the system
-commits only the pages a loop actually uses. Nothing is allocated, freed or
-cleared in bulk on the audio thread. Calling `prepareToPlay` again at the same
-rate keeps the loop.
+**Memory.** The loop needs five layers of two channels of 60 seconds each at the
+host rate: 115 MB of address space at 48 kHz. It is reserved lazily. `prepare()`
+(from `prepareToPlay`, message thread) only records the rate and starts the
+looper's worker thread, an idle thread that sleeps on an event. The first
+`record` or `cycle` action asks the worker for the memory (`request()` signals it;
+the MIDI door, on the audio thread, sets a flag the worker polls every 10 ms).
+The worker `malloc`s the blocks, never writes them, so the system commits only the
+pages a loop actually uses, and swaps them in under a try-lock. Meanwhile the
+looper is **arming**: the record action waits, the rig's sound passes untouched,
+`looper.get` reports `state: "arming"` (and, before the audio thread has picked the
+action up, `queued: 1`), and recording starts in the first block after the
+handover (a few milliseconds). `stop` or `clear` while arming take the action
+back; a second `record` changes nothing. When the loop has been empty (a `clear`,
+say) with nothing queued for the grace period (30 s), the worker takes the memory
+back; the next record arms again. The audio thread allocates and frees nothing:
+it only tries the lock at the start of a block, and a block that meets it (the
+worker holds it for a pointer swap or a `free`, and only while the looper is
+empty) passes the sound through. Calling `prepareToPlay` again at the same rate
+keeps the loop and its memory; a new rate drops both. `looper.get` reports
+`memoryReady`, `memoryBytes` and `memoryFailed` (the allocation was refused; the
+arming record is dropped).
 
 **Layers.** Layer 0 is the first recording, covering the whole loop. An overdub
 records into the next layer (up to four). Each layer remembers the range of loop
@@ -79,8 +94,8 @@ All in `docs/commands.md`. `looper.record`, `looper.overdub`, `looper.play`,
 `looper.stop`, `looper.undo`, `looper.redo` and `looper.clear` post an action and
 answer with `looper.get`'s state; `looper.setOptions` sets `halfSpeed`,
 `reverse`, `oneShot`, `quantise` and `levelDb` (-60 to +12) and answers with the
-state. `looper.get` reports state (`empty`, `recording`, `playing`,
-`overdubbing`, `stopped`), `closing`, `queued`, `channels`, lengths and position
+state. `looper.get` reports state (`empty`, `arming`, `recording`, `playing`,
+`overdubbing`, `stopped`), `memoryReady`, `closing`, `queued`, `channels`, lengths and position
 in frames and seconds, `position` (0 to 1), `layers`, `canUndo`, `redoLayers`,
 `canRedo`, `layersFull`, the limits and the options. Actions are `edit`
 permission, like the other live controls; `looper.get` is `read`.

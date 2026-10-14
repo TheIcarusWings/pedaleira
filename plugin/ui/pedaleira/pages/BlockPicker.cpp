@@ -22,7 +22,7 @@ const std::vector<std::pair<juce::String, Category>>& categoryList() {
       {"amp", Category::amp},           {"drive", Category::drive},     {"cab", Category::cab},
       {"dynamics", Category::dynamics}, {"eq", Category::eq},           {"delay", Category::delay},
       {"reverb", Category::reverb},     {"modulation", Category::modulation}, {"pitch", Category::pitch},
-      {"filter", Category::filter},     {"utility", Category::utility}, {"plugin", Category::plugin},
+      {"filter", Category::filter},     {"creative", Category::creative}, {"utility", Category::utility}, {"plugin", Category::plugin},
   };
   return list;
 }

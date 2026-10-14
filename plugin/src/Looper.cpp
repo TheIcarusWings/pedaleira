@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <new>
+#include <thread>
 
 // ####################
 // MEMORY
@@ -29,10 +30,49 @@ void Looper::Block::release() noexcept {
   data = nullptr;
 }
 
+// The worker: one idle thread per looper that reserves the loop's memory when
+// a record action asks for it, and gives it back after a grace period. It wakes
+// on a request from a non-audio thread, and polls every few milliseconds for
+// the requests the audio thread (MIDI) can only flag.
+class Looper::Worker : public juce::Thread {
+public:
+  explicit Worker(Looper& owner) : juce::Thread("Looper memory"), looper(owner) {}
+
+  void run() override {
+    while (!threadShouldExit()) {
+      looper.wake.wait(10);
+      if (threadShouldExit())
+        break;
+      looper.serviceMemory();
+    }
+  }
+
+private:
+  Looper& looper;
+};
+
 Looper::Looper() {
   producerLock.clear();
+  bufferLock.clear();
   levelGain.reset(48000.0, 0.02);
   levelGain.setCurrentAndTargetValue(1.0f);
+}
+
+Looper::~Looper() {
+  if (worker != nullptr) {
+    worker->signalThreadShouldExit();
+    wake.signal();
+    worker->stopThread(5000);
+  }
+}
+
+void Looper::lockBuffers() noexcept {
+  while (bufferLock.test_and_set(std::memory_order_acquire))
+    std::this_thread::yield();
+}
+
+void Looper::unlockBuffers() noexcept {
+  bufferLock.clear(std::memory_order_release);
 }
 
 void Looper::prepare(double newSampleRate) {
@@ -42,37 +82,128 @@ void Looper::prepare(double newSampleRate) {
                          std::abs(newSampleRate - sampleRate) < 0.5;
   if (!unchanged) {
     ready.store(false, std::memory_order_release);
+    generation.fetch_add(1);
     const auto frames = static_cast<std::int64_t>(std::ceil(kMaxSeconds * newSampleRate));
-    try {
-      for (auto& channels : layer)
-        for (auto& block : channels)
-          block.allocate(static_cast<std::size_t>(frames));
-    } catch (const std::bad_alloc&) {
-      for (auto& channels : layer)
-        for (auto& block : channels)
-          block.release();
-      capacity = 0;
-      publish();
-      return;
-    }
+    Blocks dropped;  // freed after the lock
+    lockBuffers();
+    for (std::size_t l = 0; l < layer.size(); ++l)
+      for (std::size_t c = 0; c < layer[l].size(); ++c)
+        std::swap(layer[l][c].data, dropped[l][c].data);
+    attached = false;
+    pubMemory.store(false, std::memory_order_release);
     capacity = frames;
+    allocFrames.store(frames);
     sampleRate = newSampleRate;
     clearAll();
     fifo.reset();
     audioPendingCount = 0;
+    unlockBuffers();
+    memoryFailed.store(false);
   }
   const float level = levelOption.load(std::memory_order_relaxed);
   levelGain.reset(sampleRate, 0.02);
   levelGain.setCurrentAndTargetValue(level <= kMinLevelDb ? 0.0f
                                                           : juce::Decibels::decibelsToGain(level));
+  if (worker == nullptr) {
+    worker = std::make_unique<Worker>(*this);
+    worker->startThread();
+  }
   ready.store(true, std::memory_order_release);
   publish();
+}
+
+void Looper::requestMemory() noexcept {
+  memoryFailed.store(false, std::memory_order_relaxed);
+  memoryWanted.store(true, std::memory_order_release);
+  wake.signal();
+}
+
+bool Looper::waitForMemory(int timeoutMs) {
+  requestMemory();
+  const auto deadline = juce::Time::getMillisecondCounter() + static_cast<std::uint32_t>(timeoutMs);
+  while (!isMemoryReady()) {
+    if (memoryFailed.load(std::memory_order_acquire) ||
+        juce::Time::getMillisecondCounter() > deadline)
+      return false;
+    juce::Thread::sleep(1);
+  }
+  return true;
+}
+
+// The looper has been empty, with nothing waiting for it. The audio thread's
+// view is the published one, which is final at the end of every block.
+bool Looper::idleForRelease() const noexcept {
+  return pubMemory.load(std::memory_order_acquire) &&
+         !memoryWanted.load(std::memory_order_acquire) &&
+         pubState.load(std::memory_order_acquire) == static_cast<int>(State::empty) &&
+         !pubArming.load(std::memory_order_acquire) && fifo.getNumReady() == 0;
+}
+
+void Looper::serviceMemory() {
+  if (!ready.load(std::memory_order_acquire))
+    return;
+
+  if (memoryWanted.load(std::memory_order_acquire) && !pubMemory.load(std::memory_order_acquire)) {
+    countingIdle = false;
+    const int gen = generation.load();
+    const std::int64_t frames = allocFrames.load();
+    Blocks fresh;  // whatever is not handed over is freed here, outside the lock
+    try {
+      for (auto& channels : fresh)
+        for (auto& block : channels)
+          block.allocate(static_cast<std::size_t>(frames));
+    } catch (const std::bad_alloc&) {
+      memoryFailed.store(true, std::memory_order_release);
+      memoryWanted.store(false, std::memory_order_release);
+      return;
+    }
+    lockBuffers();
+    if (gen == generation.load() && !attached) {
+      for (std::size_t l = 0; l < layer.size(); ++l)
+        for (std::size_t c = 0; c < layer[l].size(); ++c)
+          std::swap(layer[l][c].data, fresh[l][c].data);
+      attached = true;
+      pubMemory.store(true, std::memory_order_release);
+    }
+    unlockBuffers();
+    memoryWanted.store(false, std::memory_order_release);
+    return;
+  }
+
+  if (!idleForRelease()) {
+    countingIdle = false;
+    return;
+  }
+  const std::uint32_t now = juce::Time::getMillisecondCounter();
+  if (!countingIdle) {
+    countingIdle = true;
+    idleSince = now;
+  }
+  if (now - idleSince < static_cast<std::uint32_t>(std::max(0, memoryGraceMs.load())))
+    return;
+
+  Blocks dropped;
+  lockBuffers();
+  // The audio thread is out of the buffers now and its last block is
+  // published: look once more, then take the memory back.
+  if (idleForRelease()) {
+    for (std::size_t l = 0; l < layer.size(); ++l)
+      for (std::size_t c = 0; c < layer[l].size(); ++c)
+        std::swap(layer[l][c].data, dropped[l][c].data);
+    attached = false;
+    pubMemory.store(false, std::memory_order_release);
+  }
+  unlockBuffers();
+  countingIdle = false;
 }
 
 // ####################
 // CONTROL
 // ####################
 bool Looper::request(Action action) noexcept {
+  if ((action == Action::record || action == Action::cycle) &&
+      !pubMemory.load(std::memory_order_acquire))
+    requestMemory();
   // Producers (the message thread, a command server's calls once they have
   // reached it) take turns on a flag; the audio thread never touches it.
   while (producerLock.test_and_set(std::memory_order_acquire)) {
@@ -109,13 +240,19 @@ void Looper::applyQueued(int bufferChannels, double bpm) noexcept {
 
 void Looper::apply(Action action, int bufferChannels, double bpm) noexcept {
   const bool reverse = reverseOption.load(std::memory_order_relaxed);
+  // A stop or a clear while the record action waits for the memory takes
+  // the action back.
+  if (arming && (action == Action::stop || action == Action::clear)) {
+    arming = false;
+    return;
+  }
   switch (action) {
     case Action::record:
       if (state == State::recording) {
         if (!closing)
           requestClose(State::playing, bpm);
       } else {
-        startRecording(bufferChannels);
+        beginRecording(bufferChannels);
       }
       break;
 
@@ -199,7 +336,7 @@ void Looper::apply(Action action, int bufferChannels, double bpm) noexcept {
 
     case Action::cycle:
       switch (state) {
-        case State::empty: startRecording(bufferChannels); break;
+        case State::empty: beginRecording(bufferChannels); break;
         case State::recording:
           if (closing)
             closeNext = State::overdubbing;
@@ -241,6 +378,23 @@ void Looper::apply(Action action, int bufferChannels, double bpm) noexcept {
       }
       break;
   }
+}
+
+// Records at once when the memory is there; otherwise the action waits (the
+// looper is arming) and the worker is flagged to reserve it. A second record
+// while arming changes nothing.
+void Looper::beginRecording(int bufferChannels) noexcept {
+  if (attached) {
+    arming = false;
+    startRecording(bufferChannels);
+    return;
+  }
+  if (arming)
+    return;
+  clearAll();
+  arming = true;
+  memoryFailed.store(false, std::memory_order_relaxed);
+  memoryWanted.store(true, std::memory_order_release);
 }
 
 void Looper::startRecording(int bufferChannels) noexcept {
@@ -316,6 +470,7 @@ void Looper::discardOverdub() noexcept {
 
 void Looper::clearAll() noexcept {
   state = State::empty;
+  arming = false;
   length = 0;
   position = 0.0;
   recorded = 0;
@@ -360,8 +515,26 @@ float Looper::fadeGain(std::int64_t index) const noexcept {
 void Looper::process(float* const* data, int numChannels, int numFrames, double bpm) noexcept {
   if (!ready.load(std::memory_order_acquire) || numFrames <= 0 || numChannels <= 0)
     return;
+  // The worker holds the buffers for a moment while it hands memory over or
+  // takes it back, and only while the looper is empty: a block that meets it
+  // passes the sound through and does not wait.
+  if (bufferLock.test_and_set(std::memory_order_acquire))
+    return;
+  struct Unlock {
+    std::atomic_flag& flag;
+    ~Unlock() { flag.clear(std::memory_order_release); }
+  } unlock{bufferLock};
+
   const int bufferChannels = std::min(numChannels, kMaxChannels);
   applyQueued(bufferChannels, bpm);
+  if (arming) {
+    if (attached) {
+      arming = false;
+      startRecording(bufferChannels);
+    } else if (memoryFailed.load(std::memory_order_acquire)) {
+      arming = false;
+    }
+  }
 
   const Options options{halfSpeedOption.load(std::memory_order_relaxed),
                         reverseOption.load(std::memory_order_relaxed),
@@ -493,7 +666,8 @@ void Looper::process(float* const* data, int numChannels, int numFrames, double 
 // STATE
 // ####################
 void Looper::publish() noexcept {
-  pubState.store(static_cast<int>(state), std::memory_order_relaxed);
+  pubArming.store(arming, std::memory_order_release);
+  pubState.store(static_cast<int>(state), std::memory_order_release);
   pubClosing.store(closing, std::memory_order_relaxed);
   pubLength.store(length, std::memory_order_relaxed);
   pubPosition.store(state == State::recording ? recorded : static_cast<std::int64_t>(position),
@@ -520,10 +694,16 @@ Looper::Snapshot Looper::snapshot() const noexcept {
   s.state = static_cast<State>(pubState.load(std::memory_order_relaxed));
   s.closing = pubClosing.load(std::memory_order_relaxed);
   s.ready = ready.load(std::memory_order_acquire);
+  s.arming = pubArming.load(std::memory_order_acquire);
+  s.memoryReady = pubMemory.load(std::memory_order_acquire);
+  s.memoryFailed = memoryFailed.load(std::memory_order_acquire);
   s.lengthFrames = pubLength.load(std::memory_order_relaxed);
   s.positionFrames = pubPosition.load(std::memory_order_relaxed);
   s.recordedFrames = pubRecorded.load(std::memory_order_relaxed);
   s.capacityFrames = capacity;
+  s.memoryBytes = s.memoryReady ? static_cast<std::uint64_t>(kMaxLayers) * kMaxChannels *
+                                      static_cast<std::uint64_t>(capacity) * sizeof(float)
+                                : 0;
   s.layers = pubLayers.load(std::memory_order_relaxed);
   s.redoLayers = pubRedo.load(std::memory_order_relaxed);
   s.channels = pubChannels.load(std::memory_order_relaxed);
@@ -551,8 +731,11 @@ juce::var Looper::describe() const {
   options->setProperty("levelDb", s.levelDb);
 
   auto* object = new juce::DynamicObject();
-  object->setProperty("state", stateName(s.state));
+  object->setProperty("state", s.arming ? "arming" : stateName(s.state));
   object->setProperty("ready", s.ready);
+  object->setProperty("memoryReady", s.memoryReady);
+  object->setProperty("memoryFailed", s.memoryFailed);
+  object->setProperty("memoryBytes", static_cast<juce::int64>(s.memoryBytes));
   object->setProperty("closing", s.closing);
   object->setProperty("queued", s.queued);
   object->setProperty("channels", s.channels);

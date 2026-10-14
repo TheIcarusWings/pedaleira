@@ -291,6 +291,9 @@ bool TONE3000Processor::applyPresetTree(const juce::ValueTree& preset, const juc
   const juce::ValueTree snapshot = preset.getChildWithName("ChainSnapshot");
   if (!snapshot.isValid())
     return false;
+  // Block kinds an older build saved under other ids (this call's own copy
+  // of the tree; the next save writes the current ids).
+  t3k::legacy_ids::migrateKindIds(snapshot);
   if (const juce::String refusal = gridSnapshotRefusal(snapshot); refusal.isNotEmpty()) {
     juce::Logger::writeToLog("[Presets] Cannot load preset: " + refusal);
     return false;

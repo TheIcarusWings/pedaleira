@@ -29,13 +29,13 @@ Tone3000Tone tone(int id, const char* title, const char* creator, const char* ge
 }
 
 std::vector<Tone3000Tone> trending() {
-  return {tone(101, "Brit 800 Crunch pack", "sample-user-a", "amp", "nam", 3, true),
-          tone(102, "Blackface Clean", "sample-user-b", "full-rig", "nam", 3),
-          tone(103, "Green overdrive", "sample-user-c", "pedal", "nam", 2),
-          tone(104, "4x12 V30 cab IRs", "sample-user-d", "cab", "ir", 6),
-          tone(105, "Plexi 100 Wall", "sample-user-a", "amp", "nam", 5, true),
+  return {tone(101, "Harbor Crunch pack", "sample-user-a", "amp", "nam", 3, true),
+          tone(102, "Coastline Clean", "sample-user-b", "full-rig", "nam", 3),
+          tone(103, "Jade overdrive", "sample-user-c", "pedal", "nam", 2),
+          tone(104, "4x12 Slate cab IRs", "sample-user-d", "cab", "ir", 6),
+          tone(105, "Cobalt 100 Wall", "sample-user-a", "amp", "nam", 5, true),
           tone(106, "Plate and Spring spaces", "sample-user-e", "space", "ir", 4),
-          tone(107, "Tweed Edge of Breakup", "sample-user-b", "full-rig", "nam", 3),
+          tone(107, "Maple Edge of Breakup", "sample-user-b", "full-rig", "nam", 3),
           tone(108, "Germanium fuzz", "sample-user-f", "pedal", "nam", 2)};
 }
 

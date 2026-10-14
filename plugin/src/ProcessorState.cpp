@@ -577,6 +577,8 @@ void TONE3000Processor::setStateInformation(const void* data, int sizeInBytes) {
                           t3k::legacy_ids::migrateParamIds(midiState, "targetId");
       renamed > 0)
     juce::Logger::writeToLog("[Restore] Renamed " + juce::String(renamed) + " legacy parameter ids");
+  if (const int moved = t3k::legacy_ids::migrateKindIds(state); moved > 0)
+    juce::Logger::writeToLog("[Restore] Renamed " + juce::String(moved) + " legacy block kind ids");
 
   if (parameterState.isValid()) {
     // The state's own values, not a move of a control: in a grid they are

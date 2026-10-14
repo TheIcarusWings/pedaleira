@@ -66,7 +66,7 @@ CaptureSourceStep::CaptureSourceStep(CaptureHost& hostPage) : CaptureStep(hostPa
   }
   parts::styleEditor(name);
   name.setTitle("Capture name");
-  name.setTextToShowWhenEmpty("Brit 800 Crunch", colour::faint);
+  name.setTextToShowWhenEmpty("Harbor Crunch", colour::faint);
   name.onTextChange = [this] { host.footerChanged(); };
   addAndMakeVisible(name);
   gainTag.setTitle("Gain tag");

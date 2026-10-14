@@ -20,6 +20,7 @@
 #include "BlockKinds.h"
 #include "EngineCommands.h"
 #include "GainBlockProcessor.h"
+#include "LegacyParamIds.h"
 #include "Processor.h"
 #include "chain_test_helpers.h"
 #include "test_block_kinds.h"
@@ -679,6 +680,52 @@ TEST(BlockFrameworkTest, KindStateSavesAndRestores) {
   EXPECT_DOUBLE_EQ(static_cast<double>(row["kindParams"]["phaseInvert"]), 1.0);
   EXPECT_NEAR(static_cast<double>(row["params"]["mix"]), 0.7, 1e-6);
   EXPECT_FALSE(static_cast<bool>(row["params"]["enabled"]));
+}
+
+TEST(BlockFrameworkTest, LegacyKindIdsLoadUnderTheirNewIds) {
+  // Freeze, Bit Crusher, Stutter and Ring Modulator were saved as filter.*
+  // before the Creative category; a state that says so still loads them.
+  const std::pair<const char*, const char*> moved[] = {{"filter.freeze", "creative.freeze"},
+                                                       {"filter.bitcrush", "creative.bitcrush"},
+                                                       {"filter.glitch", "creative.glitch"},
+                                                       {"filter.ringmod", "creative.ringmod"}};
+  for (const auto& [legacy, current] : moved) {
+    SCOPED_TRACE(legacy);
+    EXPECT_EQ(t3k::legacy_ids::currentKindId(legacy), juce::String(current));
+    EXPECT_EQ(t3k::legacy_ids::currentKindId(current), juce::String(current));
+    ASSERT_NE(BlockKindRegistry::instance().find(current), nullptr);
+    EXPECT_EQ(BlockKindRegistry::instance().find(legacy), BlockKindRegistry::instance().find(current));
+
+    Rig rig;
+    const std::string id = rig.add(current);
+    ASSERT_FALSE(id.empty());
+    juce::ValueTree state = savedState(rig.proc);
+    ASSERT_TRUE(state.isValid());
+    // Written the way an older build wrote it.
+    juce::ValueTree kindState = savedBlock(state, juce::String(id)).getChildWithName("KindState");
+    ASSERT_TRUE(kindState.isValid());
+    EXPECT_EQ(kindState.getProperty("kind").toString(), juce::String(current));
+    kindState.setProperty("kind", legacy, nullptr);
+    juce::MemoryOutputStream out;
+    out.write("T3KB", 4);
+    state.writeToStream(out);
+
+    Rig reopened;
+    reopened.proc.setStateInformation(out.getData(), static_cast<int>(out.getDataSize()));
+    ASSERT_TRUE(waitForChainLoaded(reopened.proc));
+    const juce::var row = reopened.block(id);
+    EXPECT_EQ(row["kindId"].toString(), juce::String(current));
+    EXPECT_TRUE(static_cast<bool>(row["loaded"]));
+    // And it saves under the current id from then on.
+    EXPECT_EQ(savedBlock(savedState(reopened.proc), juce::String(id))
+                  .getChildWithName("KindState")
+                  .getProperty("kind")
+                  .toString(),
+              juce::String(current));
+  }
+  // Ids that were never renamed pass through, a tree without kinds is left alone.
+  EXPECT_EQ(t3k::legacy_ids::currentKindId("filter.wah"), juce::String("filter.wah"));
+  EXPECT_EQ(t3k::legacy_ids::migrateKindIds(juce::ValueTree("ChainSnapshot")), 0);
 }
 
 TEST(BlockFrameworkTest, KindParamsUndoRedoAndDuplicate) {

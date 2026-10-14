@@ -14,6 +14,12 @@
 // state in the answer does not show it yet (`queued` counts what is waiting);
 // poll looper.get. With no audio running (a headless rig between renders) the
 // action waits for the next block.
+//
+// The loop's memory (115 MB of address space) is not reserved until the first
+// record action: a worker thread of the looper allocates it, the audio thread
+// never does. Until it is there the looper reports "arming" and the record
+// action waits (looper.get shows memoryReady); the memory is given back
+// after the loop has been empty for a while.
 
 namespace {
 
@@ -29,14 +35,14 @@ CommandResult fail(const char* code, const juce::String& message) {
 void EngineCommands::registerLooperCommands() {
   const auto stateResult = [this] { return CommandResult::success(processor.getLooper().describe()); };
 
-  // The checks every action command shares: the looper has memory (it has
-  // not been prepared before the audio device started, or the allocation was
-  // refused), and the ring took the action.
+  // The checks every action command shares: the looper has been prepared (not
+  // before the audio device started), and the ring took the action. The
+  // loop's memory is reserved by the record action itself, asynchronously.
   const auto post = [this, stateResult](const char* name, Looper::Action action) {
     Looper& looper = processor.getLooper();
     if (!looper.isReady())
       return fail(CommandError::unavailable,
-                  juce::String(name) + ": the looper has no memory yet (audio has not started)");
+                  juce::String(name) + ": the looper is not prepared yet (audio has not started)");
     if (!looper.request(action))
       return fail(CommandError::unavailable,
                   juce::String(name) + ": too many looper actions are waiting for the audio thread");
@@ -46,7 +52,10 @@ void EngineCommands::registerLooperCommands() {
   commands.add({
       "looper.get",
       "Returns the looper's state as the audio thread last published it: state (empty, "
-      "recording, playing, overdubbing or stopped), closing (the first recording is running on "
+      "arming, recording, playing, overdubbing or stopped; arming is a record action waiting "
+      "for the loop's memory, which is reserved on the first record and freed after the loop "
+      "has been empty for a while), memoryReady, memoryBytes and memoryFailed (the "
+      "reservation was refused), closing (the first recording is running on "
       "to the next beat, with quantise on), queued (actions waiting for the next audio block), "
       "channels (1 or 2), lengthFrames and lengthSeconds (of the loop as recorded), "
       "playbackLengthSeconds (twice that at half speed), recordedSeconds (while recording), "
@@ -67,8 +76,11 @@ void EngineCommands::registerLooperCommands() {
       "Empty: starts the first recording, which sets the loop's length when it ends. "
       "Recording: ends it and starts playing (with quantise on, at the nearest whole number of "
       "beats). With a loop already there: throws it away and starts a new recording. Up to 60 "
-      "seconds; at the limit the loop closes by itself. Takes effect at the start of the next "
-      "audio block. Answers with looper.get's state, which does not show the action yet.",
+      "seconds; at the limit the loop closes by itself. The first record after startup (or "
+      "after the memory was freed) reserves the loop's memory off the audio thread: the state "
+      "reads queued, then arming, and recording starts in the first block after the memory "
+      "is there (a few milliseconds). Takes effect at the start of the next audio block. "
+      "Answers with looper.get's state, which does not show the action yet.",
       {},
       true,
       CommandPermission::edit,

@@ -1,4 +1,4 @@
-// filter.freeze: holds a moment of the input as a smooth, endless pad.
+// creative.freeze: holds a moment of the input as a smooth, endless pad.
 //
 // The input is always being written to a ring of the last second. When the
 // `freeze` switch goes on, the latest `grainMs` of it is copied into one of
@@ -35,7 +35,7 @@ namespace {
 
 class FreezeProcessor final : public ParameterisedBlockProcessor {
 public:
-  static constexpr const char* kKindId = "filter.freeze";
+  static constexpr const char* kKindId = "creative.freeze";
 
   enum Param { kFreeze = 0, kGrainMs, kFadeInMs, kFadeOutMs, kLevelDb, kDryPercent };
 
@@ -366,6 +366,6 @@ private:
 PEDALEIRA_EFFECT_KINDS(Freeze) {
   // The wet path is the live signal until the switch is on; fully wet to
   // start, so the block's mix is only needed to blend the pad under a part.
-  addEffectKind<FreezeProcessor>(registry, "Freeze", BlockCategory::Filter, 1.0f,
+  addEffectKind<FreezeProcessor>(registry, "Freeze", BlockCategory::Creative, 1.0f,
                                  BlockMixLaw::Crossfade);
 }

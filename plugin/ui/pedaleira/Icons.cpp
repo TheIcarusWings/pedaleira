@@ -83,6 +83,7 @@ const char* source(Category category) {
     case Category::modulation: return "M3 12c3-8 6-8 9 0s6 8 9 0";
     case Category::pitch: return "M8 20V5M4 9l4-4 4 4M16 4v15M12 15l4 4 4-4";
     case Category::filter: return "M3 8h8c4 0 5 3 6 10M3 20h18";
+    case Category::creative: return "M12 3l2 7 7 2-7 2-2 7-2-7-7-2 7-2z";
     case Category::plugin: return "M9 3v5M15 3v5M7 8h10v4a5 5 0 0 1-10 0zM12 17v4";
     case Category::utility: break;
   }

@@ -179,8 +179,8 @@ const char* kFullRig = R"([{"command":"grid.convert","args":{"to":"grid"}},
 const char* kEditorRig = R"([{"command":"grid.convert","args":{"to":"grid"}},
     {"command":"chain.addBlock","args":{"kind":"dynamics.gate","row":0,"slot":0}},
     {"command":"chain.addBlock","args":{"kind":"dynamics.compressor","row":0,"slot":1}},
-    {"command":"chain.addToneFromFiles","args":{"paths":["$library/Amps/Brit 800 Crunch.nam"],"row":0,"slot":2}},
-    {"command":"chain.addToneFromFiles","args":{"paths":["$library/Cabs/4x12 V30.wav"],"row":0,"slot":3}},
+    {"command":"chain.addToneFromFiles","args":{"paths":["$library/Amps/Harbor Crunch.nam"],"row":0,"slot":2}},
+    {"command":"chain.addToneFromFiles","args":{"paths":["$library/Cabs/4x12 Slate.wav"],"row":0,"slot":3}},
     {"command":"chain.addBlock","args":{"kind":"delay.tape","row":0,"slot":4}},
     {"command":"chain.addBlock","args":{"kind":"reverb.plate","row":0,"slot":5}},
     {"command":"state.waitUntilLoaded","args":{}},
@@ -213,7 +213,7 @@ const char* kEditorRig = R"([{"command":"grid.convert","args":{"to":"grid"}},
 // slot 12.
 const char* kStageRig = joined({kEditorRig, R"([
     {"command":"split.add","args":{"row":0,"splitAt":2,"mixAt":4,"type":"ab"}},
-    {"command":"chain.addToneFromFiles","args":{"paths":["$library/Amps/Twin Clean.nam"],"row":1,"slot":2}},
+    {"command":"chain.addToneFromFiles","args":{"paths":["$library/Amps/Lantern Clean.nam"],"row":1,"slot":2}},
     {"command":"chain.addToneFromFiles","args":{"paths":["$library/Cabs/2x12 Blue.wav"],"row":1,"slot":3}},
     {"command":"state.waitUntilLoaded","args":{}},
     {"command":"scene.assignParam","args":{"blockId":"$slot:0:5","param":"decayS"}},
@@ -302,16 +302,16 @@ const char* kPedalRig = joined({kEditorRig, R"([
 
 // Tags on part of the library and three guitars, two of them recorded.
 const char* kAgentRig = R"([
-    {"command":"assets.tag","args":{"file":"$library/Amps/Brit 800 Crunch.nam","add":["crunch","brit"]}},
-    {"command":"assets.tag","args":{"file":"$library/Cabs/4x12 V30.wav","add":["4x12","v30"]}},
-    {"command":"guitar.create","args":{"name":"Strat","pickupType":"single-coil","positions":["bridge","middle","neck"]}},
-    {"command":"guitar.create","args":{"name":"Les Paul","pickupType":"humbucker","positions":["bridge","neck"]}},
+    {"command":"assets.tag","args":{"file":"$library/Amps/Harbor Crunch.nam","add":["crunch","brit"]}},
+    {"command":"assets.tag","args":{"file":"$library/Cabs/4x12 Slate.wav","add":["4x12","slate"]}},
+    {"command":"guitar.create","args":{"name":"Birch","pickupType":"single-coil","positions":["bridge","middle","neck"]}},
+    {"command":"guitar.create","args":{"name":"Walnut","pickupType":"humbucker","positions":["bridge","neck"]}},
     {"command":"guitar.create","args":{"name":"Tele","pickupType":"single-coil","positions":["bridge","middle","neck"]}},
-    {"command":"guitar.importClip","args":{"guitar":"$guitar:Strat","position":"bridge","take":"soft","path":"$files/cab-ir-test.wav"}},
-    {"command":"guitar.importClip","args":{"guitar":"$guitar:Strat","position":"middle","take":"soft","path":"$files/cab-ir-test.wav"}},
-    {"command":"guitar.importClip","args":{"guitar":"$guitar:Strat","position":"neck","take":"soft","path":"$files/cab-ir-test.wav"}},
-    {"command":"guitar.importClip","args":{"guitar":"$guitar:Les Paul","position":"bridge","take":"soft","path":"$files/cab-ir-test.wav"}},
-    {"command":"guitar.importClip","args":{"guitar":"$guitar:Les Paul","position":"neck","take":"soft","path":"$files/cab-ir-test.wav"}},
+    {"command":"guitar.importClip","args":{"guitar":"$guitar:Birch","position":"bridge","take":"soft","path":"$files/cab-ir-test.wav"}},
+    {"command":"guitar.importClip","args":{"guitar":"$guitar:Birch","position":"middle","take":"soft","path":"$files/cab-ir-test.wav"}},
+    {"command":"guitar.importClip","args":{"guitar":"$guitar:Birch","position":"neck","take":"soft","path":"$files/cab-ir-test.wav"}},
+    {"command":"guitar.importClip","args":{"guitar":"$guitar:Walnut","position":"bridge","take":"soft","path":"$files/cab-ir-test.wav"}},
+    {"command":"guitar.importClip","args":{"guitar":"$guitar:Walnut","position":"neck","take":"soft","path":"$files/cab-ir-test.wav"}},
     {"command":"guitar.importClip","args":{"guitar":"$guitar:Tele","position":"bridge","take":"soft","path":"$files/cab-ir-test.wav"}}])";
 
 // Three mappings on top of the defaults, on channel 2.
@@ -392,13 +392,13 @@ const char* kFamiliesRig = R"([{"command":"grid.convert","args":{"to":"grid"}},
 // not a library folder, two in a folder the player added (one an older LSTM), and the
 // TONE3000 app's download folder with a pack's captures (and one old fuzz).
 const char* kCaptureFiles =
-    "file:Elsewhere:Fav Marshall:a2-amp-test:Marshall:1959SLP;file:Elsewhere:Dumble Clean:a2-amp-cab-test:Dumble:ODS;"
-    "file:Elsewhere:Plexi Lead:a2-am-test-2:Marshall:Super Lead;"
-    "load:Elsewhere/Fav Marshall.nam;pause;load:Elsewhere/Dumble Clean.nam;pause;load:Elsewhere/Plexi Lead.nam;"
-    "file:Folder:Old Hiwatt:old;file:Folder:Studio Preamp:a2-amp-test:Neve:1073;root:Folder;"
-    "file:TONE3000/Amps:Brit 800 Crunch pack - Crunch gain 5:a2-amp-test:Marshall:JCM800;"
-    "file:TONE3000/Amps:Blackface Clean - Bright vol 6:a2-amp-cab-test:Fender:Twin Reverb;"
-    "file:TONE3000/Pedals:Green overdrive - Edge:a2-am-test-2:Ibanez:TS808;file:TONE3000/Pedals:Old Fuzz - LSTM:old;"
+    "file:Elsewhere:Fav Northfield:a2-amp-test:Northfield:N59 Lead;file:Elsewhere:Quill Clean:a2-amp-cab-test:Quill:Q1;"
+    "file:Elsewhere:Cobalt Lead:a2-am-test-2:Northfield:Grand Lead;"
+    "load:Elsewhere/Fav Northfield.nam;pause;load:Elsewhere/Quill Clean.nam;pause;load:Elsewhere/Cobalt Lead.nam;"
+    "file:Folder:Old Granite:old;file:Folder:Studio Preamp:a2-amp-test:Aldermoor:A73;root:Folder;"
+    "file:TONE3000/Amps:Harbor Crunch pack - Crunch gain 5:a2-amp-test:Northfield:N800;"
+    "file:TONE3000/Amps:Coastline Clean - Bright vol 6:a2-amp-cab-test:Seabright:Coast Reverb;"
+    "file:TONE3000/Pedals:Jade overdrive - Edge:a2-am-test-2:Kestrel:KS8;file:TONE3000/Pedals:Old Fuzz - LSTM:old;"
     "tone3000:TONE3000";
 
 // Steps of a capture scenario with one more.
@@ -492,12 +492,12 @@ const std::vector<Scenario>& scenarios() {
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:2", .nam = kCaptureFiles},
       {.name = "picker-recent", .description = "The block library, Recent: the files loaded last, newest first",
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:5", .nam = kCaptureFiles},
-      {.name = "picker-find-name", .description = "The block library searched for \"marshall\": by file name, make and model",
-       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:0:marshall", .nam = kCaptureFiles},
+      {.name = "picker-find-name", .description = "The block library searched for \"northfield\": by file name, make and model",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:0:northfield", .nam = kCaptureFiles},
       {.name = "picker-unsupported", .description = "The block library: a click on a capture Pedaleira can not load says why",
-       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:2;pickclick:Old Hiwatt", .nam = kCaptureFiles},
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:2;pickclick:Old Granite", .nam = kCaptureFiles},
       {.name = "picker-gone", .description = "The block library, Recent: a file whose original is gone is offered from the stash",
-       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:5", .nam = joinedSteps(kCaptureFiles, "gone:Elsewhere/Fav Marshall.nam")},
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:5", .nam = joinedSteps(kCaptureFiles, "gone:Elsewhere/Fav Northfield.nam")},
       {.name = "picker-tone3000-out", .description = "The block library, TONE3000, signed out: Trending and the tone's detail",
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tone:0", .tone3000 = "out"},
       {.name = "picker-tone3000-account", .description = "The block library, TONE3000, signed out: Favorites needs an account",
@@ -768,9 +768,9 @@ const std::vector<Scenario>& scenarios() {
       {.name = "capture-source", .description = "Capture, step 1: what are you capturing, nothing typed yet",
        .page = Page::capture, .script = "[]"},
       {.name = "capture-source-filled", .description = "Capture, step 1: Amp Head chosen, a name typed",
-       .page = Page::capture, .script = "[]", .capture = "name:Brit 800 Crunch;source:1"},
+       .page = Page::capture, .script = "[]", .capture = "name:Harbor Crunch;source:1"},
       {.name = "capture-source-pedal", .description = "Capture, step 1: a pedal chosen",
-       .page = Page::capture, .script = "[]", .capture = "name:Tube Screamer;source:0"},
+       .page = Page::capture, .script = "[]", .capture = "name:Jade Drive;source:0"},
       {.name = "capture-wiring-box", .description = "Capture, step 2: amp head through a re-amp box",
        .page = Page::capture, .script = "[]", .capture = "new:ampHead:reamp;goto:wiring"},
       {.name = "capture-wiring-nobox", .description = "Capture, step 2: without a re-amp box, the send starts at -30 dB",
@@ -982,9 +982,9 @@ struct ScratchEngine {
     const juce::File files = juce::File(PEDALEIRA_SOURCE_DIR).getChildFile("test").getChildFile("files");
     library.getChildFile("Amps").createDirectory();
     library.getChildFile("Cabs").createDirectory();
-    files.getChildFile("a2-amp-test.nam").copyFileTo(library.getChildFile("Amps").getChildFile("Brit 800 Crunch.nam"));
-    files.getChildFile("a2-amp-cab-test.nam").copyFileTo(library.getChildFile("Amps").getChildFile("Twin Clean.nam"));
-    files.getChildFile("cab-ir-test.wav").copyFileTo(library.getChildFile("Cabs").getChildFile("4x12 V30.wav"));
+    files.getChildFile("a2-amp-test.nam").copyFileTo(library.getChildFile("Amps").getChildFile("Harbor Crunch.nam"));
+    files.getChildFile("a2-amp-cab-test.nam").copyFileTo(library.getChildFile("Amps").getChildFile("Lantern Clean.nam"));
+    files.getChildFile("cab-ir-test.wav").copyFileTo(library.getChildFile("Cabs").getChildFile("4x12 Slate.wav"));
     files.getChildFile("cab-ir-test-2.wav").copyFileTo(library.getChildFile("Cabs").getChildFile("2x12 Blue.wav"));
     libraryFolder() = library;
     scratchFolder() = data;
@@ -1396,42 +1396,42 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
   for (const auto& name : all)
     hashes = hashes || looksLikeHash(name);
   check(!hashes, "no capture is listed by its hash name");
-  check(all.contains("Fav Marshall") && all.contains("Dumble Clean") && all.contains("Plexi Lead"),
+  check(all.contains("Fav Northfield") && all.contains("Quill Clean") && all.contains("Cobalt Lead"),
         "the captures loaded from a file are listed by their file names");
-  check(all.contains("Studio Preamp") && all.contains("Old Hiwatt"), "a folder added in Settings is listed");
-  check(all.contains("Brit 800 Crunch pack - Crunch gain 5"), "the TONE3000 app's download folder is listed");
-  check(all.contains("Brit 800 Crunch") && all.contains("Twin Clean"), "the library's captures are still listed");
+  check(all.contains("Studio Preamp") && all.contains("Old Granite"), "a folder added in Settings is listed");
+  check(all.contains("Harbor Crunch pack - Crunch gain 5"), "the TONE3000 app's download folder is listed");
+  check(all.contains("Harbor Crunch") && all.contains("Lantern Clean"), "the library's captures are still listed");
   int count = 0;
   for (const auto& name : all)
-    count += name == "Fav Marshall" ? 1 : 0;
+    count += name == "Fav Northfield" ? 1 : 0;
   check(count == 1, "the stash copy and the asset store copy of a file are one row");
 
   // Search: the file name, the make and model inside the file, a folder's file.
-  picker.setFilter({}, BlockPicker::all, "fav marsh");
-  check(picker.shownNames().contains("Fav Marshall"), "a search finds a loaded capture by its file name");
-  picker.setFilter({}, BlockPicker::all, "super lead");
-  check(picker.shownNames().contains("Plexi Lead"), "a search finds a capture by the model inside the file");
-  picker.setFilter({}, BlockPicker::all, "jcm800");
-  check(picker.shownNames().contains("Brit 800 Crunch pack - Crunch gain 5"), "and one in the TONE3000 app's folder");
+  picker.setFilter({}, BlockPicker::all, "fav north");
+  check(picker.shownNames().contains("Fav Northfield"), "a search finds a loaded capture by its file name");
+  picker.setFilter({}, BlockPicker::all, "grand lead");
+  check(picker.shownNames().contains("Cobalt Lead"), "a search finds a capture by the model inside the file");
+  picker.setFilter({}, BlockPicker::all, "n800");
+  check(picker.shownNames().contains("Harbor Crunch pack - Crunch gain 5"), "and one in the TONE3000 app's folder");
   picker.setFilter({}, BlockPicker::all, "nothing like this");
   check(picker.shownNames().isEmpty(), "a search that matches nothing lists nothing");
 
   // Recent: the last loaded first, only what was loaded.
   picker.setFilter({}, BlockPicker::recent, {});
   const juce::StringArray recent = picker.shownNames();
-  check(recent.size() == 3 && recent[0] == "Plexi Lead" && recent[1] == "Dumble Clean" && recent[2] == "Fav Marshall",
+  check(recent.size() == 3 && recent[0] == "Cobalt Lead" && recent[1] == "Quill Clean" && recent[2] == "Fav Northfield",
         "Recent lists the loaded captures, the newest first");
-  picker.setFilter({}, BlockPicker::recent, "dumble");
+  picker.setFilter({}, BlockPicker::recent, "quill");
   check(picker.shownNames().size() == 1, "and a search narrows it");
 
   // A capture that is not A2 says why and is not added.
   picker.setFilter({}, BlockPicker::captures, {});
-  check(picker.clickName("Old Hiwatt"), "an unsupported capture can be clicked");
+  check(picker.clickName("Old Granite"), "an unsupported capture can be clicked");
   check(added == 0, "and is not added");
-  check(picker.noticeText().contains("Old Hiwatt") && picker.noticeText().contains("LSTM") && picker.noticeText().contains("A2"),
+  check(picker.noticeText().contains("Old Granite") && picker.noticeText().contains("LSTM") && picker.noticeText().contains("A2"),
         "the message names the capture and its architecture");
   const EngineReply unsupported = engine.client->run(
-      "chain.addToneFromFiles", object({{"paths", juce::Array<juce::var>{engine.data.getChildFile("Folder/Old Hiwatt.nam").getFullPathName()}}}));
+      "chain.addToneFromFiles", object({{"paths", juce::Array<juce::var>{engine.data.getChildFile("Folder/Old Granite.nam").getFullPathName()}}}));
   check(!unsupported.ok && unsupported.errorMessage.contains("LSTM"), "the engine refuses it with the same reason");
   check(picker.clickName("Studio Preamp") && added == 1 && addedBlock.isNotEmpty(), "a supported capture is added to the slot");
 
@@ -1440,8 +1440,8 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
   picker.openFor(0, 7);
   picker.setFilter({}, BlockPicker::recent, {});
   check(picker.shownNames().isEmpty(), "Recent is empty after it is cleared");
-  picker.setFilter({}, BlockPicker::all, "fav marshall");
-  check(picker.shownNames().contains("Fav Marshall"), "but the file is still found by name");
+  picker.setFilter({}, BlockPicker::all, "fav northfield");
+  check(picker.shownNames().contains("Fav Northfield"), "but the file is still found by name");
 
   // The TONE3000 page, signed out: lists that do not need an account work.
   {

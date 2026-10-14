@@ -101,7 +101,8 @@ int migrate(const juce::File& dir) {
     preset.setProperty("id", id, nullptr);
     preset.setProperty("name", name, nullptr);
     const int renamedIds =
-        t3k::legacy_ids::migrateParamIds(preset.getChildWithName("Params"), "id");
+        t3k::legacy_ids::migrateParamIds(preset.getChildWithName("Params"), "id") +
+        t3k::legacy_ids::migrateKindIds(preset);
 
     const juce::File target = presetfile::uniqueFile(dir, presetfile::sanitizeStem(name), file);
     if (!header.legacy && renamedIds == 0 && target == file &&

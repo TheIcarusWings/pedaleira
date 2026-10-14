@@ -1,4 +1,4 @@
-// filter.glitch (Stutter): a tempo-synced slice repeat. The input is always
+// creative.glitch (Stutter): a tempo-synced slice repeat. The input is always
 // being written to a ring of the last two seconds. Time is cut into cells of
 // `every` (a note value at the tempo); at the start of a cell the dice are
 // rolled (`probability`, from a hash of the cell number, so a render repeats
@@ -38,7 +38,7 @@ namespace {
 
 class StutterProcessor final : public ParameterisedBlockProcessor {
 public:
-  static constexpr const char* kKindId = "filter.glitch";
+  static constexpr const char* kKindId = "creative.glitch";
 
   enum Param {
     kSliceSync = 0,
@@ -278,6 +278,6 @@ private:
 
 PEDALEIRA_EFFECT_KINDS(Stutter) {
   // Replaces the signal while it runs and is the signal when it does not.
-  addEffectKind<StutterProcessor>(registry, "Stutter", BlockCategory::Filter, 1.0f,
+  addEffectKind<StutterProcessor>(registry, "Stutter", BlockCategory::Creative, 1.0f,
                                   BlockMixLaw::Crossfade);
 }

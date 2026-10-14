@@ -1,4 +1,4 @@
-// filter.bitcrush: lo-fi by arithmetic. The input is sampled at a reduced
+// creative.bitcrush: lo-fi by arithmetic. The input is sampled at a reduced
 // rate with a zero-order hold (the held value is simply repeated until the
 // next tick of a phase accumulator running at `rateHz`) and each held value
 // is rounded to a grid whose spacing follows the bit depth.
@@ -26,7 +26,7 @@ namespace {
 
 class BitCrusherProcessor final : public ParameterisedBlockProcessor {
 public:
-  static constexpr const char* kKindId = "filter.bitcrush";
+  static constexpr const char* kKindId = "creative.bitcrush";
 
   enum Param { kBits = 0, kRateHz, kAntiAlias };
 
@@ -121,6 +121,6 @@ private:
 
 PEDALEIRA_EFFECT_KINDS(BitCrusher) {
   // Replaces its input: the blend is a plain crossfade, fully wet to start.
-  addEffectKind<BitCrusherProcessor>(registry, "Bit Crusher", BlockCategory::Filter, 1.0f,
+  addEffectKind<BitCrusherProcessor>(registry, "Bit Crusher", BlockCategory::Creative, 1.0f,
                                      BlockMixLaw::Crossfade);
 }

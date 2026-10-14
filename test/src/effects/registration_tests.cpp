@@ -136,7 +136,7 @@ TEST(EffectRegistrationTest, KindsListShowsSpilloverDefaultMixAndCategories) {
   ASSERT_NE(categories, nullptr);
   EXPECT_EQ(categories->size(), static_cast<int>(allBlockCategories().size()));
   for (const char* name : {"amp", "drive", "cab", "dynamics", "eq", "delay", "reverb",
-                           "modulation", "pitch", "filter", "utility", "plugin"})
+                           "modulation", "pitch", "filter", "creative", "utility", "plugin"})
     EXPECT_TRUE(categories->contains(juce::var(name))) << name;
   for (const auto& kind : *listed["kinds"].getArray())
     EXPECT_TRUE(categories->contains(kind["category"])) << kind["id"].toString();

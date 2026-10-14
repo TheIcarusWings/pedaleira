@@ -188,12 +188,13 @@ kbd { font: 12px var(--mono); border: 1px solid var(--line); border-radius: 4px;
   }
   function send(t) {
     var name = $('name').value.trim(); store.set('pl-name', name);
-    var payload = JSON.stringify({ round: CFG.round || 'r1', listener: listener, trial: t.id, scores: t.scores, order: t.view.map(function (c) { return c.cid; }), at: new Date().toISOString(), ua: navigator.userAgent });
-    if (!CFG.formAction || !CFG.resultsField) return Promise.resolve();
-    var body = new URLSearchParams();
-    body.append(CFG.resultsField, payload);
-    if (CFG.nameField) body.append(CFG.nameField, name);
-    return fetch(CFG.formAction, { method: 'POST', mode: 'no-cors', body: body });
+    var row = { round: CFG.round || 'r1', listener: listener, name: name || null, trial: t.id, scores: t.scores, clip_order: t.view.map(function (c) { return c.cid; }), user_agent: navigator.userAgent.slice(0, 400) };
+    if (!CFG.supabaseUrl || !CFG.supabaseKey) return Promise.reject(new Error('not configured'));
+    return fetch(CFG.supabaseUrl + '/rest/v1/results', {
+      method: 'POST',
+      headers: { 'apikey': CFG.supabaseKey, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify(row)
+    }).then(function (res) { if (!res.ok) throw new Error('status ' + res.status); });
   }
   async function save() {
     var t = state.order[state.index];

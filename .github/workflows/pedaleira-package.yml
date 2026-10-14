@@ -1,5 +1,5 @@
 # Test builds to download: the Pedaleira app (Standalone) and the VST3, plus
-# the AU on macOS. Run by hand from the Actions tab. The builds are not signed
+# the AU on macOS and the LV2 on Linux. Run by hand from the Actions tab. The builds are not signed
 # or notarised, so macOS asks before opening the app the first time (README,
 # "Test builds"). Kept separate from upstream's build.yml (the signed release
 # pipeline) so upstream merges never touch it.
@@ -10,6 +10,10 @@ on:
     inputs:
       include_windows:
         description: Also build for Windows
+        type: boolean
+        default: true
+      include_linux:
+        description: Also build for Linux
         type: boolean
         default: true
 
@@ -95,4 +99,47 @@ jobs:
         with:
           name: Pedaleira-windows-x64
           path: build/Pedaleira-windows-x64
+          if-no-files-found: error
+
+  linux:
+    name: Linux x64
+    if: inputs.include_linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config \
+            libgtk-3-dev libasound2-dev libjack-jackd2-dev \
+            libcurl4-openssl-dev libfreetype6-dev libx11-dev \
+            libxcomposite-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libxrandr-dev libxrender-dev
+      - name: Configure
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/linux-toolchain.cmake \
+            -DBUILD_AAX=OFF -DBUILD_CLAP=OFF
+      - name: Build
+        run: cmake --build build --parallel --target TONE3000_Standalone TONE3000_VST3 TONE3000_LV2
+      - name: Package
+        run: |
+          set -euo pipefail
+          ARTEFACTS="build/plugin/TONE3000_artefacts/${{ env.BUILD_TYPE }}"
+          STAGE="build/Pedaleira-linux-x64"
+          mkdir -p "$STAGE"
+          # The app and the plugin scan helper that sits next to it.
+          cp "$ARTEFACTS/Standalone/Pedaleira" "$ARTEFACTS/Standalone/PedaleiraPluginScan" "$STAGE/"
+          cp -r "$ARTEFACTS/VST3/Pedaleira.vst3" "$STAGE/"
+          cp -r "$ARTEFACTS/LV2/Pedaleira.lv2" "$STAGE/"
+          tar -C build -czf build/Pedaleira-linux-x64.tar.gz Pedaleira-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pedaleira-linux-x64
+          path: build/Pedaleira-linux-x64.tar.gz
           if-no-files-found: error

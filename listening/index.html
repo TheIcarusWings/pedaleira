@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pedaleira Listening Test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: one trial at a time. Reference on top, the unlabelled clips as a row of numbered channel strips, each with a 0 to 100 slider. */
+:root {
+  --bg: #f2f3f5; --surface: #ffffff; --raised: #e9ebee; --ink: #15171a; --muted: #5d6570; --line: #d5d9de;
+  --accent: #6d5ce8; --accent-ink: #ffffff; --amp: #e5662d; --good: #2a8a5c; --warn: #b4761a;
+  --sans: "Hanken Grotesk", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0e1012; --surface: #181b1f; --raised: #22262c; --ink: #eef0f2; --muted: #a3acb6; --line: #323841; --accent: #8b7cff; --accent-ink: #0e1012; --amp: #f07a3c; --good: #4cc38a; --warn: #e3a64a; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0e1012; --surface: #181b1f; --raised: #22262c; --ink: #eef0f2; --muted: #a3acb6; --line: #323841; --accent: #8b7cff; --accent-ink: #0e1012; --amp: #f07a3c; --good: #4cc38a; --warn: #e3a64a; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.55; }
+.wrap { max-width: 980px; margin: 0 auto; padding-inline: 18px; padding-block: 24px 48px; display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: baseline; justify-content: space-between; }
+h1 { font-size: 26px; font-weight: 800; margin: 0; }
+h2 { font-size: 20px; margin: 0 0 6px; }
+p { margin: 0 0 10px; max-width: 64ch; }
+.muted { color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.btn { font: 600 15px var(--sans); background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
+.btn.alt { background: var(--raised); color: var(--ink); border: 1px solid var(--line); }
+.btn:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.progress { height: 6px; background: var(--raised); border-radius: 3px; overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--accent); }
+.ref { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; border-left: 4px solid var(--amp); }
+.strips { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.strip { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 12px; display: grid; gap: 10px; justify-items: center; }
+.strip.playing, .ref.playing { box-shadow: 0 0 0 2px var(--accent); }
+.strip b { font-size: 22px; }
+.strip input[type=range] { width: 100%; accent-color: var(--accent); }
+.score { font-family: var(--mono); font-size: 20px; }
+.score.unset { color: var(--muted); }
+.transport { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.bar { flex: 1 1 200px; height: 8px; background: var(--raised); border-radius: 4px; position: relative; cursor: pointer; min-width: 120px; }
+.bar i { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 4px; }
+.note { font-size: 14px; color: var(--muted); min-height: 1.4em; }
+.err { color: var(--warn); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.tablebox { overflow-x: auto; }
+.tag { font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--raised); color: var(--muted); }
+kbd { font: 12px var(--mono); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+</style>
+<script src="config.js"></script>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Pedaleira Listening Test</h1>
+    <span class="tag" id="who">Round 1</span>
+  </header>
+
+  <div class="card" id="intro">
+    <h2>How it works</h2>
+    <p>Each round plays a real recording, the <b>Reference</b>, and several numbered clips. Some clips are recreations, one may be the reference itself, and one is deliberately worse. Score each clip from 0 to 100 for how close it sounds to the reference: 100 means you cannot tell them apart.</p>
+    <p class="muted">Use headphones or good speakers, at a comfortable level you keep the same for the whole test. Switching clips keeps the playback position, so you can compare the same phrase. Keys: <kbd>R</kbd> reference, <kbd>1</kbd> to <kbd>6</kbd> clips, <kbd>Space</kbd> play or stop.</p>
+    <div class="row">
+      <label for="name" class="muted">Your name (optional)</label>
+      <input id="name" type="text" autocomplete="nickname" style="font:16px var(--sans); padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--surface); color:var(--ink); min-width:0; flex:1 1 180px">
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn" id="start" disabled>Start the test</button><span class="note" id="intro-note">Loading the rounds.</span></div>
+  </div>
+
+  <div id="trial" hidden>
+    <div class="card" style="display:grid; gap:14px">
+      <div class="row" style="justify-content:space-between"><span class="mono muted" id="trial-count"></span></div>
+      <div class="progress"><i id="prog" style="width:0%"></i></div>
+      <div class="card ref" id="ref-card"><div><b>Reference</b><div class="muted" style="font-size:14px">The real recording</div></div><button class="btn alt" id="ref-play">Play reference</button></div>
+      <div class="strips" id="strips"></div>
+      <div class="transport"><button class="btn alt" id="stop">Stop</button><div class="bar" id="bar"><i id="bar-fill" style="width:0%"></i></div><span class="mono muted" id="time">0.0 s</span></div>
+      <div class="row" style="justify-content:space-between"><span class="note" id="trial-note"></span><button class="btn" id="next" disabled>Save and next</button></div>
+    </div>
+  </div>
+
+  <div class="card" id="done" hidden>
+    <h2>Thank you</h2>
+    <p>Your scores were sent. You can close this page.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var CFG = window.PEDALEIRA_TEST || {};
+  var store = {
+    get: function (k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var listener = store.get('pl-listener');
+  if (!listener) { listener = 'L' + Math.random().toString(36).slice(2, 10); store.set('pl-listener', listener); }
+  var state = { trials: [], order: [], index: 0, done: store.get('pl-done-' + (CFG.round || 'r1')) || {} };
+  var audio = { ctx: null, buffers: {}, source: null, current: null, startedAt: 0, offset: 0, duration: 0, raf: 0 };
+  function shuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+
+  async function init() {
+    try {
+      var res = await fetch(CFG.trials || 'trials.json', { cache: 'no-cache' });
+      var data = await res.json();
+      state.trials = data.trials || [];
+    } catch (e) { $('intro-note').textContent = 'The rounds could not be loaded. Reload the page.'; return; }
+    state.order = shuffle(state.trials.filter(function (t) { return !state.done[t.id]; }));
+    if (!state.trials.length) { $('intro-note').textContent = 'No rounds are published yet.'; return; }
+    if (!state.order.length) { $('intro-note').textContent = 'You have scored every round on this device. Thank you.'; return; }
+    $('intro-note').textContent = state.order.length + ' rounds, about ' + Math.max(1, Math.round(state.order.length * 0.9)) + ' minutes.';
+    $('start').disabled = false;
+    var n = store.get('pl-name'); if (n) $('name').value = n;
+  }
+
+  async function loadBuffer(path) {
+    if (audio.buffers[path]) return audio.buffers[path];
+    var res = await fetch(path);
+    if (!res.ok) throw new Error('clip ' + res.status);
+    var buf = await audio.ctx.decodeAudioData(await res.arrayBuffer());
+    audio.buffers[path] = buf; return buf;
+  }
+  function position() {
+    if (!audio.current) return audio.offset;
+    var p = audio.offset + (audio.ctx.currentTime - audio.startedAt);
+    return audio.duration ? p % audio.duration : p;
+  }
+  function stop(keep) {
+    if (keep && audio.current) audio.offset = position();
+    if (audio.source) { try { audio.source.stop(); } catch (e) {} audio.source.disconnect(); audio.source = null; }
+    audio.current = null; cancelAnimationFrame(audio.raf);
+    document.querySelectorAll('.playing').forEach(function (el) { el.classList.remove('playing'); });
+  }
+  function play(path, el) {
+    var pos = audio.current ? position() : audio.offset;
+    stop(false);
+    var buf = audio.buffers[path]; if (!buf) return;
+    audio.duration = buf.duration;
+    var src = audio.ctx.createBufferSource(); src.buffer = buf; src.loop = true; src.connect(audio.ctx.destination);
+    audio.offset = pos % buf.duration; audio.startedAt = audio.ctx.currentTime; src.start(0, audio.offset);
+    audio.source = src; audio.current = path; el.classList.add('playing'); tick();
+  }
+  function tick() {
+    var p = position();
+    $('bar-fill').style.width = (audio.duration ? p / audio.duration * 100 : 0) + '%';
+    $('time').textContent = p.toFixed(1) + ' s';
+    audio.raf = requestAnimationFrame(tick);
+  }
+
+  async function showTrial() {
+    stop(false); audio.offset = 0; audio.buffers = {};
+    var t = state.order[state.index];
+    $('trial-count').textContent = 'Round ' + (state.index + 1) + ' of ' + state.order.length;
+    $('prog').style.width = (state.index / state.order.length * 100) + '%';
+    $('next').disabled = true; $('trial-note').classList.remove('err'); $('trial-note').textContent = 'Loading the clips.';
+    var strips = $('strips'); strips.textContent = '';
+    t.view = shuffle(t.clips.slice()); t.scores = {};
+    t.view.forEach(function (c, i) {
+      var s = document.createElement('div'); s.className = 'strip'; s.id = 'strip-' + i;
+      var b = document.createElement('b'); b.textContent = String(i + 1);
+      var btn = document.createElement('button'); btn.className = 'btn alt'; btn.textContent = 'Play ' + (i + 1);
+      btn.addEventListener('click', function () { play(c.file, s); });
+      var sc = document.createElement('div'); sc.className = 'score unset'; sc.textContent = 'not scored';
+      var r = document.createElement('input'); r.type = 'range'; r.min = 0; r.max = 100; r.step = 1; r.value = 50; r.id = 'score-' + i;
+      r.setAttribute('aria-label', 'Score for clip ' + (i + 1));
+      r.addEventListener('input', function () { t.scores[c.cid] = Number(r.value); sc.textContent = r.value; sc.classList.remove('unset'); ready(t); });
+      s.append(b, btn, sc, r); strips.append(s);
+    });
+    try {
+      await Promise.all([loadBuffer(t.reference)].concat(t.view.map(function (c) { return loadBuffer(c.file); })));
+      $('trial-note').textContent = 'Move every slider to score each clip.';
+    } catch (e) { $('trial-note').textContent = 'A clip did not load. Check your connection and reload the page.'; $('trial-note').classList.add('err'); }
+  }
+  function ready(t) {
+    var n = Object.keys(t.scores).length;
+    $('next').disabled = n < t.view.length;
+    $('trial-note').textContent = n < t.view.length ? (t.view.length - n) + ' clips left to score.' : 'Ready to save.';
+  }
+  function send(t) {
+    var name = $('name').value.trim(); store.set('pl-name', name);
+    var payload = JSON.stringify({ round: CFG.round || 'r1', listener: listener, trial: t.id, scores: t.scores, order: t.view.map(function (c) { return c.cid; }), at: new Date().toISOString(), ua: navigator.userAgent });
+    if (!CFG.formAction || !CFG.resultsField) return Promise.resolve();
+    var body = new URLSearchParams();
+    body.append(CFG.resultsField, payload);
+    if (CFG.nameField) body.append(CFG.nameField, name);
+    return fetch(CFG.formAction, { method: 'POST', mode: 'no-cors', body: body });
+  }
+  async function save() {
+    var t = state.order[state.index];
+    $('next').disabled = true; $('trial-note').textContent = 'Sending.';
+    try { await send(t); } catch (e) { $('trial-note').textContent = 'Your scores could not be sent. Check your connection and press Save again.'; $('trial-note').classList.add('err'); $('next').disabled = false; return; }
+    state.done[t.id] = true; store.set('pl-done-' + (CFG.round || 'r1'), state.done);
+    state.index++;
+    if (state.index >= state.order.length) { stop(false); $('trial').hidden = true; $('done').hidden = false; return; }
+    showTrial();
+  }
+
+  $('start').addEventListener('click', function () {
+    audio.ctx = audio.ctx || new (window.AudioContext || window.webkitAudioContext)();
+    audio.ctx.resume(); store.set('pl-name', $('name').value.trim());
+    $('intro').hidden = true; $('trial').hidden = false; showTrial();
+  });
+  $('ref-play').addEventListener('click', function () { play(state.order[state.index].reference, $('ref-card')); });
+  $('stop').addEventListener('click', function () { stop(true); });
+  $('next').addEventListener('click', save);
+  $('bar').addEventListener('click', function (e) {
+    var r = this.getBoundingClientRect(); var f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    var cur = audio.current; var el = document.querySelector('.playing');
+    audio.offset = f * (audio.duration || 0);
+    if (cur && el) { stop(false); audio.offset = f * audio.duration; play(cur, el); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if ($('trial').hidden || e.target.tagName === 'INPUT') return;
+    var t = state.order[state.index]; if (!t) return;
+    if (e.key === 'r' || e.key === 'R') play(t.reference, $('ref-card'));
+    var n = parseInt(e.key, 10); if (n >= 1 && t.view && n <= t.view.length) play(t.view[n - 1].file, $('strip-' + (n - 1)));
+    if (e.key === ' ') { e.preventDefault(); if (audio.current) stop(true); else play(t.reference, $('ref-card')); }
+  });
+  init();
+})();
+</script>
+</body>
+</html>

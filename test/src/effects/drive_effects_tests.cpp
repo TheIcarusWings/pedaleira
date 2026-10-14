@@ -637,6 +637,8 @@ TEST(DriveEffectsTest, BassDrivePresenceIsAShelf) {
 // choice whose first option is the old behaviour, so a preset made before
 // them sounds the same; the checks below are for our own design targets (the
 // response shape and the distortion at the settings named in each test).
+// The measured voicings of the second round (VoiceShape, further down) follow
+// the same rule.
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -687,8 +689,10 @@ TEST(DriveEffectsTest, TheNewVoicingsAreTheLastChoiceAndTheOldOneIsTheDefault) {
     const char* id;
     int options;
   };
-  for (const Case& c : {Case{"drive.transparent", 2}, Case{"drive.distortion", 2}, Case{"drive.fuzz", 4},
-                        Case{"drive.metal", 2}}) {
+  for (const Case& c :
+       {Case{"drive.transparent", 2}, Case{"drive.distortion", 3}, Case{"drive.fuzz", 6},
+        Case{"drive.metal", 2}, Case{"drive.overdrive", 4}, Case{"drive.boost", 3},
+        Case{"drive.trebleboost", 2}, Case{"drive.bass", 4}}) {
     SCOPED_TRACE(c.id);
     const BlockKindInfo* info = BlockKindRegistry::instance().find(c.id);
     ASSERT_NE(info, nullptr);
@@ -704,7 +708,8 @@ TEST(DriveEffectsTest, TheNewVoicingsAreTheLastChoiceAndTheOldOneIsTheDefault) {
 
 TEST(DriveEffectsTest, ChoosingTheFirstVoicingExplicitlyChangesNothing) {
   const std::vector<float> in = musicalSignal(0.6, kRate, 0.3f);
-  for (const char* id : {"drive.transparent", "drive.distortion", "drive.fuzz", "drive.metal"}) {
+  for (const char* id : {"drive.transparent", "drive.distortion", "drive.fuzz", "drive.metal",
+                         "drive.overdrive", "drive.boost", "drive.trebleboost", "drive.bass"}) {
     SCOPED_TRACE(id);
     DirectKind implicit(id, {}, Layout::Stereo);
     DirectKind chosen(id, {{"voicing", 0.0}}, Layout::Stereo);
@@ -952,4 +957,314 @@ TEST(DriveEffectsTest, ResonantEqKnobsStillCorrectTheVoice) {
   const double highFlat = toneGainDb("drive.metal", flat, 8000.0, -18.0) - toneGainDb("drive.metal", flat, 1000.0, -18.0);
   const double highUp = toneGainDb("drive.metal", trebleUp, 8000.0, -18.0) - toneGainDb("drive.metal", trebleUp, 1000.0, -18.0);
   EXPECT_GT(highUp, highFlat + 5.0);
+}
+
+// ---------------------------------------------------------------------------
+// Measured voicings (drive/DriveCommon.h, VoiceShape): Overdrive "Focused",
+// "Warm" and "Heavy", Clean Boost "Warm" and "Hot", Treble Boost "Cranked",
+// Distortion "Notched", Fuzz "Open" and "Thick", Bass Drive "DI", "Boost" and
+// "Grit". Each is fitted to a family of pedals measured on a unit (CorOS
+// d14e) with every knob at its middle, the sweep and the sines at -18 dBFS or
+// 12 dB lower for the hot ones. The settings below are what the import table
+// makes of each pedal; the targets are the unit's numbers: the response at
+// 125 Hz, 500 Hz, 2 kHz and 8 kHz against 1 kHz, the distortion of a 1 kHz and
+// a 100 Hz sine, and the 1 kHz gain.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct UnitTarget {
+  const char* pedal;
+  const char* id;
+  Params params;
+  double levelDb;        // sweep and sine level, dBFS peak
+  double response[4];    // 125 Hz, 500 Hz, 2 kHz, 8 kHz, dB against 1 kHz
+  double thd1k, thd100;  // percent
+  double gainDb;         // 1 kHz
+  double responseTolDb = 3.5;
+  double thdRelative = 0.3;
+};
+
+// clang-format off
+const std::vector<UnitTarget>& unitTargets() {
+  static const std::vector<UnitTarget> targets = {
+      // Overdrive, Focused
+      {"Green 808", "drive.overdrive", {{"voicing", 1.0}, {"drivePercent", 32.76}, {"levelDb", -3.7}}, -30.0,
+       {0.2, 1.7, -3.9, -15.3}, 9.6, 11.7, -0.8},
+      {"Chief SD1", "drive.overdrive", {{"voicing", 1.0}, {"drivePercent", 71.7}, {"levelDb", -1.5}}, -30.0,
+       {-0.5, 1.1, -3.4, -15.7}, 11.5, 24.0, 1.6},
+      {"Red Drive", "drive.overdrive", {{"voicing", 1.0}, {"drivePercent", 50.0}, {"levelDb", -11.7}}, -18.0,
+       {1.0, 1.4, -3.4, -14.3}, 9.3, 23.1, -16.4},
+      {"Chief OD1", "drive.overdrive", {{"voicing", 1.0}, {"drivePercent", 7.38}, {"levelDb", -1.2}}, -30.0,
+       {-5.6, 1.5, -4.0, -15.4}, 10.9, 4.4, 1.3},
+      // Overdrive, Warm, and the boost on the same clipping
+      {"Brit Blues", "drive.overdrive", {{"voicing", 2.0}, {"drivePercent", 50.0}, {"levelDb", -16.2}}, -18.0,
+       {3.2, 2.2, -2.9, -13.0}, 10.0, 20.7, -19.3},
+      {"Vemural Ray", "drive.overdrive", {{"voicing", 2.0}, {"drivePercent", 50.0}, {"levelDb", 4.6}}, -30.0,
+       {4.7, 3.1, -4.7, -16.4}, 9.5, 15.7, 10.1},
+      {"Exotic", "drive.boost", {{"voicing", 1.0}, {"gainDb", 10.0}}, -30.0, {2.2, 2.0, -3.0, -13.9}, 13.3,
+       17.3, 7.8},
+      // Overdrive, Heavy
+      {"Obsessive Drive", "drive.overdrive",
+       {{"voicing", 3.0}, {"drivePercent", 50.0}, {"tonePercent", 57.04}, {"levelDb", -19.7}}, -18.0,
+       {10.0, 2.8, -1.6, -7.1}, 28.5, 16.4, -19.6},
+      {"No-Bell OD1", "drive.overdrive",
+       {{"voicing", 3.0}, {"drivePercent", 50.0}, {"tonePercent", 23.65}, {"levelDb", -15.5}}, -18.0,
+       {6.3, 1.4, -1.9, -14.7}, 17.6, 17.2, -15.8},
+      {"Chief BD2", "drive.overdrive",
+       {{"voicing", 3.0}, {"drivePercent", 50.0}, {"tonePercent", 76.31}, {"levelDb", -8.2}}, -18.0,
+       {6.4, 1.4, -1.6, -3.2}, 32.1, 28.6, -8.1, 3.5, 0.35},
+      // Distortion: Notched, and the pedals moved onto Open
+      {"Chief DS1", "drive.distortion",
+       {{"voicing", 2.0}, {"distortionPercent", 50.0}, {"filterPercent", 50.0}, {"levelDb", -22.6}}, -18.0,
+       {10.1, 3.6, 0.5, 2.5}, 100.3, 26.0, -22.6},
+      {"OD250", "drive.distortion",
+       {{"voicing", 1.0}, {"distortionPercent", 50.0}, {"filterPercent", 100.0}, {"levelDb", -7.1}}, -18.0,
+       {-0.1, 0.1, 0.0, -0.1}, 42.9, 43.2, -6.5},
+      {"81 Creations Drive", "drive.distortion",
+       {{"voicing", 1.0}, {"distortionPercent", 50.0}, {"filterPercent", 50.0}, {"levelDb", -6.4}}, -18.0,
+       {0.7, 0.5, -1.3, -9.2}, 27.1, 41.7, -6.5},
+      // Boost, Hot; Treble Boost, Cranked
+      {"Exotic Z Boost", "drive.boost", {{"voicing", 2.0}, {"gainDb", 10.0}}, -30.0, {-1.4, 0.0, -0.2, -2.2},
+       9.8, 12.7, 8.9},
+      {"Rage Booster", "drive.trebleboost", {{"voicing", 1.0}, {"gainDb", 15.64}}, -30.0,
+       {-12.4, -2.2, 0.7, 1.0}, 46.0, 2.6, 18.0},
+      // Fuzz, Open and Thick
+      {"Facial Fuzz", "drive.fuzz",
+       {{"voicing", 4.0}, {"fuzzPercent", 50.0}, {"tonePercent", 91.0}, {"levelDb", -8.8}}, -18.0,
+       {-0.4, 0.1, 0.0, -1.8}, 41.8, 44.6, -8.6},
+      {"MK3 Silicon Fuzz", "drive.fuzz",
+       {{"voicing", 4.0}, {"fuzzPercent", 50.0}, {"tonePercent", 50.0}, {"levelDb", -7.7}}, -18.0,
+       {1.0, 0.8, -1.6, -9.8}, 30.1, 40.5, -7.8},
+      {"Soviet Fuzz", "drive.fuzz",
+       {{"voicing", 5.0}, {"fuzzPercent", 50.0}, {"tonePercent", 50.0}, {"levelDb", -2.2}}, -18.0,
+       {14.9, 3.1, -0.2, 1.8}, 49.7, 9.9, -23.6},
+      // Bass Drive, DI, Boost and Grit
+      {"BDDI", "drive.bass",
+       {{"voicing", 1.0}, {"drivePercent", 50.0}, {"blendPercent", 50.0}, {"levelDb", -4.3}}, -30.0,
+       {6.2, -0.3, 7.1, 1.9}, 0.0, 0.0, -4.3},
+      {"Exotic Bass Z Boost", "drive.bass",
+       {{"voicing", 2.0}, {"drivePercent", 50.0}, {"blendPercent", 50.0}, {"levelDb", 0.0}}, -30.0,
+       {-1.4, 0.1, -0.3, -3.5}, 0.0, 0.1, 10.1},
+      {"Douglas MT 3K", "drive.bass",
+       {{"voicing", 3.0}, {"crossoverHz", 800.0}, {"drivePercent", 63.73}, {"blendPercent", 50.0},
+        {"levelDb", -3.8}},
+       -30.0, {2.2, 0.9, 2.9, -1.9}, 16.8, 0.4, -4.4},
+      {"Douglas Vintage MT", "drive.bass",
+       {{"voicing", 3.0}, {"drivePercent", 37.37}, {"blendPercent", 50.0}, {"levelDb", -1.9}}, -30.0,
+       {7.8, 2.6, -1.0, -3.7}, 9.5, 8.8, -1.9},
+  };
+  return targets;
+}
+// clang-format on
+
+// The power average over a third-octave band (three points), the way the
+// match analysis reads a band of a sweep's response.
+double bandGainDb(const char* id, const Params& params, double hz, double peakDb) {
+  double sum = 0.0;
+  for (const double r : {std::pow(2.0, -1.0 / 9.0), 1.0, std::pow(2.0, 1.0 / 9.0)})
+    sum += std::pow(10.0, toneGainDb(id, params, hz * r, peakDb) / 10.0);
+  return 10.0 * std::log10(sum / 3.0);
+}
+
+void expectThdNear(double got, double unit, double relative, const char* what) {
+  if (unit < 1.0)
+    EXPECT_LT(got, 1.5) << what << ": the unit is clean";
+  else
+    EXPECT_NEAR(got, unit, relative * unit) << what;
+}
+
+}  // namespace
+
+TEST(DriveEffectsTest, MeasuredVoicingsMatchTheUnitAtTheMiddleOfTheKnobs) {
+  for (const UnitTarget& t : unitTargets()) {
+    SCOPED_TRACE(t.pedal);
+    const double reference = bandGainDb(t.id, t.params, 1000.0, t.levelDb);
+    const double bands[4] = {125.0, 500.0, 2000.0, 8000.0};
+    juce::String line;
+    for (int i = 0; i < 4; ++i) {
+      const double got = bandGainDb(t.id, t.params, bands[i], t.levelDb) - reference;
+      line << juce::String(got, 1) << " (" << juce::String(t.response[i], 1) << ") ";
+      EXPECT_NEAR(got, t.response[i], t.responseTolDb) << "at " << bands[i] << " Hz";
+    }
+    const double thd1k = thdAtDbfs(t.id, t.params, 1000.0, t.levelDb);
+    const double thd100 = thdAtDbfs(t.id, t.params, 100.0, t.levelDb);
+    std::cout << "[   UNIT   ] " << t.pedal << ": " << line << "| THD " << juce::String(thd1k, 1)
+              << " (" << t.thd1k << ") / " << juce::String(thd100, 1) << " (" << t.thd100
+              << ") % | 1 kHz " << juce::String(reference, 2) << " (" << t.gainDb << ") dB"
+              << std::endl;
+    expectThdNear(thd1k, t.thd1k, t.thdRelative, "THD at 1 kHz");
+    expectThdNear(thd100, t.thd100, t.thdRelative, "THD at 100 Hz");
+    EXPECT_NEAR(reference, t.gainDb, 1.0) << "the 1 kHz level";
+  }
+}
+
+TEST(DriveEffectsTest, MeasuredOverdriveVoicingsConform) {
+  for (const double voicing : {1.0, 2.0, 3.0}) {
+    SCOPED_TRACE(voicing);
+    ConformanceOptions options;
+    options.params = {
+        {"voicing", voicing}, {"drivePercent", 70.0}, {"tonePercent", 40.0}, {"levelDb", 2.0}};
+    options.stateParams = {
+        {"voicing", voicing}, {"drivePercent", 20.0}, {"tonePercent", 80.0}, {"levelDb", -4.0}};
+    options.sweepBound = 16.0f;
+    options.cpuAverageBudgetNs = 60000.0;
+    options.cpuWorstBudgetNs = 500000.0;
+    expectKindConforms("drive.overdrive", options);
+  }
+}
+
+TEST(DriveEffectsTest, MeasuredBoostVoicingsConform) {
+  for (const double voicing : {1.0, 2.0}) {
+    SCOPED_TRACE(voicing);
+    ConformanceOptions options;
+    options.params = {{"voicing", voicing}, {"gainDb", 14.0}, {"bassDb", 6.0}, {"trebleDb", -4.0}};
+    options.stateParams = {
+        {"voicing", voicing}, {"gainDb", 9.0}, {"bassDb", -5.0}, {"trebleDb", 7.0}};
+    options.sweepBound = 16.0f;
+    options.cpuAverageBudgetNs = 60000.0;
+    options.cpuWorstBudgetNs = 500000.0;
+    expectKindConforms("drive.boost", options);
+  }
+}
+
+TEST(DriveEffectsTest, CrankedTrebleBoostConforms) {
+  ConformanceOptions options;
+  options.params = {{"voicing", 1.0}, {"gainDb", 24.0}, {"rangeHz", 1500.0}, {"levelDb", -3.0}};
+  options.stateParams = {{"voicing", 1.0}, {"gainDb", 20.0}, {"rangeHz", 700.0}, {"levelDb", 4.0}};
+  options.sweepBound = 16.0f;
+  options.cpuAverageBudgetNs = 60000.0;
+  options.cpuWorstBudgetNs = 500000.0;
+  expectKindConforms("drive.trebleboost", options);
+}
+
+TEST(DriveEffectsTest, NotchedDistortionConforms) {
+  ConformanceOptions options;
+  options.params = {
+      {"voicing", 2.0}, {"distortionPercent", 80.0}, {"filterPercent", 40.0}, {"levelDb", 2.0}};
+  options.stateParams = {
+      {"voicing", 2.0}, {"distortionPercent", 20.0}, {"filterPercent", 90.0}, {"levelDb", -4.0}};
+  options.sweepBound = 16.0f;
+  options.cpuAverageBudgetNs = 60000.0;
+  options.cpuWorstBudgetNs = 500000.0;
+  expectKindConforms("drive.distortion", options);
+}
+
+TEST(DriveEffectsTest, MeasuredFuzzVoicingsConform) {
+  for (const double voicing : {4.0, 5.0}) {
+    SCOPED_TRACE(voicing);
+    ConformanceOptions options;
+    options.params = {{"voicing", voicing}, {"fuzzPercent", 80.0}, {"tonePercent", 60.0}};
+    options.stateParams = {
+        {"voicing", voicing}, {"fuzzPercent", 30.0}, {"tonePercent", 20.0}, {"levelDb", -3.0}};
+    options.sweepBound = 16.0f;
+    options.cpuAverageBudgetNs = 90000.0;
+    options.cpuWorstBudgetNs = 500000.0;
+    expectKindConforms("drive.fuzz", options);
+  }
+}
+
+TEST(DriveEffectsTest, MeasuredBassVoicingsConform) {
+  for (const double voicing : {1.0, 2.0, 3.0}) {
+    SCOPED_TRACE(voicing);
+    ConformanceOptions options;
+    options.params = {{"voicing", voicing},
+                      {"crossoverHz", 300.0},
+                      {"drivePercent", 70.0},
+                      {"presenceDb", 3.0},
+                      {"blendPercent", 80.0}};
+    options.stateParams = {{"voicing", voicing}, {"crossoverHz", 120.0}, {"drivePercent", 20.0},
+                           {"presenceDb", -4.0}, {"blendPercent", 40.0}, {"levelDb", 3.0}};
+    options.sweepBound = 16.0f;
+    options.cpuAverageBudgetNs = 90000.0;
+    options.cpuWorstBudgetNs = 500000.0;
+    expectKindConforms("drive.bass", options);
+  }
+}
+
+TEST(DriveEffectsTest, MeasuredVoicingsDistortMoreWithMoreDrive) {
+  struct Case {
+    const char* id;
+    double voicing;
+    const char* drive;
+    double driveMax;
+    double levelDb;
+    double hz;
+  };
+  // Each at a level and on a band where its drive does its work (the voicings
+  // with a clean path at 100 Hz, where the unit's distortion follows the knob).
+  for (const Case& c : {Case{"drive.overdrive", 1.0, "drivePercent", 100.0, -30.0, 100.0},
+                        Case{"drive.overdrive", 2.0, "drivePercent", 100.0, -30.0, 100.0},
+                        Case{"drive.overdrive", 3.0, "drivePercent", 100.0, -40.0, 1000.0},
+                        Case{"drive.boost", 1.0, "gainDb", 20.0, -30.0, 100.0},
+                        Case{"drive.boost", 2.0, "gainDb", 20.0, -30.0, 1000.0},
+                        Case{"drive.distortion", 2.0, "distortionPercent", 100.0, -80.0, 100.0},
+                        Case{"drive.fuzz", 4.0, "fuzzPercent", 100.0, -60.0, 1000.0},
+                        Case{"drive.fuzz", 5.0, "fuzzPercent", 100.0, -60.0, 1000.0},
+                        Case{"drive.bass", 2.0, "drivePercent", 100.0, -18.0, 1000.0},
+                        Case{"drive.bass", 3.0, "drivePercent", 100.0, -30.0, 1000.0}}) {
+    SCOPED_TRACE(juce::String(c.id) + " voicing " + juce::String(c.voicing));
+    const Params little = {{"voicing", c.voicing}, {c.drive, 0.05 * c.driveMax}};
+    const Params lots = {{"voicing", c.voicing}, {c.drive, 0.95 * c.driveMax}};
+    const double a = thdAtDbfs(c.id, little, c.hz, c.levelDb);
+    const double b = thdAtDbfs(c.id, lots, c.hz, c.levelDb);
+    std::cout << "[   THD    ] " << c.id << " voicing " << c.voicing << ": " << juce::String(a, 2)
+              << " % -> " << juce::String(b, 2) << " %" << std::endl;
+    EXPECT_GT(b, a + 3.0);
+  }
+}
+
+TEST(DriveEffectsTest, MeasuredOverdriveToneMovesTheTop) {
+  // Each voicing's tone low-pass sits at the fitted corner with Tone at the
+  // middle; Heavy's sweeps four octaves, so its upper half moves the very top.
+  for (const double voicing : {1.0, 2.0, 3.0}) {
+    SCOPED_TRACE(voicing);
+    const auto top = [&](double tone) {
+      const Params p = {{"voicing", voicing}, {"tonePercent", tone}};
+      return toneGainDb("drive.overdrive", p, 10000.0, -18.0) -
+             toneGainDb("drive.overdrive", p, 500.0, -18.0);
+    };
+    EXPECT_GT(top(100.0), top(50.0) + 1.5);
+    EXPECT_GT(top(50.0), top(0.0) + 3.0);
+  }
+}
+
+TEST(DriveEffectsTest, CrankedDistortionDoesNotFollowGainAndGainIsTheLevel) {
+  // The unit's distortion stays at 46 % at every VOLUME while its level moves:
+  // the clipping is fixed and Gain comes after it.
+  const Params low = {{"voicing", 1.0}, {"gainDb", 6.0}};
+  const Params high = {{"voicing", 1.0}, {"gainDb", 24.0}};
+  EXPECT_NEAR(thdAtDbfs("drive.trebleboost", low, 1000.0, -30.0),
+              thdAtDbfs("drive.trebleboost", high, 1000.0, -30.0), 0.5);
+  EXPECT_NEAR(toneGainDb("drive.trebleboost", high, 1000.0, -30.0) -
+                  toneGainDb("drive.trebleboost", low, 1000.0, -30.0),
+              18.0, 0.2);
+}
+
+TEST(DriveEffectsTest, CrankedRangeMovesTheHighPass) {
+  // Range moves the high-pass after the clipping: the higher, the thinner.
+  const auto lowEnd = [&](double range) {
+    const Params p = {{"voicing", 1.0}, {"rangeHz", range}};
+    return toneGainDb("drive.trebleboost", p, 125.0, -30.0) -
+           toneGainDb("drive.trebleboost", p, 2000.0, -30.0);
+  };
+  EXPECT_GT(lowEnd(400.0), lowEnd(1000.0) + 1.0);
+  EXPECT_GT(lowEnd(1000.0), lowEnd(4000.0) + 3.0);
+}
+
+TEST(DriveEffectsTest, MeasuredBassVoicingsAreCleanWithTheBlendAtZero) {
+  for (const double voicing : {1.0, 2.0, 3.0}) {
+    SCOPED_TRACE(voicing);
+    const Params dry = {{"voicing", voicing}, {"drivePercent", 100.0}, {"blendPercent", 0.0}};
+    const Params wet = {{"voicing", voicing}, {"drivePercent", 100.0}, {"blendPercent", 100.0}};
+    EXPECT_LT(thdAtDbfs("drive.bass", dry, 1000.0, -12.0), 0.5);
+    EXPECT_GT(thdAtDbfs("drive.bass", wet, 1000.0, -12.0), 2.0);
+  }
+}
+
+TEST(DriveEffectsTest, GritCrossoverKeepsTheLowsClean) {
+  const Params low = {{"voicing", 3.0}, {"crossoverHz", 60.0}, {"drivePercent", 80.0}};
+  const Params high = {{"voicing", 3.0}, {"crossoverHz", 800.0}, {"drivePercent", 80.0}};
+  EXPECT_LT(thdAtDbfs("drive.bass", high, 100.0, -30.0),
+            thdAtDbfs("drive.bass", low, 100.0, -30.0) - 2.0);
 }

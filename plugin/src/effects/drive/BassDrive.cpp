@@ -15,6 +15,27 @@
 // together, so the clean and the driven paths stay aligned.
 //
 //   in -> [4x: split -> drive high band -> sum] -> presence shelf -> DC block -> level
+//
+// Voicing: Classic is the split drive above. DI, Boost and Grit are measured
+// voicings (drive/DriveCommon.h, VoiceShape) fitted to bass pedals on a unit:
+//
+//   DI     a preamp that stays nearly clean: a fixed EQ (a low lift, a
+//          presence lift) and Drive as its gain, with a soft clip that only
+//          acts on loud input.
+//   Boost  a full range boost with a low cut and a soft top, clean at bass
+//          level and clipping gently when pushed; Drive is its gain.
+//   Grit   a clean path plus a clipped, high-passed path, so the lows stay
+//          clean while the mids and highs break up.
+//
+// In all three, Blend at its middle is the fitted mix of the clean and the
+// clipped paths (it scales the clipped path from none at 0 to twice at 100;
+// Boost has no clean path, so below the middle Blend fades from the boosted
+// signal to the input, and above it changes nothing). In Grit, Crossover
+// moves the high-pass in front of the clipped path from its fitted corner (at
+// the default 200 Hz) by the same ratio. Presence is the same shelf as in
+// Classic.
+//
+//   in -> [4x: voiced clipping] -> post filters -> presence shelf -> DC block -> level
 #include "effects/drive/DriveCommon.h"
 
 namespace {
@@ -25,7 +46,8 @@ class BassDriveProcessor final : public ParameterisedBlockProcessor {
 public:
   static constexpr const char* kKindId = "drive.bass";
 
-  enum Param { kCrossoverHz = 0, kDrivePercent, kPresenceDb, kBlendPercent, kLevelDb };
+  enum Param { kCrossoverHz = 0, kDrivePercent, kPresenceDb, kBlendPercent, kLevelDb, kVoicing };
+  enum Voicing { kClassic = 0, kDi, kBoost, kGrit };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -37,6 +59,10 @@ public:
       t.push_back(BlockParamSpec::floatParam("presenceDb", "Presence", "dB", -12.0f, 12.0f, 0.0f));
       t.push_back(BlockParamSpec::floatParam("blendPercent", "Blend", "%", 0.0f, 100.0f, 70.0f));
       t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -48.0f, 18.0f, 0.0f));
+      t.push_back(BlockParamSpec::choiceParam("voicing", "Voicing",
+                                              juce::StringArray{"Classic", "DI", "Boost", "Grit"},
+                                              kClassic)
+                      .notAutomatable());
       return t;
     }();
     return table;
@@ -66,6 +92,9 @@ protected:
       lane.shelf.setCorner(2500.0, sampleRate);
       lane.dc.setCutoff(20.0, sampleRate);
     }
+    gain.prepare(osRate, 0.02);
+    voiced.prepare(sampleRate);
+    appliedVoicing = -1;
     resetEffect();
   }
 
@@ -79,7 +108,9 @@ protected:
       lane.shelf.reset();
       lane.dc.reset();
     }
+    voiced.reset();
     tick.reset();
+    gain.snapOnNextTarget();
     crossover.snapOnNextTarget();
     drive.snapOnNextTarget();
     blend.snapOnNextTarget();
@@ -90,6 +121,12 @@ protected:
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext&) override {
     const int numSamples = buffer.getNumSamples();
     const int numLanes = juce::jmin(buffer.getNumChannels(), kMaxLanes);
+    const int voicing = juce::jlimit(0, 3, static_cast<int>(param(kVoicing) + 0.5f));
+    if (voicing != kClassic) {
+      processVoiced(buffer, voicing, numSamples, numLanes);
+      return;
+    }
+    appliedVoicing = kClassic;
     crossover.setTarget(param(kCrossoverHz));
     drive.setTarget(param(kDrivePercent) * 0.01f);
     blend.setTarget(param(kBlendPercent) * 0.01f);
@@ -133,6 +170,74 @@ protected:
   }
 
 private:
+  void processVoiced(juce::AudioBuffer<float>& buffer, int voicing, int numSamples, int numLanes) {
+    const VoiceShape& shape = kShapes[voicing - 1];
+    if (voicing != appliedVoicing) {
+      voiced.setShape(shape);
+      appliedVoicing = voicing;
+    }
+    crossover.setTarget(param(kCrossoverHz));
+    gain.setTarget(voiced.gainFor(param(kDrivePercent) * 0.01f));
+    blend.setTarget(param(kBlendPercent) * 0.02f);
+    presence.setTarget(fx::dbToGain(param(kPresenceDb)));
+    level.setTarget(fx::dbToGain(param(kLevelDb)));
+
+    oversampler.run(buffer, [&](float* const* io, int frames, int numReal) {
+      for (int i = 0; i < frames; ++i) {
+        const float corner = crossover.next();
+        const float g = gain.next();
+        const float wet = blend.next();
+        if (shape.splitHz > 0.0f && tick.step())
+          voiced.setSplitHz(shape.splitHz * corner * (1.0f / 200.0f));
+        for (int ch = 0; ch < numReal; ++ch) {
+          const float x = io[ch][i];
+          io[ch][i] = shape.clean > 0.0f
+                          ? voiced.clipSample(ch, x, g, wet)
+                          : voiced.clipSample(ch, x, g, juce::jmin(1.0f, wet)) +
+                                juce::jmax(0.0f, 1.0f - wet) * x;
+        }
+      }
+    });
+
+    for (int i = 0; i < numSamples; ++i) {
+      const float p = presence.next();
+      const float g = level.next();
+      for (int ch = 0; ch < numLanes; ++ch) {
+        Lane& lane = lanes[ch];
+        float* data = buffer.getWritePointer(ch);
+        data[i] = lane.dc.process(lane.shelf.high(voiced.postSample(ch, data[i]), p)) * g;
+      }
+    }
+  }
+
+  // The measured voicings, in the order of the choice (DI, Boost, Grit).
+  // Fitted to the unit (CorOS d14e) at the middle of each pedal's knobs.
+  // clang-format off
+  static constexpr VoiceShape kShapes[3] = {
+      // DI
+      {.inputHz = 58.21f, .splitHz = 0.0f, .preLowpassHz = 0.0f, .minGain = 0.3f, .maxGain = 1.667f,
+       .clipLevel = 0.1863f, .knee = 2, .bias = 0.0f, .clean = 1.0f, .secondHz = 0.0f,
+       .secondGain = 1.0f, .secondLevel = 0.3f, .toneHz = 8390.0f, .toneQ = 1.3f,
+       .toneOctaves = 2.5f, .lowPeakHz = 93.3f, .lowPeakQ = 0.9717f, .lowPeakDb = 11.62f,
+       .midPeakHz = 2221.0f, .midPeakQ = 1.963f, .midPeakDb = 9.251f, .highShelfHz = 1000.0f,
+       .highShelfDb = 0.0f, .postHighpassHz = 0.0f, .makeup = 0.5242f},
+      // Boost
+      {.inputHz = 41.78f, .splitHz = 0.0f, .preLowpassHz = 0.0f, .minGain = 2.865f,
+       .maxGain = 18.07f, .clipLevel = 0.6693f, .knee = 8, .bias = 0.0f, .clean = 0.0f,
+       .secondHz = 0.0f, .secondGain = 1.0f, .secondLevel = 0.3f, .toneHz = 15036.0f,
+       .toneQ = 0.9602f, .toneOctaves = 2.5f, .lowPeakHz = 220.4f, .lowPeakQ = 0.612f,
+       .lowPeakDb = 6.275f, .midPeakHz = 1614.0f, .midPeakQ = 0.3002f, .midPeakDb = 5.097f,
+       .highShelfHz = 1000.0f, .highShelfDb = 0.0f, .postHighpassHz = 0.0f, .makeup = 0.2366f},
+      // Grit
+      {.inputHz = 0.0f, .splitHz = 237.6f, .preLowpassHz = 21901.0f, .minGain = 1.89f,
+       .maxGain = 3.617f, .clipLevel = 0.01731f, .knee = 2, .bias = 0.004923f, .clean = 0.9708f,
+       .secondHz = 0.0f, .secondGain = 1.0f, .secondLevel = 0.3f, .toneHz = 14592.0f, .toneQ = 0.3f,
+       .toneOctaves = 2.5f, .lowPeakHz = 197.8f, .lowPeakQ = 0.6882f, .lowPeakDb = 12.0f,
+       .midPeakHz = 4713.0f, .midPeakQ = 0.4382f, .midPeakDb = 3.466f, .highShelfHz = 1000.0f,
+       .highShelfDb = 0.0f, .postHighpassHz = 0.0f, .makeup = 0.5012f},
+  };
+  // clang-format on
+
   static constexpr float kMinGain = 1.0f;
   static constexpr float kGainSpan = 40.0f;
   // Where the driven band tops out, in full-scale units, and its slight
@@ -153,6 +258,9 @@ private:
   AsymmetricSoft shaper;
   ControlTick tick{kControlGridOs};
   fx::SmoothedParam crossover, drive, blend, presence, level;
+  fx::SmoothedParam gain;
+  VoicedStage voiced;
+  int appliedVoicing{-1};
   double sampleRate{48000.0};
 };
 

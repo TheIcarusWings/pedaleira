@@ -15,6 +15,22 @@
 // control is a low-pass after the stage. The clipping runs at 4x.
 //
 //   in -> [4x: stage -> 6 kHz op-amp roll-off] -> tone low-pass -> level
+//
+// Voicing picks the circuit. Classic is the stage above. The others are
+// measured voicings (drive/DriveCommon.h, VoiceShape), each fitted to a family
+// of pedals on a unit at the middle of their knobs: Drive sets the gain into
+// the clipper, Tone moves the low-pass after it over 2.5 octaves (4 for
+// Heavy) around the fitted corner, and the response, the distortion at 100 Hz and 1 kHz and how
+// they follow Drive come from the fit.
+//
+//   Focused  a clean path plus a soft clipped, high-passed path, a gentle
+//            low-mid lift and a top that falls from about 2 kHz: the mid hump
+//            family, partly clean, with the level nearly fixed by the clipping.
+//   Warm     the same layout with a broad lift below 500 Hz and a darker top.
+//   Heavy    a fully clipped path with a large bass lift after it: loud lows,
+//            a level that does not follow the input, the top set by Tone.
+//
+//   in -> [4x: voiced clipping] -> tone low-pass, peaks, high-pass -> level
 #include "effects/drive/DriveCommon.h"
 
 namespace {
@@ -25,7 +41,8 @@ class OverdriveProcessor final : public ParameterisedBlockProcessor {
 public:
   static constexpr const char* kKindId = "drive.overdrive";
 
-  enum Param { kDrivePercent = 0, kTonePercent, kLevelDb };
+  enum Param { kDrivePercent = 0, kTonePercent, kLevelDb, kVoicing };
+  enum Voicing { kClassic = 0, kFocused, kWarm, kHeavy };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -33,6 +50,11 @@ public:
       t.push_back(BlockParamSpec::floatParam("drivePercent", "Drive", "%", 0.0f, 100.0f, 35.0f));
       t.push_back(BlockParamSpec::floatParam("tonePercent", "Tone", "%", 0.0f, 100.0f, 50.0f));
       t.push_back(BlockParamSpec::floatParam("levelDb", "Level", "dB", -48.0f, 18.0f, 0.0f));
+      t.push_back(BlockParamSpec::choiceParam(
+                      "voicing", "Voicing",
+                      juce::StringArray{"Classic", "Focused", "Warm", "Heavy"}, kClassic)
+                      .notAutomatable()
+                      .withAffectsTail());
       return t;
     }();
     return table;
@@ -44,7 +66,8 @@ public:
   // samples (drive/DriveCommon.h).
   int latencySamples() const noexcept override { return kLatencySamples; }
 
-  double tailSeconds() const noexcept override { return 0.02; }
+  // The measured voicings carry high-passes down to a few Hz.
+  double tailSeconds() const noexcept override { return param(kVoicing) > 0.5f ? 0.1 : 0.02; }
 
 protected:
   void prepareEffect(const EffectSpec& spec) override {
@@ -54,10 +77,13 @@ protected:
     drive.prepare(osRate, 0.02);
     tone.prepare(sampleRate, 0.03);
     level.prepare(sampleRate, 0.02);
+    gain.prepare(osRate, 0.02);
+    voiced.prepare(sampleRate);
     for (Lane& lane : lanes) {
       lane.highpass.setCutoff(700.0, osRate);
       lane.opamp.setCutoff(6000.0, osRate);
     }
+    appliedVoicing = -1;
     resetEffect();
   }
 
@@ -68,7 +94,9 @@ protected:
       lane.opamp.reset();
       lane.tone.reset();
     }
+    voiced.reset();
     tick.reset();
+    gain.snapOnNextTarget();
     drive.snapOnNextTarget();
     tone.snapOnNextTarget();
     level.snapOnNextTarget();
@@ -77,6 +105,12 @@ protected:
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext&) override {
     const int numSamples = buffer.getNumSamples();
     const int numLanes = juce::jmin(buffer.getNumChannels(), kMaxLanes);
+    const int voicing = juce::jlimit(0, 3, static_cast<int>(param(kVoicing) + 0.5f));
+    if (voicing != kClassic) {
+      processVoiced(buffer, voicing, numSamples, numLanes);
+      return;
+    }
+    appliedVoicing = kClassic;
     drive.setTarget(param(kDrivePercent) * 0.01f);
     tone.setTarget(param(kTonePercent) * 0.01f);
     level.setTarget(fx::dbToGain(param(kLevelDb)) * kMakeup);
@@ -109,6 +143,63 @@ protected:
   }
 
 private:
+  void processVoiced(juce::AudioBuffer<float>& buffer, int voicing, int numSamples, int numLanes) {
+    if (voicing != appliedVoicing) {
+      voiced.setShape(kShapes[voicing - 1]);
+      appliedVoicing = voicing;
+    }
+    gain.setTarget(voiced.gainFor(param(kDrivePercent) * 0.01f));
+    tone.setTarget(param(kTonePercent) * 0.01f);
+    level.setTarget(fx::dbToGain(param(kLevelDb)));
+
+    oversampler.run(buffer, [&](float* const* io, int frames, int numReal) {
+      for (int i = 0; i < frames; ++i) {
+        const float g = gain.next();
+        for (int ch = 0; ch < numReal; ++ch)
+          io[ch][i] = voiced.clipSample(ch, io[ch][i], g);
+      }
+    });
+
+    for (int i = 0; i < numSamples; ++i) {
+      const float t = tone.next();
+      const float g = level.next();
+      if (tick.step())
+        voiced.setTone(t);
+      for (int ch = 0; ch < numLanes; ++ch) {
+        float* data = buffer.getWritePointer(ch);
+        data[i] = voiced.postSample(ch, data[i]) * g;
+      }
+    }
+  }
+
+  // The measured voicings, in the order of the choice (Focused, Warm, Heavy).
+  // Fitted to the unit (CorOS d14e) at the middle of each pedal's knobs.
+  // clang-format off
+  static constexpr VoiceShape kShapes[3] = {
+      // Focused
+      {.inputHz = 0.0f, .splitHz = 567.0f, .preLowpassHz = 20491.0f, .minGain = 9.84f,
+       .maxGain = 100.9f, .clipLevel = 0.09527f, .knee = 2, .bias = -0.05335f, .clean = 1.029f,
+       .secondHz = 0.0f, .secondGain = 1.0f, .secondLevel = 0.3f, .toneHz = 8108.0f, .toneQ = 0.3f,
+       .toneOctaves = 2.5f, .lowPeakHz = 221.3f, .lowPeakQ = 0.15f, .lowPeakDb = 7.226f,
+       .midPeakHz = 1000.0f, .midPeakQ = 0.7f, .midPeakDb = 0.0f, .highShelfHz = 1000.0f,
+       .highShelfDb = 0.0f, .postHighpassHz = 37.73f, .makeup = 0.1778f},
+      // Warm
+      {.inputHz = 0.0f, .splitHz = 317.9f, .preLowpassHz = 22890.0f, .minGain = 6.517f,
+       .maxGain = 138.0f, .clipLevel = 0.2397f, .knee = 2, .bias = 0.3902f, .clean = 1.404f,
+       .secondHz = 0.0f, .secondGain = 1.0f, .secondLevel = 0.3f, .toneHz = 9487.0f, .toneQ = 0.3f,
+       .toneOctaves = 2.5f, .lowPeakHz = 147.0f, .lowPeakQ = 0.15f, .lowPeakDb = 11.24f,
+       .midPeakHz = 1000.0f, .midPeakQ = 0.7f, .midPeakDb = 0.0f, .highShelfHz = 1000.0f,
+       .highShelfDb = 0.0f, .postHighpassHz = 5.0f, .makeup = 0.1f},
+      // Heavy
+      {.inputHz = 0.0f, .splitHz = 79.52f, .preLowpassHz = 23000.0f, .minGain = 21.23f,
+       .maxGain = 102.9f, .clipLevel = 0.846f, .knee = 2, .bias = -0.00459f, .clean = 0.05665f,
+       .secondHz = 0.0f, .secondGain = 1.0f, .secondLevel = 0.3f, .toneHz = 9020.0f, .toneQ = 0.5f,
+       .toneOctaves = 4.0f, .lowPeakHz = 98.3f, .lowPeakQ = 0.3f, .lowPeakDb = 8.881f,
+       .midPeakHz = 1000.0f, .midPeakQ = 0.7f, .midPeakDb = 0.0f, .highShelfHz = 1000.0f,
+       .highShelfDb = 0.0f, .postHighpassHz = 8.843f, .makeup = 0.1084f},
+  };
+  // clang-format on
+
   // The extra gain runs from 0.5 (Drive 0) to 80.5 (Drive 100), quadratically,
   // so the lower half of the knob stays usable for light crunch.
   static constexpr float kMinGain = 0.5f;
@@ -129,6 +220,9 @@ private:
   Oversampler4x oversampler;
   ControlTick tick{kControlGrid};
   fx::SmoothedParam drive, tone, level;
+  fx::SmoothedParam gain;
+  VoicedStage voiced;
+  int appliedVoicing{-1};
   double sampleRate{48000.0};
 };
 

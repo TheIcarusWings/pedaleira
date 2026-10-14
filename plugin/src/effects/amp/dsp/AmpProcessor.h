@@ -25,6 +25,7 @@
 
 #include "amp/AmpCircuit.h"
 #include "amp/AmpDescription.h"
+#include "amp/RingOut.h"
 #include "effects/drive/DriveCommon.h"
 
 namespace ampfx {
@@ -60,9 +61,12 @@ public:
   // The half-band filters of the 4x oversampler (drive/DriveCommon.h).
   int latencySamples() const noexcept override { return kLatencySamples; }
 
-  // Sag recovery, the grid leak and the low poles of the stack and the
-  // coupling capacitors, plus the output DC blocker.
-  double tailSeconds() const noexcept override { return 0.5; }
+  // What the description rings for after the input stops: a multiple of its
+  // slowest time constant (the tone stack's relaxation, the coupling
+  // capacitors' leak, the sag recovery, the output DC blocker; amp/RingOut.h),
+  // at least half a second. Worked out when the description is set, for the
+  // longest of its voicings, so it does not move with the knobs.
+  double tailSeconds() const noexcept override { return ringOut; }
 
   const amp::AmpDescription& description() const noexcept { return *desc; }
 
@@ -109,13 +113,16 @@ public:
       keep the audio thread out. */
   void applyDescription(std::shared_ptr<const amp::AmpDescription> next) {
     desc = std::move(next);
+    ringOut = amp::ringOutSeconds(*desc);
     if (prepared)
       buildLanes();
   }
 
 protected:
   AmpProcessorBase(const char* kindId, const BlockParamTable& table, std::shared_ptr<const amp::AmpDescription> initial)
-      : ParameterisedBlockProcessor(kindId, table, readingSpecs()), desc(std::move(initial)) {}
+      : ParameterisedBlockProcessor(kindId, table, readingSpecs()),
+        desc(std::move(initial)),
+        ringOut(amp::ringOutSeconds(*desc)) {}
 
   void prepareEffect(const EffectSpec& spec) override {
     sampleRate = spec.sampleRate;
@@ -330,6 +337,7 @@ private:
   }
 
   std::shared_ptr<const amp::AmpDescription> desc;
+  double ringOut{0.5};
   bool prepared{false};
   Lane lanes[kMaxLanes];
   Oversampler4x oversampler;

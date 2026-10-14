@@ -1,5 +1,5 @@
-// The creative effects (plugin/src/effects/creative): filter.bitcrush,
-// filter.ringmod, filter.freeze and filter.glitch (Stutter). Each has the
+// The creative effects (plugin/src/effects/creative): creative.bitcrush,
+// creative.ringmod, creative.freeze and creative.glitch (Stutter). Each has the
 // conformance test, then what the effect is for, measured with numbers that
 // are printed as "[   FX     ]" lines:
 //
@@ -161,7 +161,7 @@ void expectResetClearsState(const juce::String& kindId, const Params& params, co
 // ---------------------------------------------------------------------------
 
 namespace {
-constexpr const char* kCrush = "filter.bitcrush";
+constexpr const char* kCrush = "creative.bitcrush";
 
 // Noise power of a bit depth in dB relative to a full scale sine's power
 // (1/2): Δ²/12 against it, with Δ = 2^(1 - bits).
@@ -177,13 +177,13 @@ TEST(BitCrusherTest, Conforms) {
   options.stateParams = {{"bits", 5.5}, {"rateHz", 9000.0}, {"antiAlias", 1.0}};
   options.cpuAverageBudgetNs = 8000.0;
   options.cpuWorstBudgetNs = 300000.0;
-  expectKindConforms("filter.bitcrush", options);
+  expectKindConforms("creative.bitcrush", options);
 }
 
 TEST(BitCrusherTest, RegisteredFullyWet) {
   const BlockKindInfo* info = BlockKindRegistry::instance().find(kCrush);
   ASSERT_NE(info, nullptr);
-  EXPECT_EQ(info->category, BlockCategory::Filter);
+  EXPECT_EQ(info->category, BlockCategory::Creative);
   EXPECT_FLOAT_EQ(info->defaultMix, 1.0f);
 }
 
@@ -282,7 +282,7 @@ TEST(BitCrusherTest, ResetClearsStateAndProcessingDoesNotAllocate) {
 
 TEST(BitCrusherTest, CostIsReported) {
   const KindCost cost = measureKindCost(kCrush, {{"bits", 6.0}, {"rateHz", 12000.0}, {"antiAlias", 1.0}});
-  printFx("cpu filter.bitcrush (anti-alias on): " +
+  printFx("cpu creative.bitcrush (anti-alias on): " +
           juce::String(cost.averageNs, 0).toStdString() + " ns average, " +
           juce::String(cost.worstNs, 0).toStdString() + " ns worst per 128-sample block");
   SUCCEED();
@@ -293,7 +293,7 @@ TEST(BitCrusherTest, CostIsReported) {
 // ---------------------------------------------------------------------------
 
 namespace {
-constexpr const char* kRing = "filter.ringmod";
+constexpr const char* kRing = "creative.ringmod";
 
 double levelAt(const std::vector<float>& x, double hz) {
   return goertzelPower(x.data() + 4800, x.size() - 4800, hz, kSr);
@@ -307,13 +307,13 @@ TEST(RingModulatorTest, Conforms) {
                          {"lfoRateHz", 3.3}};
   options.cpuAverageBudgetNs = 12000.0;
   options.cpuWorstBudgetNs = 300000.0;
-  expectKindConforms("filter.ringmod", options);
+  expectKindConforms("creative.ringmod", options);
 }
 
 TEST(RingModulatorTest, Registered) {
   const BlockKindInfo* info = BlockKindRegistry::instance().find(kRing);
   ASSERT_NE(info, nullptr);
-  EXPECT_EQ(info->category, BlockCategory::Filter);
+  EXPECT_EQ(info->category, BlockCategory::Creative);
 }
 
 TEST(RingModulatorTest, SineCarrierMakesSumAndDifferenceTones) {
@@ -411,7 +411,7 @@ TEST(RingModulatorTest, ResetClearsStateAndProcessingDoesNotAllocate) {
 TEST(RingModulatorTest, CostIsReported) {
   for (const double shape : {0.0, 1.0}) {
     const KindCost cost = measureKindCost(kRing, {{"shape", shape}, {"lfoDepth", 4.0}});
-    printFx(std::string("cpu filter.ringmod (") + (shape == 0.0 ? "sine" : "square") +
+    printFx(std::string("cpu creative.ringmod (") + (shape == 0.0 ? "sine" : "square") +
             ", LFO on): " + juce::String(cost.averageNs, 0).toStdString() + " ns average, " +
             juce::String(cost.worstNs, 0).toStdString() + " ns worst per 128-sample block");
   }
@@ -423,7 +423,7 @@ TEST(RingModulatorTest, CostIsReported) {
 // ---------------------------------------------------------------------------
 
 namespace {
-constexpr const char* kFreeze = "filter.freeze";
+constexpr const char* kFreeze = "creative.freeze";
 }
 
 TEST(FreezeTest, Conforms) {
@@ -433,7 +433,7 @@ TEST(FreezeTest, Conforms) {
                          {"fadeOutMs", 900.0}, {"levelDb", -3.0}, {"dryPercent", 25.0}};
   options.cpuAverageBudgetNs = 20000.0;
   options.cpuWorstBudgetNs = 600000.0;
-  expectKindConforms("filter.freeze", options);
+  expectKindConforms("creative.freeze", options);
 }
 
 TEST(FreezeTest, PassesTheInputUntouchedUntilTriggered) {
@@ -657,7 +657,7 @@ TEST(FreezeTest, ResetClearsStateAndProcessingDoesNotAllocate) {
 TEST(FreezeTest, CostIsReported) {
   const KindCost idle = measureKindCost(kFreeze, {});
   const KindCost frozen = measureKindCost(kFreeze, {{"freeze", 1.0}});
-  printFx("cpu filter.freeze: " + juce::String(idle.averageNs, 0).toStdString() +
+  printFx("cpu creative.freeze: " + juce::String(idle.averageNs, 0).toStdString() +
           " ns average idle, " + juce::String(frozen.averageNs, 0).toStdString() +
           " ns average frozen (" + juce::String(frozen.worstNs, 0).toStdString() +
           " ns worst) per 128-sample block");
@@ -669,7 +669,7 @@ TEST(FreezeTest, CostIsReported) {
 // ---------------------------------------------------------------------------
 
 namespace {
-constexpr const char* kStutter = "filter.glitch";
+constexpr const char* kStutter = "creative.glitch";
 
 // Slice 1/8 (12000 samples at 120 BPM), one cell a bar (96000), 3 repeats.
 Params stutterBase() {
@@ -689,7 +689,7 @@ TEST(StutterTest, Conforms) {
                          {"pitchDown", 3.0}};
   options.cpuAverageBudgetNs = 12000.0;
   options.cpuWorstBudgetNs = 600000.0;
-  expectKindConforms("filter.glitch", options);
+  expectKindConforms("creative.glitch", options);
 }
 
 TEST(StutterTest, RepeatsStartOnTheCellAndAreTheAudioBeforeIt) {
@@ -900,7 +900,7 @@ TEST(StutterTest, CostIsReported) {
   const Params busy = {{"sliceSync", 1.0}, {"sliceDivision", fx::kDivSixteenth},
                        {"every", fx::kDivSixteenth}, {"repeats", 16.0}, {"pitchDown", 1.0}};
   const KindCost cost = measureKindCost(kStutter, busy);
-  printFx("cpu filter.glitch (an event on every cell): " +
+  printFx("cpu creative.glitch (an event on every cell): " +
           juce::String(cost.averageNs, 0).toStdString() + " ns average, " +
           juce::String(cost.worstNs, 0).toStdString() + " ns worst per 128-sample block");
   SUCCEED();

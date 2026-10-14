@@ -881,7 +881,11 @@ struct TailMeasurement {
   bool capped{false};
 };
 
-/** Plays a noise burst into the kind, then silence: the wet output must be
+/** The burst a tail is measured from: `seconds` of signal at `fs`. */
+using TailBurst = std::function<std::vector<float>(double seconds, double fs)>;
+
+/** Plays a noise burst (or `burst`, for a kind that only sounds for a
+    particular kind of input) into the kind, then silence: the wet output must be
     silent (60 dB under its peak) once the reported tail has passed, and the
     reported tail must not be shorter than the decay actually measured, give
     or take `toleranceSeconds`. The one exception is a tail at the cap
@@ -892,7 +896,8 @@ struct TailMeasurement {
 inline TailMeasurement expectSilenceAfterReportedTail(const juce::String& kindId,
                                                       const Params& params = {},
                                                       double toleranceSeconds = 0.05,
-                                                      Layout layout = Layout::Mono) {
+                                                      Layout layout = Layout::Mono,
+                                                      const TailBurst& tailBurst = {}) {
   TailMeasurement result;
   DirectKind kind(kindId, params, layout);
   if (!kind.valid())
@@ -908,7 +913,8 @@ inline TailMeasurement expectSilenceAfterReportedTail(const juce::String& kindId
   const double latencySeconds = result.latencySamples / fs;
   const double afterSeconds = result.reportedSeconds + latencySeconds + toleranceSeconds;
   const double watchSeconds = 0.5;
-  const std::vector<float> burst = noise(burstSeconds, 21u, 0.25f, fs);
+  const std::vector<float> burst =
+      tailBurst ? tailBurst(burstSeconds, fs) : noise(burstSeconds, 21u, 0.25f, fs);
   const std::vector<float> in =
       withSilence(burst, static_cast<int>(std::lround((afterSeconds + watchSeconds) * fs)));
   // The same burst on both channels: in stereo and dual mono alike each
@@ -920,7 +926,7 @@ inline TailMeasurement expectSilenceAfterReportedTail(const juce::String& kindId
     // Against the loudest the wet output ever was: a long delay says
     // nothing until the burst is over.
     const float peak = peakOf(*channel);
-    EXPECT_GT(peak, 0.0f) << kindId << ": no output for a noise burst";
+    EXPECT_GT(peak, 0.0f) << kindId << ": no output for the tail burst";
     if (result.capped)
       continue;
     const double measured = decayTimeSeconds(*channel, burst.size(), peak, fs);
@@ -1115,6 +1121,10 @@ inline void expectDualMonoIsTwoMonoRigs(const juce::String& kindId, const Params
     std::vector<float> difference(got.size());
     for (size_t i = 0; i < got.size(); ++i)
       difference[i] = got[i] - want[i];
+    // A kind that is silent for a signal (a pitch tracker hearing noise) is
+    // silent in both: nothing differs.
+    if (rmsOf(want) <= 0.0)
+      return rmsOf(difference) <= 0.0 ? -300.0 : 0.0;
     return toDb(rmsOf(difference)) - toDb(rmsOf(want));
   };
   EXPECT_LE(relativeDb(out.left, wantLeft), toleranceDb)
@@ -1183,8 +1193,14 @@ struct ConformanceOptions {
 
   // The tail check (silent after the reported tail, and the reported tail not
   // shorter than the decay to -60 dB). Off only with a reason written at the
-  // call: the amp.heavyhot description rings below -60 dB for over two seconds.
+  // call: amp.heavyhot's power stage sits in a limit cycle that never decays
+  // (amp_faceplate_tests.cpp, ampsWithALimitCycle).
   bool checkTail{true};
+  // What the tail check plays in: noise unless set. For a kind that only
+  // sounds for a particular input (a pitch-tracked voice is silent for noise
+  // on purpose), give a burst it does sound for; the check still needs output
+  // from it, so the tail measured is the kind's own.
+  TailBurst tailBurst;
 };
 
 /**
@@ -1315,7 +1331,7 @@ inline void expectKindConforms(const juce::String& kindId, const ConformanceOpti
     if (options.checkTail) {
       SCOPED_TRACE("tail");
       const TailMeasurement tail = expectSilenceAfterReportedTail(
-          kindId, options.params, options.tailToleranceSeconds, layout);
+          kindId, options.params, options.tailToleranceSeconds, layout, options.tailBurst);
       std::cout << "[   TAIL   ] " << kindId << " (" << layoutName(layout) << "): reported "
                 << juce::String(tail.reportedSeconds, 3) << " s, "
                 << (tail.capped ? juce::String("capped, not measured")

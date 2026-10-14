@@ -20,7 +20,37 @@ constexpr std::array<Rename, 5> kRenames{{
     {"transposeWindow", "pitchWindow"},
 }};
 
+// Block kinds that moved to another category, and with it to another id.
+constexpr std::array<Rename, 4> kKindRenames{{
+    {"filter.freeze", "creative.freeze"},
+    {"filter.bitcrush", "creative.bitcrush"},
+    {"filter.glitch", "creative.glitch"},
+    {"filter.ringmod", "creative.ringmod"},
+}};
+
 }  // namespace
+
+juce::String currentKindId(const juce::String& id) {
+  for (const auto& r : kKindRenames)
+    if (id == r.legacy)
+      return r.current;
+  return id;
+}
+
+int migrateKindIds(juce::ValueTree tree) {
+  int renamed = 0;
+  if (tree.hasType("KindState")) {
+    const juce::String legacy = tree.getProperty("kind").toString();
+    const juce::String current = currentKindId(legacy);
+    if (current != legacy) {
+      tree.setProperty("kind", current, nullptr);
+      ++renamed;
+    }
+  }
+  for (int i = 0; i < tree.getNumChildren(); ++i)
+    renamed += migrateKindIds(tree.getChild(i));
+  return renamed;
+}
 
 juce::String currentParamId(const juce::String& id) {
   for (const auto& r : kRenames)

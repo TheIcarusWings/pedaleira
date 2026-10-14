@@ -16,6 +16,7 @@
 #include "effects/effect_test_helpers.h"
 
 #include "amp/AmpDescription.h"
+#include "amp/RingOut.h"
 
 #include <gtest/gtest.h>
 
@@ -639,6 +640,133 @@ TEST(AmpKinds, TheSoundOfHighGainIsTheSameWithOrWithoutItsPanelStyle) {
   }
 }
 
+TEST(AmpKinds, TheReportedTailIsDerivedFromTheDescriptionAndHoldsForEveryShippedAmp) {
+  // Every amp reports the ring-out of its own description, the same whatever
+  // the knobs say, between the floor and the cap; the amps with a slow tone
+  // stack report more than the half second they all used to.
+  double longest = 0.0, shortest = 1.0e9;
+  for (const std::string& file : ampfx::builtinAmpFiles()) {
+    SCOPED_TRACE(file);
+    const auto description = ampfx::builtinAmp(file.c_str());
+    ASSERT_NE(description, nullptr);
+    const double derived = amp::ringOutSeconds(*description);
+    EXPECT_GE(derived, amp::kRingOutFloorSeconds);
+    EXPECT_LE(derived, amp::kRingOutCeilingSeconds);
+    // The slowest time constant is one of the description's, never zero.
+    EXPECT_GT(amp::slowestTimeConstant(*description), 0.0);
+    EXPECT_NEAR(derived,
+                std::clamp(std::max(amp::kRingOutDecayConstants * amp::slowestTimeConstant(*description),
+                                    amp::kRingOutSagConstants * amp::sagRecoverySeconds(*description)),
+                           amp::kRingOutFloorSeconds, amp::kRingOutCeilingSeconds),
+                1.0e-12);
+
+    fxtest::DirectKind kind(ampfx::builtinAmpKindId(file).c_str(), {}, fxtest::Layout::Stereo);
+    ASSERT_TRUE(kind.valid());
+    EXPECT_DOUBLE_EQ(kind.tailSeconds(), derived) << "the block reports its description's tail";
+    kind.engine().setParameter(kind.engine().findParameter("gain"), 100.0f);
+    kind.engine().setParameter(kind.engine().findParameter("master"), 100.0f);
+    EXPECT_DOUBLE_EQ(kind.tailSeconds(), derived) << "and it does not move with the knobs";
+    longest = std::max(longest, derived);
+    shortest = std::min(shortest, derived);
+  }
+  std::cout << "[   TAIL   ] shipped amps: derived tails from " << juce::String(shortest, 2) << " s to "
+            << juce::String(longest, 2) << " s" << std::endl;
+  EXPECT_GT(longest, 1.5) << "the fitted amps ring for seconds";
+
+  // A description with a slow time constant of each kind: the tail follows it,
+  // and a description loaded into amp.custom changes the block's tail.
+  amp::AmpDescription slow = *ampfx::builtinAmp("high-gain.json");
+  const double base = amp::ringOutSeconds(slow);
+  slow.input.network.capacitance *= 100.0f;  // the input grid leak: 0.68 s
+  EXPECT_NEAR(amp::slowestTimeConstant(slow), slow.input.network.leakSeconds(), 1.0e-9);
+  EXPECT_GT(amp::ringOutSeconds(slow), base);
+  amp::AmpDescription capped = slow;
+  capped.input.network.capacitance *= 1.0e4f;
+  EXPECT_DOUBLE_EQ(amp::ringOutSeconds(capped), amp::kRingOutCeilingSeconds);
+  amp::AmpDescription quick = *ampfx::builtinAmp("steady-120.json");
+  EXPECT_DOUBLE_EQ(amp::ringOutSeconds(quick), amp::kRingOutFloorSeconds)
+      << "a description with nothing slow reports the floor";
+  // The supply's recovery counts, at its shorter multiple.
+  quick.voicings[0].supply.sourceResistance = 2000.0f;
+  quick.voicings[0].supply.filterCapacitance = 1.0e-3f;  // 2 s to recover
+  EXPECT_NEAR(amp::ringOutSeconds(quick), amp::kRingOutSagConstants * 2.0, 1.0e-6);
+}
+
+// Amps whose output does not decay at all after the input stops: their power
+// stage settles into a limit cycle of about -60 dBFS (a constant level for as
+// long as it is watched, with zero input), so no tail is long enough and the
+// tail check cannot hold. That is the amp's DSP, not its reported tail (which
+// is derived from the description like the others'); this list is what the
+// conformance below leaves out, and SustainedAmpsStillSustain tells whoever
+// fixes one to take it off the list.
+const std::set<std::string>& ampsWithALimitCycle() {
+  static const std::set<std::string> files = {"heavy-hot.json", "red-forty.json"};
+  return files;
+}
+
+// The same at extreme settings (gain and every tone control up with the master
+// at 40 %): cell-four's power stage does not settle there either.
+const std::set<std::string>& ampsWithALimitCycleWhenDrivenHard() {
+  static const std::set<std::string> files = {"heavy-hot.json", "red-forty.json", "cell-four.json"};
+  return files;
+}
+
+TEST(AmpKinds, SustainedAmpsStillSustain) {
+  constexpr double kRate = 48000.0;
+  for (const std::string& file : ampsWithALimitCycle()) {
+    SCOPED_TRACE(file);
+    fxtest::DirectKind kind(ampfx::builtinAmpKindId(file).c_str(),
+                            {{"gain", 45.0}, {"bass", 60.0}, {"middle", 40.0}, {"treble", 65.0},
+                             {"presence", 55.0}, {"depth", 45.0}, {"master", 40.0}, {"bright", 1.0}},
+                            fxtest::Layout::Mono);
+    ASSERT_TRUE(kind.valid());
+    const std::vector<float> burst = fxtest::noise(0.5, 21u, 0.25f, kRate);
+    const std::vector<float> out = kind.render(fxtest::withSilence(burst, static_cast<int>(4.0 * kRate)));
+    const float peak = fxtest::peakOf(out, 0, burst.size());
+    const float late = fxtest::peakOf(out, burst.size() + static_cast<size_t>(3.0 * kRate));
+    std::cout << "[   TAIL   ] " << file << ": " << juce::String(20.0 * std::log10(late / peak), 1)
+              << " dB re the burst, 3 to 4 s after it" << std::endl;
+    EXPECT_GT(late, peak * 0.001f)
+        << "this amp now stops: take it off ampsWithALimitCycle() so the tail check covers it";
+  }
+}
+
+TEST(AmpKinds, TheReportedTailCoversAHardDrivenBurstToo) {
+  constexpr double kRate = 48000.0;
+  // The conformance check measures at one setting; an amp driven hard rings
+  // longer (a saturated power stage waits for the slowest time constant). The
+  // bound has to hold there as well: gain and the tone controls all the way up
+  // or all the way down, the master at the conformance setting.
+  struct Setting {
+    const char* name;
+    fxtest::Params params;
+  };
+  const Setting settings[] = {
+      {"gain full, bass full", {{"gain", 100.0}, {"bass", 100.0}, {"middle", 50.0}, {"treble", 50.0}, {"master", 40.0}}},
+      {"gain full, bass off", {{"gain", 100.0}, {"bass", 0.0}, {"middle", 100.0}, {"treble", 0.0}, {"master", 40.0}}},
+      {"gain half, everything up", {{"gain", 50.0}, {"bass", 100.0}, {"middle", 100.0}, {"treble", 100.0}, {"presence", 100.0}, {"depth", 100.0}, {"master", 60.0}}},
+  };
+  for (const std::string& file : ampfx::builtinAmpFiles()) {
+    if (ampsWithALimitCycleWhenDrivenHard().count(file) != 0)
+      continue;
+    for (const Setting& setting : settings) {
+      SCOPED_TRACE(file + ", " + setting.name);
+      fxtest::DirectKind kind(ampfx::builtinAmpKindId(file).c_str(), setting.params, fxtest::Layout::Mono);
+      ASSERT_TRUE(kind.valid());
+      const double reported = kind.tailSeconds();
+      const std::vector<float> burst = fxtest::noise(0.5, 21u, 0.25f, kRate);
+      const std::vector<float> in = fxtest::withSilence(burst, static_cast<int>(std::lround((reported + 1.0) * kRate)));
+      const std::vector<float> out = kind.render(in);
+      const float peak = fxtest::peakOf(out);
+      ASSERT_GT(peak, 0.0f);
+      const double measured = fxtest::decayTimeSeconds(out, burst.size(), peak, kRate);
+      std::cout << "[   TAIL   ] " << file << " (" << setting.name << "): reported " << juce::String(reported, 2)
+                << " s, measured " << juce::String(measured, 2) << " s to -60 dB" << std::endl;
+      EXPECT_LE(measured, reported + 0.05);
+    }
+  }
+}
+
 TEST(AmpKinds, EveryShippedAmpConformsInMonoStereoAndDualMono) {
   // The generic conformance checks of every effect kind, for each description
   // in resources/amps (however many there are).
@@ -650,12 +778,11 @@ TEST(AmpKinds, EveryShippedAmpConformsInMonoStereoAndDualMono) {
     options.stateParams = {{"gain", 20.0}, {"bass", 30.0}, {"middle", 80.0}, {"treble", 25.0},
                            {"presence", 10.0}, {"depth", 90.0}, {"master", 35.0}, {"levelDb", -6.0}};
     options.sweepBound = 12.0f;
-    // The fitted amps (Red Forty, Heavy Hot) ring at a low level, from their
-    // strong low resonance, for longer than the half second every amp reports
-    // (above -60 dB of the burst two seconds on). That is how those descriptions
-    // sound, not the faceplate or the kind: amp.highgain and amp.custom keep the
-    // tail check in their own tests, and the rest of the conformance runs for all.
-    options.checkTail = file == "high-gain.json" || file == "high-gain-wdf.json";
+    // The tail check runs for every amp: each reports a tail derived from its
+    // description (amp/RingOut.h), longer than the half second for the fitted
+    // amps whose tone stacks relax over a few tenths of a second. The amps
+    // whose power stage never stops (ampsWithALimitCycle) are the exception.
+    options.checkTail = ampsWithALimitCycle().count(file) == 0;
     // The wave digital twin costs about twice the classic amps; the worst block
     // is generous because the suite shares its machine (a block is 2.7 ms).
     options.cpuAverageBudgetNs = 300000.0;

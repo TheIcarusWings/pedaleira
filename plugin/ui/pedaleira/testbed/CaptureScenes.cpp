@@ -188,11 +188,11 @@ struct Driver {
       page.source().chooseSource(value(0).getIntValue());
     } else if (key == "new") {
       // new:<source>:<method>:<name>
-      const juce::var created = command("capture.create", pedaleira::ui::object({{"name", value(2, "Brit 800 Crunch")},
+      const juce::var created = command("capture.create", pedaleira::ui::object({{"name", value(2, "Harbor Crunch")},
                                                                                 {"source", value(0, "ampHead")},
                                                                                 {"method", value(1, "reamp")},
                                                                                 {"gainTag", "crunch"},
-                                                                                {"gearMake", "Marshall"},
+                                                                                {"gearMake", "Northfield"},
                                                                                 {"notes", "Master 6, gain 5, mids 7. Load box DI."}}));
       id = created["id"].toString();
       page.open(id);

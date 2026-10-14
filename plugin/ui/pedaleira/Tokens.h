@@ -34,7 +34,7 @@ inline const juce::Colour clip{0xffff5a5a};
 
 // Block categories: each owns one hue, used at 16 % as a tile's fill and at
 // 100 % for its icon, and always paired with the icon.
-enum class Category { amp, drive, cab, dynamics, eq, delay, reverb, modulation, pitch, filter, utility, plugin };
+enum class Category { amp, drive, cab, dynamics, eq, delay, reverb, modulation, pitch, filter, creative, utility, plugin };
 
 juce::Colour categoryColour(Category category);
 // The tile fill: the hue at 16 % over the raised surface.

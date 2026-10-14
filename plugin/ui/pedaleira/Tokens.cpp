@@ -16,6 +16,7 @@ juce::Colour categoryColour(Category category) {
     case Category::modulation: return juce::Colour(0xffb7e04a);
     case Category::pitch: return juce::Colour(0xffff7a90);
     case Category::filter: return juce::Colour(0xff7fe3f2);
+    case Category::creative: return juce::Colour(0xff9b87ff);
     case Category::plugin: return juce::Colour(0xffc4b5ff);
     case Category::utility: break;
   }
@@ -38,6 +39,7 @@ juce::String categoryName(Category category) {
     case Category::modulation: return "Modulation";
     case Category::pitch: return "Pitch";
     case Category::filter: return "Filter";
+    case Category::creative: return "Creative";
     case Category::plugin: return "Plugin";
     case Category::utility: break;
   }
@@ -51,6 +53,7 @@ Category categoryFromId(const juce::String& id) {
       {"eq", Category::eq},           {"delay", Category::delay},
       {"reverb", Category::reverb},   {"modulation", Category::modulation},
       {"pitch", Category::pitch},     {"filter", Category::filter},
+      {"creative", Category::creative},
       {"plugin", Category::plugin},   {"utility", Category::utility},
   };
   for (const auto& [name, category] : ids)

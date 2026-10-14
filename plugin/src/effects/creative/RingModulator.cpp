@@ -1,4 +1,4 @@
-// filter.ringmod: the input multiplied by an oscillator. A sine carrier of
+// creative.ringmod: the input multiplied by an oscillator. A sine carrier of
 // frequency c turns every partial f of the input into two, at f + c and
 // f - c (each at half the level), and removes the partial itself; a square or
 // triangle carrier does the same for each of its odd harmonics, which is why
@@ -21,7 +21,7 @@ namespace {
 
 class RingModulatorProcessor final : public ParameterisedBlockProcessor {
 public:
-  static constexpr const char* kKindId = "filter.ringmod";
+  static constexpr const char* kKindId = "creative.ringmod";
 
   enum Param { kFrequencyHz = 0, kShape, kLfoDepth, kLfoRateHz };
   enum Shape { kSine = 0, kSquare, kTriangle };
@@ -139,6 +139,6 @@ private:
 
 PEDALEIRA_EFFECT_KINDS(RingModulator) {
   // Half and half to start: a ring modulator at 100% hides the playing.
-  addEffectKind<RingModulatorProcessor>(registry, "Ring Modulator", BlockCategory::Filter, 0.5f,
+  addEffectKind<RingModulatorProcessor>(registry, "Ring Modulator", BlockCategory::Creative, 0.5f,
                                         BlockMixLaw::Crossfade);
 }

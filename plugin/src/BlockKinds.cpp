@@ -2,6 +2,7 @@
 #include "GainBlockProcessor.h"
 #include "HostedPluginBlockProcessor.h"
 #include "IrBlockProcessor.h"
+#include "LegacyParamIds.h"
 #include "NamBlockProcessor.h"
 #include "effects/EffectRegistration.h"
 
@@ -17,6 +18,7 @@ juce::String blockCategoryToString(BlockCategory category) {
     case BlockCategory::Modulation: return "modulation";
     case BlockCategory::Pitch: return "pitch";
     case BlockCategory::Filter: return "filter";
+    case BlockCategory::Creative: return "creative";
     case BlockCategory::Plugin: return "plugin";
     case BlockCategory::Utility: break;
   }
@@ -28,7 +30,8 @@ const std::vector<BlockCategory>& allBlockCategories() {
       BlockCategory::Amp,    BlockCategory::Drive,      BlockCategory::Cab,
       BlockCategory::Dynamics, BlockCategory::Eq,       BlockCategory::Delay,
       BlockCategory::Reverb, BlockCategory::Modulation, BlockCategory::Pitch,
-      BlockCategory::Filter, BlockCategory::Utility,    BlockCategory::Plugin,
+      BlockCategory::Filter, BlockCategory::Creative,   BlockCategory::Utility,
+      BlockCategory::Plugin,
   };
   return categories;
 }
@@ -135,7 +138,10 @@ bool BlockKindRegistry::add(BlockKindInfo info) {
 
 const BlockKindInfo* BlockKindRegistry::find(const juce::String& id) const {
   juce::ScopedLock scoped(lock);
-  const auto it = kinds.find(id);
+  // An id an older build saved a kind under finds the kind it became.
+  auto it = kinds.find(id);
+  if (it == kinds.end())
+    it = kinds.find(t3k::legacy_ids::currentKindId(id));
   return it != kinds.end() ? it->second.get() : nullptr;
 }
 

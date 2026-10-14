@@ -22,4 +22,14 @@ juce::String currentParamId(const juce::String& id);
     entry is the fresher one. Returns how many children were renamed. */
 int migrateParamIds(juce::ValueTree tree, const juce::Identifier& property);
 
+/** The current block kind id for `id`: the renamed one when an older build
+    saved the kind under another id (Freeze, Bit Crusher, Stutter and Ring
+    Modulator were "filter.*" before the Creative category), otherwise `id`. */
+juce::String currentKindId(const juce::String& id);
+
+/** Rewrites the "kind" of every KindState node under `tree` (at any depth:
+    chains, scenes, grid rows) through currentKindId. Returns how many were
+    renamed. */
+int migrateKindIds(juce::ValueTree tree);
+
 }  // namespace t3k::legacy_ids

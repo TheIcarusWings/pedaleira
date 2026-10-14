@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <functional>
 #include <thread>
 #include <vector>
 
@@ -58,7 +59,14 @@ struct Harness {
 
   Harness() { looper.prepare(kRate); }
 
-  void act(Action action) { ASSERT_TRUE(looper.request(action)); }
+  // A record action reserves the loop's memory on the looper's worker; the
+  // engine tests that go on to record wait for it, so what they measure is
+  // the loop (the lazy reservation has tests of its own).
+  void act(Action action) {
+    ASSERT_TRUE(looper.request(action));
+    if (action == Action::record || action == Action::cycle)
+      ASSERT_TRUE(looper.waitForMemory(5000));
+  }
 
   /** Runs `in` through the looper in blocks of kBlock (a shorter last block
       if need be), on `channels` channels (the second is `right`, or a copy of
@@ -596,6 +604,7 @@ TEST(LooperTest, ProcessingNeverAllocates) {
   std::vector<float> left = makeNoise(kBlock, 131u, 0.2f);
   std::vector<float> right = makeNoise(kBlock, 132u, 0.2f);
   h.looper.setQuantise(true);
+  ASSERT_TRUE(h.looper.waitForMemory(5000));  // reserved off the audio thread
   AllocationGuard guard;
   const auto block = [&](int count) {
     for (int i = 0; i < count; ++i) {
@@ -687,6 +696,191 @@ TEST(LooperTest, QueuedActionsKeepTheirOrder) {
 }
 
 // ---------------------------------------------------------------------------
+// The memory: reserved on the first record, off the audio thread
+// ---------------------------------------------------------------------------
+
+namespace {
+
+bool waitUntil(const std::function<bool()>& condition, int timeoutMs) {
+  const auto deadline = juce::Time::getMillisecondCounter() + static_cast<juce::uint32>(timeoutMs);
+  while (!condition()) {
+    if (juce::Time::getMillisecondCounter() > deadline)
+      return false;
+    juce::Thread::sleep(2);
+  }
+  return true;
+}
+
+}  // namespace
+
+TEST(LooperMemoryTest, PrepareReservesNothing) {
+  Harness h;
+  const Looper::Snapshot snapshot = h.looper.snapshot();
+  EXPECT_TRUE(snapshot.ready);
+  EXPECT_FALSE(snapshot.memoryReady);
+  EXPECT_EQ(snapshot.memoryBytes, 0u);
+  EXPECT_FALSE(snapshot.arming);
+  EXPECT_EQ(snapshot.state, State::empty);
+  EXPECT_GT(snapshot.capacityFrames, 0) << "the nominal capacity is known without the memory";
+  // Preparing again at the same rate still reserves nothing.
+  h.looper.prepare(kRate);
+  EXPECT_FALSE(h.looper.isMemoryReady());
+  printLooper("prepare: ready " + std::to_string(snapshot.ready) + ", memory reserved 0 bytes");
+}
+
+TEST(LooperMemoryTest, TheFirstRecordArmsUntilTheMemoryIsThenRecordsFromTheNextBlock) {
+  Harness h;
+  const std::vector<float> in = makeNoise(10 * kBlock, 301u, 0.3f);
+  // The audio-thread door (MIDI) only flags the need; nothing has asked the
+  // worker yet when the first block runs, so that block must arm.
+  h.looper.requestFromAudioThread(Action::record);
+  const Stereo first = h.run(std::vector<float>(in.begin(), in.begin() + kBlock));
+  Looper::Snapshot snapshot = h.looper.snapshot();
+  EXPECT_TRUE(snapshot.arming);
+  EXPECT_EQ(snapshot.state, State::empty);
+  EXPECT_EQ(snapshot.recordedFrames, 0);
+  EXPECT_EQ(first.left, std::vector<float>(in.begin(), in.begin() + kBlock))
+      << "the sound passes untouched while the looper arms";
+
+  ASSERT_TRUE(waitUntil([&] { return h.looper.isMemoryReady(); }, 5000));
+  EXPECT_TRUE(h.looper.snapshot().arming) << "nothing changes until the audio thread's next block";
+  const std::vector<float> rest(in.begin() + kBlock, in.end());
+  h.run(rest);
+  snapshot = h.looper.snapshot();
+  EXPECT_FALSE(snapshot.arming);
+  EXPECT_EQ(snapshot.state, State::recording);
+  EXPECT_EQ(snapshot.recordedFrames, static_cast<std::int64_t>(rest.size()))
+      << "recording starts in the first block after the handover";
+
+  // And what was recorded is the audio from that block on, to the sample.
+  h.act(Action::play);
+  const Stereo played = h.run(zeros(2 * static_cast<int>(rest.size())));
+  int different = 0;
+  for (int k = kFade; k < static_cast<int>(rest.size()) - kFade; ++k)
+    if (played.left[static_cast<size_t>(k)] != rest[static_cast<size_t>(k)])
+      ++different;
+  EXPECT_EQ(different, 0);
+  const juce::var described = h.looper.describe();
+  EXPECT_TRUE(static_cast<bool>(described["memoryReady"]));
+  printLooper("arming: first block passed through untouched, recording began in the block after the "
+              "memory arrived, " + std::to_string(rest.size()) + " frames recorded");
+}
+
+TEST(LooperMemoryTest, TheStateReadsArmingAndASecondRecordChangesNothing) {
+  Harness h;
+  h.looper.requestFromAudioThread(Action::record);
+  h.looper.requestFromAudioThread(Action::record);
+  h.run(zeros(kBlock));
+  EXPECT_TRUE(h.looper.snapshot().arming);
+  EXPECT_EQ(h.looper.describe().getProperty("state", {}).toString(), "arming");
+  ASSERT_TRUE(waitUntil([&] { return h.looper.isMemoryReady(); }, 5000));
+  h.run(zeros(kBlock));
+  EXPECT_EQ(h.looper.snapshot().state, State::recording)
+      << "two record actions while arming are one recording, not a record and a stop";
+}
+
+TEST(LooperMemoryTest, StopAndClearTakeAnArmingRecordBack) {
+  for (const Action cancel : {Action::stop, Action::clear}) {
+    Harness h;
+    h.looper.requestFromAudioThread(Action::record);
+    h.run(zeros(kBlock));
+    ASSERT_TRUE(h.looper.snapshot().arming);
+    h.looper.requestFromAudioThread(cancel);
+    h.run(zeros(kBlock));
+    EXPECT_FALSE(h.looper.snapshot().arming);
+    ASSERT_TRUE(waitUntil([&] { return h.looper.isMemoryReady(); }, 5000));
+    h.run(zeros(4 * kBlock));
+    EXPECT_EQ(h.looper.snapshot().state, State::empty)
+        << "the memory came, but the record had been taken back";
+  }
+}
+
+TEST(LooperMemoryTest, ArmingNeverAllocatesOnTheAudioThread) {
+  Harness h;
+  std::vector<float> left = makeNoise(kBlock, 311u, 0.2f), right = left;
+  long allocations = 0;
+  const auto block = [&] {
+    AllocationGuard guard;
+    float* pointers[2] = {left.data(), right.data()};
+    h.looper.process(pointers, 2, kBlock, 120.0);
+    allocations += guard.count();
+  };
+  h.looper.requestFromAudioThread(Action::record);
+  block();
+  EXPECT_TRUE(h.looper.snapshot().arming);
+  for (int i = 0; i < 20; ++i)
+    block();  // still arming, or already recording once the worker is done
+  ASSERT_TRUE(waitUntil([&] { return h.looper.isMemoryReady(); }, 5000));
+  for (int i = 0; i < 20; ++i)
+    block();
+  EXPECT_EQ(h.looper.snapshot().state, State::recording);
+  EXPECT_EQ(allocations, 0) << "reserving the memory is the worker's, never the audio thread's";
+}
+
+TEST(LooperMemoryTest, TheMemoryIsFreedAfterTheGracePeriodOnceTheLoopIsCleared) {
+  Harness h;
+  h.looper.setMemoryGraceMs(150);
+  h.recordAndPlay(makeNoise(kLoop, 321u, 0.3f));
+  ASSERT_TRUE(h.looper.isMemoryReady());
+
+  // Not while there is a loop, however long the grace period has run.
+  juce::Thread::sleep(400);
+  h.run(zeros(kBlock));
+  EXPECT_TRUE(h.looper.isMemoryReady()) << "a playing loop keeps its memory";
+  EXPECT_EQ(h.looper.snapshot().state, State::playing);
+
+  h.act(Action::clear);
+  h.run(zeros(kBlock));
+  EXPECT_EQ(h.looper.snapshot().state, State::empty);
+  const auto cleared = juce::Time::getMillisecondCounter();
+  EXPECT_TRUE(h.looper.isMemoryReady()) << "the memory outlives the clear by the grace period";
+  ASSERT_TRUE(waitUntil([&] { return !h.looper.isMemoryReady(); }, 5000));
+  const auto freedAfter = juce::Time::getMillisecondCounter() - cleared;
+  EXPECT_GE(freedAfter, 100u);
+  EXPECT_EQ(h.looper.snapshot().memoryBytes, 0u);
+  printLooper("clear: memory freed " + std::to_string(freedAfter) + " ms later (grace 150 ms)");
+
+  // Blocks go on passing the sound through, and a new record arms again.
+  const std::vector<float> in = makeNoise(4 * kBlock, 322u, 0.2f);
+  EXPECT_EQ(h.run(in).left, in);
+  h.act(Action::record);  // waits for the memory
+  EXPECT_TRUE(h.looper.isMemoryReady());
+  h.run(makeNoise(kLoop, 323u, 0.3f));
+  EXPECT_EQ(h.looper.snapshot().state, State::recording);
+  EXPECT_EQ(h.looper.snapshot().recordedFrames, kLoop);
+}
+
+TEST(LooperMemoryTest, TheMemoryIsNotTakenBackWhileARecordNeedsIt) {
+  // The memory is not taken back while an action is waiting in the ring.
+  Harness h;
+  h.looper.setMemoryGraceMs(0);
+  ASSERT_TRUE(h.looper.waitForMemory(5000));
+  juce::Thread::sleep(100);
+  // With a zero grace period the worker frees an idle looper at its next
+  // pass; here the looper is idle, so the memory goes.
+  EXPECT_TRUE(waitUntil([&] { return !h.looper.isMemoryReady(); }, 5000));
+  // A record posted with the worker polling goes the other way round: the
+  // request is ahead of any release.
+  h.act(Action::record);
+  h.run(makeNoise(2 * kBlock, 331u, 0.2f));
+  EXPECT_EQ(h.looper.snapshot().state, State::recording);
+  juce::Thread::sleep(100);
+  EXPECT_TRUE(h.looper.isMemoryReady()) << "a recording keeps its memory";
+}
+
+TEST(LooperMemoryTest, ANewSampleRateDropsTheMemoryAndTheLoop) {
+  Harness h;
+  h.recordAndPlay(makeNoise(kLoop, 341u, 0.3f));
+  ASSERT_TRUE(h.looper.isMemoryReady());
+  h.looper.prepare(44100.0);
+  EXPECT_FALSE(h.looper.isMemoryReady());
+  EXPECT_EQ(h.looper.snapshot().state, State::empty);
+  EXPECT_EQ(h.looper.snapshot().capacityFrames, static_cast<std::int64_t>(60.0 * 44100.0));
+  ASSERT_TRUE(h.looper.waitForMemory(5000));
+  EXPECT_NEAR(static_cast<double>(h.looper.snapshot().memoryBytes), 5.0 * 2.0 * 60.0 * 44100.0 * 4.0, 1.0);
+}
+
+// ---------------------------------------------------------------------------
 // In the processor: commands, the master, MIDI
 // ---------------------------------------------------------------------------
 
@@ -716,6 +910,10 @@ void sendCc(EffectRig& rig, int number, int value) {
 }
 
 void pump() { juce::MessageManager::getInstance()->runDispatchLoopUntil(20); }
+
+// The first record action reserves the loop's memory on the looper's worker
+// thread; the tests that go on to record wait for it.
+void settle(EffectRig& rig) { ASSERT_TRUE(rig.proc.getLooper().waitForMemory(5000)); }
 
 }  // namespace
 
@@ -759,9 +957,15 @@ TEST(LooperCommandsTest, RecordAndPlayRoundTripThroughTheProcessor) {
   const std::vector<float> in = makeNoise(40 * kRigBlock, 161u, 0.25f);
 
   // The command posts; the audio thread picks it up in its next block.
+  EXPECT_FALSE(static_cast<bool>(runCommand(rig, "looper.get")["memoryReady"]))
+      << "nothing is reserved before the first record";
   const juce::var posted = runCommand(rig, "looper.record");
   EXPECT_EQ(static_cast<int>(posted["queued"]), 1);
   EXPECT_EQ(posted["state"].toString(), "empty");
+  settle(rig);  // the audio thread would otherwise report "arming" for a block or two
+  EXPECT_TRUE(static_cast<bool>(runCommand(rig, "looper.get")["memoryReady"]));
+  EXPECT_NEAR(static_cast<double>(runCommand(rig, "looper.get")["memoryBytes"]),
+              5.0 * 2.0 * 60.0 * 48000.0 * 4.0, 1.0e6);
   const std::vector<float> recorded = rig.render(in);
   EXPECT_EQ(stateOf(rig), "recording");
   EXPECT_GT(static_cast<double>(runCommand(rig, "looper.get")["recordedSeconds"]), 0.2);
@@ -834,6 +1038,7 @@ TEST(LooperCommandsTest, HalfSpeedAndReverseThroughTheCommandsChangeTheSound) {
   EffectRig rig{juce::String()};
   const std::vector<float> in = makeNoise(20 * kRigBlock, 171u, 0.25f);
   runCommand(rig, "looper.record");
+  settle(rig);
   const std::vector<float> recorded = rig.render(in);
   runCommand(rig, "looper.setOptions", R"({"reverse":true})");
   runCommand(rig, "looper.play");
@@ -863,6 +1068,7 @@ TEST(LooperCommandsTest, TheLoopSitsBeforeTheMasterLevel) {
   const auto loopRmsAt = [](float level) {
     EffectRig rig{juce::String()};
     runCommand(rig, "looper.record");
+    settle(rig);
     rig.render(makeNoise(40 * kRigBlock, 181u, 0.25f));
     runCommand(rig, "looper.play");
     rig.render(zeros(kRigBlock));
@@ -895,9 +1101,13 @@ TEST(LooperMidiTest, TheMapListsCc48To61AndTheyDriveTheLooperInTheBlockTheyArriv
   const Looper& looper = rig.proc.getLooper();
   // A press: 127 then 0 (a momentary switch) counts once.
   sendCc(rig, 48, 127);
+  EXPECT_TRUE(looper.snapshot().arming)
+      << "the action landed in the block the CC arrived in, and waits for the memory";
+  EXPECT_EQ(looper.snapshot().state, State::empty);
+  settle(rig);
   sendCc(rig, 48, 0);
-  EXPECT_EQ(looper.snapshot().state, State::recording)
-      << "the action landed in the block the CC arrived in";
+  EXPECT_FALSE(looper.snapshot().arming);
+  EXPECT_EQ(looper.snapshot().state, State::recording) << "recording starts in the first block after the memory";
   for (int i = 0; i < 20; ++i)
     rig.render(makeNoise(kRigBlock, 191u + static_cast<unsigned>(i), 0.2f));
   sendCc(rig, 50, 127);  // play
@@ -982,7 +1192,7 @@ TEST(LooperMidiTest, TheDefaultsCanBeMovedSwitchedOffAndTakenOverByAMapping) {
   sendCc(rig, 48, 127);
   EXPECT_EQ(looper.snapshot().state, State::empty) << "the old number does nothing";
   sendCc(rig, 90, 127);
-  EXPECT_EQ(looper.snapshot().state, State::recording);
+  EXPECT_TRUE(looper.snapshot().arming);
   runCommand(rig, "looper.clear");
   rig.render(zeros(kRigBlock));
 
@@ -995,6 +1205,7 @@ TEST(LooperMidiTest, TheDefaultsCanBeMovedSwitchedOffAndTakenOverByAMapping) {
   EXPECT_TRUE(static_cast<bool>(runCommand(rig, "midi.getMap")["defaults"][6]["overridden"]));
   sendCc(rig, 49, 127);  // overdub on an empty looper: nothing
   rig.proc.midiMapper.setFixedControlCc(MidiMapper::FixedControl::looperRecord, 48);
+  settle(rig);
   sendCc(rig, 48, 127);
   EXPECT_EQ(looper.snapshot().state, State::recording);
   rig.render(makeNoise(4 * kRigBlock, 211u, 0.2f));
@@ -1018,6 +1229,7 @@ TEST(LooperMidiTest, ProcessBlockWithTheLooperBusyDoesNotAllocateBeyondTheBaseli
     juce::MidiBuffer midi;
     if (looperBusy) {
       runCommand(rig, "looper.record");
+      settle(rig);
       rig.render(zeros(kRigBlock));
     }
     // Whatever the processor sets up lazily happens before the count.

@@ -9,7 +9,7 @@ namespace pedaleira::ui::testbed {
 namespace {
 const Category kCategories[] = {Category::amp,    Category::drive,      Category::cab,   Category::dynamics,
                                 Category::eq,     Category::delay,      Category::reverb, Category::modulation,
-                                Category::pitch,  Category::filter,     Category::utility, Category::plugin};
+                                Category::pitch,  Category::filter,     Category::creative, Category::utility, Category::plugin};
 }  // namespace
 
 Gallery::Gallery() {
@@ -32,12 +32,12 @@ Gallery::Gallery() {
     addAndMakeVisible(*tile);
     stateTiles.push_back(std::move(tile));
   };
-  stateTile("Brit 800", Category::amp, Tile::State::active, false, "");
-  stateTile("Brit 800", Category::amp, Tile::State::active, true, "");
-  stateTile("Brit 800", Category::amp, Tile::State::bypassed, false, "");
+  stateTile("Harbor 80", Category::amp, Tile::State::active, false, "");
+  stateTile("Harbor 80", Category::amp, Tile::State::active, true, "");
+  stateTile("Harbor 80", Category::amp, Tile::State::bypassed, false, "");
   stateTile("Seventh H.", Category::plugin, Tile::State::missing, false, "");
   stateTile("", Category::utility, Tile::State::empty, false, "");
-  stateTile("Brit 800", Category::amp, Tile::State::loading, false, "");
+  stateTile("Harbor 80", Category::amp, Tile::State::loading, false, "");
   stateTile("Green 808", Category::drive, Tile::State::active, false, "A");
 
   const auto knob = [this](const juce::String& name, double position, const juce::String& text,
@@ -93,7 +93,7 @@ void Gallery::paint(juce::Graphics& g) {
   g.setFont(type::sans(40.0f, type::Weight::medium, true));
   g.drawText("Glass Cleans", 420, 620, 400, 50, juce::Justification::centredLeft);
   g.setFont(type::heading());
-  g.drawText("Brit 800 Crunch " + type::dot() + " NAM capture", 40, 676, 600, 28, juce::Justification::centredLeft);
+  g.drawText("Harbor Crunch " + type::dot() + " NAM capture", 40, 676, 600, 28, juce::Justification::centredLeft);
   g.setFont(type::body());
   g.drawText("Plug the Volt line output 3 into the re-amp box, then into the amp input.", 40, 706, 800, 22,
              juce::Justification::centredLeft);

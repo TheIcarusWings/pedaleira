@@ -26,6 +26,7 @@
 #include "CommandServer.h"
 #include "LibraryPaths.h"
 #include "NamEngine.h"
+#include "NamLibrary.h"
 #include "Processor.h"
 #include "RtWorkerPool.h"
 #include "test_helpers.h"
@@ -843,6 +844,10 @@ int main(int argc, char** argv) {
           .getChildFile("t3k-dsp-tests-appdata-" + juce::Uuid().toString());
   appData.createDirectory();
   LibraryPaths::setAppDataDirForTesting(appData);
+  // assets.list also scans the TONE3000 app's download folders when they
+  // exist; here none do, whatever the developer's machine has.
+  static const std::vector<juce::File> noTone3000Folders;
+  NamLibrary::setTone3000FoldersForTesting(&noTone3000Folders);
   // Every processor the tests construct must start at the parameter
   // defaults, whatever calibration/oversampling the developer's own
   // machine-wide settings file holds.
@@ -914,6 +919,7 @@ int main(int argc, char** argv) {
   CommandServer::setConnectionFileForTesting(juce::File());
   LibraryPaths::setScratchDirForTesting(juce::File());
   agentData.deleteRecursively();
+  NamLibrary::setTone3000FoldersForTesting(nullptr);
   LibraryPaths::setAppDataDirForTesting(juce::File());
   appData.deleteRecursively();
   return result;

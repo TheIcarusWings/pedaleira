@@ -12,7 +12,7 @@ constexpr int kMarginX = 40;
 constexpr int kMarginY = 32;
 
 const char* const kPartNames[] = {"Audio and calibration", "MIDI mapping", "Expression pedals", "Plugins",
-                                  "AI and MCP",            "Remote",       "About"};
+                                  "Capture folders",       "AI and MCP",   "Remote",           "About"};
 
 }  // namespace
 
@@ -50,6 +50,7 @@ SettingsPage::SettingsPage(EngineClient& client, DeviceSettings* deviceSettings)
   sections[static_cast<size_t>(Part::midi)] = std::make_unique<SettingsMidi>(engine, device);
   sections[static_cast<size_t>(Part::expression)] = std::make_unique<SettingsExpression>(engine);
   sections[static_cast<size_t>(Part::plugins)] = std::make_unique<SettingsPlugins>(engine);
+  sections[static_cast<size_t>(Part::captures)] = std::make_unique<SettingsCaptures>(engine);
   sections[static_cast<size_t>(Part::agents)] = std::make_unique<SettingsAgents>(engine);
   sections[static_cast<size_t>(Part::remote)] = std::make_unique<SettingsRemote>(engine);
   sections[static_cast<size_t>(Part::about)] = std::make_unique<SettingsAbout>(engine);

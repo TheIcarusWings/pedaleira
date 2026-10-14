@@ -41,6 +41,8 @@ function(t3k_add_headless_processor target)
         ${plugin_dir}/src/EngineCommands.cpp
         ${plugin_dir}/src/GainBlockProcessor.cpp
         ${plugin_dir}/src/GuitarCommands.cpp
+        ${plugin_dir}/src/NamLibrary.cpp
+        ${plugin_dir}/src/NamCommands.cpp
         ${plugin_dir}/src/GuitarProfiles.cpp
         ${plugin_dir}/src/HostedPluginBlockProcessor.cpp
         ${plugin_dir}/src/IrBlockProcessor.cpp

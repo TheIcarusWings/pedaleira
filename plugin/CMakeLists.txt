@@ -423,6 +423,9 @@ target_sources(${PROJECT_NAME}
         include/LibraryPaths.h
         src/LibraryPaths.cpp
         src/GuitarCommands.cpp
+        include/NamLibrary.h
+        src/NamLibrary.cpp
+        src/NamCommands.cpp
         src/ListenCommands.cpp
         include/SandboxRig.h
         src/SandboxRig.cpp

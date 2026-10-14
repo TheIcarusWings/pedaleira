@@ -290,6 +290,7 @@ void AgentHub::registerCommands() {
   registerSandboxCommands();
   registerListenCommands();
   registerGuitarCommands();
+  registerNamCommands();
   registerCaptureCommands();
   registerToneRequestCommands();
 }

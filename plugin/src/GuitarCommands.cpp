@@ -11,6 +11,7 @@
 #include "AssetTags.h"
 #include "GuitarProfiles.h"
 #include "LibraryPaths.h"
+#include "NamLibrary.h"
 #include "PresetJson.h"
 #include "SandboxRig.h"
 
@@ -118,6 +119,13 @@ juce::var describeAsset(const juce::File& file, const juce::File& root, const ch
       if (const juce::var value = metadata[juce::Identifier(field)];
           !value.isVoid() && !value.isUndefined() && !(value.isString() && value.toString().isEmpty()))
         obj->setProperty(juce::Identifier(juce::String("nam_") + field), value);
+    // Whether Pedaleira can load it, before anyone tries.
+    const NamLibrary::Info info = NamLibrary::inspectFile(file);
+    obj->setProperty("architecture", info.architecture);
+    obj->setProperty("architectureLabel", info.label);
+    obj->setProperty("supported", info.supported);
+    if (!info.supported)
+      obj->setProperty("unsupportedReason", info.reason);
   } else {
     juce::WavAudioFormat wav;
     if (auto stream = file.createInputStream()) {
@@ -167,6 +175,30 @@ juce::var describeTaggedAsset(const juce::File& file, const juce::File& root, co
   obj->setProperty("tags", merged);
   obj->setProperty("userTags", own);
   obj->setProperty("tagged", !userTags.isEmpty());
+  return asset;
+}
+
+// describeTaggedAsset for assets.list: adds where the file came from
+// (origin: library, folder, tone3000 or loaded) and, for the copies the model
+// stash and the asset store keep under content-hash names, the name the
+// player knows the file by (the file name it was loaded from, else the name
+// in its metadata), so a search can find it.
+juce::var describeListed(const juce::File& file, const juce::File& tagRoot, const char* source,
+                         const juce::StringArray& userTags, const char* origin) {
+  juce::var asset = describeTaggedAsset(file, tagRoot, source, userTags);
+  auto* obj = asset.getDynamicObject();
+  obj->setProperty("origin", origin);
+  if (juce::String(origin) != "loaded")
+    return asset;
+  const NamLibrary::Loaded record = NamLibrary::loadedFor(file.getFileName());
+  if (record.name.isNotEmpty()) {
+    obj->setProperty("name", record.name);
+    if (record.sourcePath.isNotEmpty())
+      obj->setProperty("loadedFrom", record.sourcePath);
+    obj->setProperty("loadedAt", record.loadedAt);
+  } else if (const juce::String named = asset["nam_name"].toString(); named.isNotEmpty()) {
+    obj->setProperty("name", named);
+  }
   return asset;
 }
 
@@ -399,9 +431,17 @@ void AgentHub::registerGuitarCommands() {
       "chain.addToneFromFiles: the files under the library folder and the folders the user "
       "added (source library, tags from the folder names), the library's asset store (source "
       "assets: the model files of the saved presets, under content-hash names) and the local "
-      "model stash (source stash: files added before, also under content-hash names). A capture carries what its file "
+      "model stash (source stash: files added before, also under content-hash names), and the "
+      "folders the TONE3000 app keeps its downloads in when they exist (source tone3000, "
+      "captures only; see nam.tone3000Folders). origin says where a file came from: library, "
+      "folder (one the user added), tone3000, or loaded (a copy kept for a file the user "
+      "loaded). A copy kept under a hash name is listed by the name the file was loaded "
+      "under (name, with loadedFrom and loadedAt), else by its metadata name, and query finds "
+      "it by that name. A capture carries what its file "
       "says about itself as nam_name, nam_gear_type, nam_gear_make, nam_gear_model, "
-      "nam_tone_type, nam_gain and nam_loudness when present; an IR its sampleRate, channels "
+      "nam_tone_type, nam_gain and nam_loudness when present, and its architecture, "
+      "architectureLabel and supported (false when Pedaleira can not load it, with "
+      "unsupportedReason in a sentence); an IR its sampleRate, channels "
       "and seconds. inRig lists the tones the rig already holds, with their titles and gear "
       "tags. There is no searchable catalogue beyond this: tones from the online catalogue "
       "are only known once they are in a rig.",
@@ -446,18 +486,36 @@ void AgentHub::registerGuitarCommands() {
         const std::atomic<bool>* cancel = &slowWorkCancel();
         AssetTags& tags = assetTags();
 
-        return CommandWork::later([this, roots, stash, scratch, guitarsDir, assetStore,
+        // The folders the TONE3000 app keeps downloads in, scanned for captures
+        // too (a folder that is already one of the roots is scanned once).
+        // Listed, not allowed: a client that wants to load from one adds it
+        // with roots.add, like any other folder.
+        std::vector<std::pair<juce::File, const char*>> scanRoots;
+        for (const auto& root : roots)
+          scanRoots.emplace_back(root, root == stash ? "stash" : "library");
+        for (const auto& folder : NamLibrary::tone3000Folders()) {
+          const bool covered = std::any_of(roots.begin(), roots.end(), [&](const juce::File& r) {
+            return r == folder || LibraryPaths::isInside(folder, r);
+          });
+          if (!covered)
+            scanRoots.emplace_back(folder, "tone3000");
+        }
+
+        return CommandWork::later([this, scanRoots, stash, scratch, guitarsDir, assetStore,
                                    libraryTrash, libraryRoot, kind, query, limit, untaggedOnly,
                                    wantedTags, &tags, inRig, rigName, cancel] {
           juce::Array<juce::var> assets;
           int scanned = 0, matched = 0;
-          for (const auto& root : roots) {
+          for (const auto& [root, rootSource] : scanRoots) {
             // Renders and guitar clips are WAVs too, and neither is an IR.
             if (root == scratch || !root.isDirectory())
               continue;
-            const char* rootSource = root == stash ? "stash" : "library";
+            const bool tone3000Root = juce::String(rootSource) == "tone3000";
+            // The TONE3000 app's folders hold captures; the IRs there are its
+            // own and stay out of this list.
+            const char* patterns = tone3000Root ? "*.nam" : "*.nam;*.wav";
             for (const auto& entry : juce::RangedDirectoryIterator(
-                     root, root != stash, "*.nam;*.wav", juce::File::findFiles)) {
+                     root, root != stash, patterns, juce::File::findFiles)) {
               if (shuttingDown().load() || cancel->load() || ++scanned > kMaxFilesScanned)
                 break;
               const juce::File file = entry.getFile();
@@ -466,6 +524,10 @@ void AgentHub::registerGuitarCommands() {
                 continue;
               const bool stored = file.isAChildOf(assetStore);
               const char* source = stored ? "assets" : rootSource;
+              const char* origin = stored || root == stash ? "loaded"
+                                   : tone3000Root          ? "tone3000"
+                                   : file.isAChildOf(libraryRoot) ? "library"
+                                                                   : "folder";
               // No tags for the store: its one folder says nothing of a file.
               const juce::File tagRoot = stored ? file.getParentDirectory() : root;
               const bool capture = file.hasFileExtension("nam");
@@ -474,27 +536,29 @@ void AgentHub::registerGuitarCommands() {
               const juce::StringArray userTags = tags.tagsFor(libraryRoot, file);
               if (untaggedOnly && !userTags.isEmpty())
                 continue;
-              // The cheap test first: most queries are settled by the path
-              // or the user's tags.
+              // The cheap test first: most queries are settled by the path,
+              // the user's tags or the name the file was loaded under.
               juce::var asset;
               if (query.isNotEmpty() &&
                   !file.getRelativePathFrom(root).toLowerCase().contains(query) &&
-                  !userTags.joinIntoString("\n").contains(query)) {
+                  !userTags.joinIntoString("\n").contains(query) &&
+                  !(juce::String(origin) == "loaded" &&
+                    NamLibrary::loadedFor(file.getFileName()).name.toLowerCase().contains(query))) {
                 if (!capture)
                   continue;
-                asset = describeTaggedAsset(file, tagRoot, source, userTags);
+                asset = describeListed(file, tagRoot, source, userTags, origin);
                 if (!juce::JSON::toString(asset, true).toLowerCase().contains(query))
                   continue;
               }
               if (!wantedTags.isEmpty()) {
                 if (asset.isVoid())
-                  asset = describeTaggedAsset(file, tagRoot, source, userTags);
+                  asset = describeListed(file, tagRoot, source, userTags, origin);
                 if (!hasAllTags(asset, wantedTags))
                   continue;
               }
               ++matched;
               if (assets.size() < limit)
-                assets.add(asset.isVoid() ? describeTaggedAsset(file, tagRoot, source, userTags)
+                assets.add(asset.isVoid() ? describeListed(file, tagRoot, source, userTags, origin)
                                           : asset);
             }
           }

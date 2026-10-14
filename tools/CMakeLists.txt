@@ -101,6 +101,8 @@ if (PEDALEIRA_BUILD_UI_TESTBED)
         ../plugin/ui/pedaleira/testbed/CaptureScenes.h
         ../plugin/ui/pedaleira/testbed/Gallery.cpp
         ../plugin/ui/pedaleira/testbed/Gallery.h
+        ../plugin/ui/pedaleira/testbed/NamScenes.cpp
+        ../plugin/ui/pedaleira/testbed/NamScenes.h
     )
     target_include_directories(PedaleiraUiTestbed PRIVATE ../plugin/ui/pedaleira/testbed)
     target_compile_definitions(PedaleiraUiTestbed PRIVATE PEDALEIRA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

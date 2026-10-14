@@ -206,9 +206,20 @@ export const toneTools: ToneTool[] = [
       else {
         const listed = asObject(assets.value);
         // The name is the file's, the tags its folders' and the user's, the
-        // nam_* fields whatever the capture file says about itself.
+        // nam_* fields whatever the capture file says about itself, and the
+        // architecture is a word out of the file as well.
         const all = asArray(listed.assets).map((asset) =>
-          quarantine(asset, (key) => key === "name" || key === "tags" || key === "userTags" || key.startsWith("nam_")),
+          quarantine(
+            asset,
+            (key) =>
+              key === "name" ||
+              key === "tags" ||
+              key === "userTags" ||
+              key === "loadedFrom" ||
+              key === "architecture" ||
+              key === "architectureLabel" ||
+              key.startsWith("nam_"),
+          ),
         );
         result.captures = all.filter((asset) => asset.kind === "capture");
         result.irs = all.filter((asset) => asset.kind === "ir");

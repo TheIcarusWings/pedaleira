@@ -15,6 +15,8 @@
 #include "Processor.h"
 #include "SetlistLibrary.h"
 #include "CaptureScenes.h"
+#include "NamLibrary.h"
+#include "NamScenes.h"
 #include "FakeDevice.h"
 #include "widgets/Motion.h"
 #include "Gallery.h"
@@ -33,6 +35,7 @@
 
 #include <cmath>
 #include <deque>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -54,7 +57,10 @@ struct Scenario {
   const char* select = "";
   // Or a split point: "split:<row>" or "mix:<row>".
   const char* point = "";
-  // Or the block library: "picker:<row>:<slot>[:<category>]".
+  // Or the block library: "picker:<row>:<slot>[:<category>[:<source>[:<search>]]]" (a dash
+  // leaves a field out; source is the chip's number), "pickclick:<name>" (a click on the
+  // row with that name), "t3k:tab:<n>", "t3k:tone:<n>", "t3k:capture:<n>" and "t3k:add"
+  // on the TONE3000 page.
   // Or a block's editor: "editor:<block, as $slot:row:slot>"; "replace:<source>"
   // then presses what asks for another file (Swap capture). Several, with ";".
   const char* open = "";
@@ -87,7 +93,8 @@ struct Scenario {
   const char* importer = "";
   // The Settings page, several with ";": "part:audio" (midi, expression, plugins,
   // agents, remote, about), "search:<text>" in the plugin list, "scanning" (a scan
-  // in progress), "unassign:<index>" (an expression assignment), "addfolder:<path>" and
+  // in progress), "unassign:<index>" (an expression assignment), "capturefolder:<path>" and
+  // "forgetfolder:<path>" (the capture folders), "addfolder:<path>" and
   // "removefolder:<path>" (plugin folders), "tick" (what the page's timer does: levels, scans), "scroll:<px>",
   // "buffer:<samples>" (the audio device is asked), "server:on" or
   // "server:off", "agent:<name>" (a client connects to the command server) and
@@ -113,6 +120,12 @@ struct Scenario {
   // The window, when it is not the default size (0 for the default).
   int width = 0;
   int height = 0;
+  // The captures to set up first, steps with ";" (NamScenes.h): files in folders,
+  // loads, user folders, the TONE3000 app's folder.
+  const char* nam = "";
+  // The TONE3000 feed of the block library: "none", "out" (signed out), "in"
+  // (signed in) or "down" (TONE3000 can not be reached).
+  const char* tone3000 = "none";
 };
 
 // Joins command scripts (JSON arrays) into one.
@@ -372,6 +385,26 @@ const char* kFamiliesRig = R"([{"command":"grid.convert","args":{"to":"grid"}},
     {"command":"block.setParam","args":{"blockId":"$slot:1:5","param":"feedback","value":50}},
     {"command":"block.setParam","args":{"blockId":"$slot:1:6","param":"thresholdDb","value":-45}}])";
 
+// The captures of the capture scenarios (NamScenes.h): three loaded from a folder that is
+// not a library folder, two in a folder the player added (one an older LSTM), and the
+// TONE3000 app's download folder with a pack's captures (and one old fuzz).
+const char* kCaptureFiles =
+    "file:Elsewhere:Fav Marshall:a2-amp-test:Marshall:1959SLP;file:Elsewhere:Dumble Clean:a2-amp-cab-test:Dumble:ODS;"
+    "file:Elsewhere:Plexi Lead:a2-am-test-2:Marshall:Super Lead;"
+    "load:Elsewhere/Fav Marshall.nam;pause;load:Elsewhere/Dumble Clean.nam;pause;load:Elsewhere/Plexi Lead.nam;"
+    "file:Folder:Old Hiwatt:old;file:Folder:Studio Preamp:a2-amp-test:Neve:1073;root:Folder;"
+    "file:TONE3000/Amps:Brit 800 Crunch pack - Crunch gain 5:a2-amp-test:Marshall:JCM800;"
+    "file:TONE3000/Amps:Blackface Clean - Bright vol 6:a2-amp-cab-test:Fender:Twin Reverb;"
+    "file:TONE3000/Pedals:Green overdrive - Edge:a2-am-test-2:Ibanez:TS808;file:TONE3000/Pedals:Old Fuzz - LSTM:old;"
+    "tone3000:TONE3000";
+
+// Steps of a capture scenario with one more.
+const char* joinedSteps(const char* steps, const char* more) {
+  static std::deque<std::string> kept;
+  kept.push_back(std::string(steps) + ";" + more);
+  return kept.back().c_str();
+}
+
 // A scenario of the settings panel: a block of the families rig selected,
 // keys pressed on the grid, and a window size.
 Scenario settingsScenario(const char* name, const char* description, const char* script, const char* select,
@@ -433,6 +466,26 @@ const std::vector<Scenario>& scenarios() {
        false, "$slot:0:2"},
       {"picker", "The block library, adding to row 1, slot 7", Page::grid, kFullRig, false, "", "", "picker:0:6"},
       {"picker-delay", "The block library filtered to delays", Page::grid, kFullRig, false, "", "", "picker:0:6:delay"},
+      {.name = "picker-captures", .description = "The block library, NAM captures: loaded files by name, a folder, the TONE3000 app's downloads",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:2", .nam = kCaptureFiles},
+      {.name = "picker-recent", .description = "The block library, Recent: the files loaded last, newest first",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:5", .nam = kCaptureFiles},
+      {.name = "picker-find-name", .description = "The block library searched for \"marshall\": by file name, make and model",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:0:marshall", .nam = kCaptureFiles},
+      {.name = "picker-unsupported", .description = "The block library: a click on a capture Pedaleira can not load says why",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:2;pickclick:Old Hiwatt", .nam = kCaptureFiles},
+      {.name = "picker-gone", .description = "The block library, Recent: a file whose original is gone is offered from the stash",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:5", .nam = joinedSteps(kCaptureFiles, "gone:Elsewhere/Fav Marshall.nam")},
+      {.name = "picker-tone3000-out", .description = "The block library, TONE3000, signed out: Trending and the tone's detail",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tone:0", .tone3000 = "out"},
+      {.name = "picker-tone3000-account", .description = "The block library, TONE3000, signed out: Favorites needs an account",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tab:2", .tone3000 = "out"},
+      {.name = "picker-tone3000-in", .description = "The block library, TONE3000, signed in: Favorites, a tone and its captures",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tab:2;t3k:tone:1;t3k:capture:1", .tone3000 = "in"},
+      {.name = "picker-tone3000-down", .description = "The block library, TONE3000 can not be reached",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6", .tone3000 = "down"},
+      {.name = "picker-tone3000-none", .description = "The block library, TONE3000 in a build without a feed",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6"},
       {"editor-effect", "A tape echo's editor: time with tempo sync, its other parameters, output", Page::grid,
        kEditorRig, false, "", "", "editor:$slot:0:4"},
       {"editor-geq", "The graphic equaliser's editor: band sliders over their curve", Page::grid,
@@ -599,6 +652,10 @@ const std::vector<Scenario>& scenarios() {
        .page = Page::settings, .script = kAgentRig, .settings = "part:agents;server:on;agent:Claude Code"},
       {.name = "settings-agents-off", .description = "Settings, AI and MCP: the server off, a permission turned on",
        .page = Page::settings, .script = kAgentRig, .settings = "part:agents;permission:live:on"},
+      {.name = "settings-captures", .description = "Settings, capture folders: a folder added, the TONE3000 app's folder found",
+       .page = Page::settings, .script = "[]", .settings = "part:captures", .nam = kCaptureFiles},
+      {.name = "settings-captures-empty", .description = "Settings, capture folders: nothing added, the TONE3000 app's folder not found",
+       .page = Page::settings, .script = "[]", .settings = "part:captures"},
       {.name = "settings-midi", .description = "Settings, MIDI: the defaults and three mappings, read only",
        .page = Page::settings, .script = kMidiRig, .settings = "part:midi"},
       {.name = "settings-remote", .description = "Settings, remote: a later build", .page = Page::settings, .script = "[]",
@@ -799,6 +856,14 @@ struct ScratchEngine {
     files.getChildFile("cab-ir-test-2.wav").copyFileTo(library.getChildFile("Cabs").getChildFile("2x12 Blue.wav"));
     libraryFolder() = library;
     scratchFolder() = data;
+    // The capture names and the recent list live in the app data folder: a scratch one,
+    // so a run never reads or writes the player's own.
+    data.getChildFile("AppData").createDirectory();
+    previousAppData = LibraryPaths::setAppDataDirForTesting(data.getChildFile("AppData"));
+    NamLibrary::resetForTesting();
+    // Where the TONE3000 app would keep its downloads: nowhere that exists, unless a
+    // scenario puts a folder there.
+    NamLibrary::setTone3000FoldersForTesting(&tone3000Candidates());
     TONE3000Processor::disableMachineDefaultParametersForTesting();
     TONE3000Processor::setFootswitchSettingsFileForTesting(data.getChildFile("footswitch.settings"));
     data.getChildFile("LocalModels").createDirectory();
@@ -834,9 +899,20 @@ struct ScratchEngine {
     client.reset();
     commands.reset();
     processor.reset();
+    NamLibrary::setTone3000FoldersForTesting(nullptr);
+    LibraryPaths::setAppDataDirForTesting(previousAppData);
+    NamLibrary::resetForTesting();
     data.deleteRecursively();
   }
 
+  static const std::vector<juce::File>& tone3000Candidates() {
+    static const std::vector<juce::File> folders{
+        juce::File("/Users/you/Library/Application Support/TONE3000"), juce::File("/Users/you/Documents/TONE3000"),
+        juce::File("/Users/you/Downloads/TONE3000")};
+    return folders;
+  }
+
+  juce::File previousAppData;
   juce::File data;
   std::unique_ptr<TONE3000Processor> processor;
   std::unique_ptr<EngineCommands> commands;
@@ -1060,7 +1136,7 @@ void connectAgent(const juce::String& name) {
 // Plays the Settings scenario's choices.
 void driveSettings(pedaleira::ui::EngineClient& client, pedaleira::ui::SettingsPage& page, const juce::String& drive) {
   using Part = pedaleira::ui::SettingsPage::Part;
-  const juce::StringArray names{"audio", "midi", "expression", "plugins", "agents", "remote", "about"};
+  const juce::StringArray names{"audio", "midi", "expression", "plugins", "captures", "agents", "remote", "about"};
   for (const auto& step : juce::StringArray::fromTokens(drive, ";", "")) {
     const juce::String key = step.upToFirstOccurrenceOf(":", false, false);
     const juce::String value = step.fromFirstOccurrenceOf(":", false, false);
@@ -1078,6 +1154,10 @@ void driveSettings(pedaleira::ui::EngineClient& client, pedaleira::ui::SettingsP
       plugins.addFolderPath(resolve(client, value).toString());
     } else if (key == "removefolder") {
       plugins.removeFolderPath(value);
+    } else if (key == "capturefolder") {
+      static_cast<pedaleira::ui::SettingsCaptures&>(page.section(Part::captures)).addFolderPath(resolve(client, value).toString());
+    } else if (key == "forgetfolder") {
+      static_cast<pedaleira::ui::SettingsCaptures&>(page.section(Part::captures)).removeFolderPath(resolve(client, value).toString());
     } else if (key == "search") {
       plugins.setSearch(value);
     } else if (key == "scanning") {
@@ -1115,6 +1195,158 @@ void driveLive(pedaleira::ui::LivePage& page, const juce::String& drive) {
 
 // Checks of the grid page's logic that need no picture: the keyboard
 // selection, the panel following the rig, the collapse rule and the curves.
+// A stash name: sixteen hex digits, a dash and a size.
+bool looksLikeHash(const juce::String& name) {
+  const juce::String head = name.upToFirstOccurrenceOf("-", false, false);
+  return head.length() >= 12 && head.containsOnly("0123456789abcdef");
+}
+
+// Finding captures by name, the recent list, the architecture message, the
+// TONE3000 page over a canned feed, and the capture folders of Settings.
+void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
+  using namespace pedaleira::ui;
+  ScratchEngine engine;
+  const juce::String problem = testbed::prepareNam(*engine.client, engine.data, testFiles(), kCaptureFiles);
+  check(problem.isEmpty(), "the capture files are set up");
+  if (problem.isNotEmpty())
+    std::cerr << problem << "\n";
+  // The grid page does this when it opens the library.
+  engine.client->run("grid.convert", object({{"to", "grid"}}));
+
+  BlockPicker picker(*engine.client);
+  picker.setSize(1440, 900);
+  juce::String addedBlock;
+  int added = 0;
+  picker.onAdded = [&](const juce::String& id) {
+    addedBlock = id;
+    ++added;
+  };
+  picker.openFor(0, 6);
+
+  // A loaded file is listed by the name it was loaded under, never by its hash.
+  picker.setFilter({}, BlockPicker::captures, {});
+  const juce::StringArray all = picker.shownNames();
+  bool hashes = false;
+  for (const auto& name : all)
+    hashes = hashes || looksLikeHash(name);
+  check(!hashes, "no capture is listed by its hash name");
+  check(all.contains("Fav Marshall") && all.contains("Dumble Clean") && all.contains("Plexi Lead"),
+        "the captures loaded from a file are listed by their file names");
+  check(all.contains("Studio Preamp") && all.contains("Old Hiwatt"), "a folder added in Settings is listed");
+  check(all.contains("Brit 800 Crunch pack - Crunch gain 5"), "the TONE3000 app's download folder is listed");
+  check(all.contains("Brit 800 Crunch") && all.contains("Twin Clean"), "the library's captures are still listed");
+  int count = 0;
+  for (const auto& name : all)
+    count += name == "Fav Marshall" ? 1 : 0;
+  check(count == 1, "the stash copy and the asset store copy of a file are one row");
+
+  // Search: the file name, the make and model inside the file, a folder's file.
+  picker.setFilter({}, BlockPicker::all, "fav marsh");
+  check(picker.shownNames().contains("Fav Marshall"), "a search finds a loaded capture by its file name");
+  picker.setFilter({}, BlockPicker::all, "super lead");
+  check(picker.shownNames().contains("Plexi Lead"), "a search finds a capture by the model inside the file");
+  picker.setFilter({}, BlockPicker::all, "jcm800");
+  check(picker.shownNames().contains("Brit 800 Crunch pack - Crunch gain 5"), "and one in the TONE3000 app's folder");
+  picker.setFilter({}, BlockPicker::all, "nothing like this");
+  check(picker.shownNames().isEmpty(), "a search that matches nothing lists nothing");
+
+  // Recent: the last loaded first, only what was loaded.
+  picker.setFilter({}, BlockPicker::recent, {});
+  const juce::StringArray recent = picker.shownNames();
+  check(recent.size() == 3 && recent[0] == "Plexi Lead" && recent[1] == "Dumble Clean" && recent[2] == "Fav Marshall",
+        "Recent lists the loaded captures, the newest first");
+  picker.setFilter({}, BlockPicker::recent, "dumble");
+  check(picker.shownNames().size() == 1, "and a search narrows it");
+
+  // A capture that is not A2 says why and is not added.
+  picker.setFilter({}, BlockPicker::captures, {});
+  check(picker.clickName("Old Hiwatt"), "an unsupported capture can be clicked");
+  check(added == 0, "and is not added");
+  check(picker.noticeText().contains("Old Hiwatt") && picker.noticeText().contains("LSTM") && picker.noticeText().contains("A2"),
+        "the message names the capture and its architecture");
+  const EngineReply unsupported = engine.client->run(
+      "chain.addToneFromFiles", object({{"paths", juce::Array<juce::var>{engine.data.getChildFile("Folder/Old Hiwatt.nam").getFullPathName()}}}));
+  check(!unsupported.ok && unsupported.errorMessage.contains("LSTM"), "the engine refuses it with the same reason");
+  check(picker.clickName("Studio Preamp") && added == 1 && addedBlock.isNotEmpty(), "a supported capture is added to the slot");
+
+  // Clearing Recent leaves the names searchable.
+  engine.client->run("nam.clearRecent");
+  picker.openFor(0, 7);
+  picker.setFilter({}, BlockPicker::recent, {});
+  check(picker.shownNames().isEmpty(), "Recent is empty after it is cleared");
+  picker.setFilter({}, BlockPicker::all, "fav marshall");
+  check(picker.shownNames().contains("Fav Marshall"), "but the file is still found by name");
+
+  // The TONE3000 page, signed out: lists that do not need an account work.
+  {
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    auto& panel = picker.tone3000Panel();
+    check(panel.isVisible() && panel.toneCount() == 8, "Trending lists tones without an account");
+    panel.selectTab(Tone3000List::latest);
+    check(panel.toneCount() == 6, "so does Latest");
+    panel.selectTab(Tone3000List::favorites);
+    check(panel.toneCount() == 0, "Favorites needs an account and lists nothing");
+    panel.selectTab(Tone3000List::trending);
+    panel.selectTone(0);
+    check(panel.selectedTone() == 0 && !panel.canAdd(), "a tone can be looked at but not added signed out");
+    panel.addSelected();
+    check(feed.downloads == 0, "and nothing is downloaded");
+    picker.setFilter({}, BlockPicker::all, {});
+    check(!panel.isVisible(), "leaving the TONE3000 chip hides the page");
+    picker.setTone3000Feed(nullptr);
+  }
+  // Signed in: a capture is chosen, downloaded only when added, and lands in the slot.
+  {
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.signedIn = true;
+    setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.openFor(0, 7);
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    auto& panel = picker.tone3000Panel();
+    panel.selectTab(Tone3000List::favorites);
+    check(panel.toneCount() == 3, "signed in, Favorites lists the player's tones");
+    panel.selectTone(1);
+    check(panel.selectedCapture() == 0 && panel.canAdd(), "choosing a tone selects its first capture");
+    check(feed.downloads == 0, "nothing is downloaded before Add");
+    panel.selectCapture(2);
+    const int before = added;
+    panel.addSelected();
+    check(feed.downloads == 1 && added == before + 1, "Add downloads the capture and puts it in the slot");
+    check(panel.problem().isEmpty() && panel.canAdd(), "and the page is ready again");
+    picker.setTone3000Feed(nullptr);
+  }
+  {
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.unreachable = true;
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    check(picker.tone3000Panel().toneCount() == 0, "an unreachable TONE3000 lists nothing");
+    picker.setTone3000Feed(nullptr);
+  }
+
+  // Settings: the folders to scan, added and removed, kept by the engine.
+  SettingsCaptures folders(*engine.client);
+  folders.refresh();
+  check(folders.folderCount() == 1, "the folder the scenario added is listed");
+  check(folders.tone3000FoundCount() == 1, "and the TONE3000 app's folder is found");
+  const juce::File more = engine.data.getChildFile("More captures");
+  more.createDirectory();
+  folders.addFolderPath(more.getFullPathName());
+  check(folders.folderCount() == 2, "a folder can be added");
+  SettingsCaptures again(*engine.client);
+  again.refresh();
+  check(again.folderCount() == 2, "and is kept, a new page sees it");
+  folders.removeFolderPath(more.getFullPathName());
+  check(folders.folderCount() == 1, "a folder can be removed");
+}
+
 int selfTest() {
   using namespace pedaleira::ui;
   int failures = 0, total = 0;
@@ -1125,6 +1357,7 @@ int selfTest() {
       std::cerr << "FAIL  " << what << "\n";
     }
   };
+  captureFindingChecks(check);
   ScratchEngine engine;
   juce::String error;
   if (!runScript(*engine.client, kFamiliesRig, error)) {
@@ -1241,6 +1474,23 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
       ++failures;
       continue;
     }
+    if (const juce::String steps(scenario.nam); steps.isNotEmpty()) {
+      const juce::String problem = pedaleira::ui::testbed::prepareNam(*engine.client, engine.data, testFiles(), steps);
+      if (problem.isNotEmpty()) {
+        std::cerr << scenario.name << ": " << problem << "\n";
+        ++failures;
+        continue;
+      }
+    }
+    // The block library's TONE3000 page, over a feed that answers at once.
+    std::unique_ptr<pedaleira::ui::testbed::FakeTone3000Feed> tone3000;
+    if (const juce::String kind(scenario.tone3000); kind != "none") {
+      pedaleira::ui::testbed::FakeTone3000Feed::Setup setup;
+      setup.signedIn = kind == "in";
+      setup.unreachable = kind == "down";
+      setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+      tone3000 = std::make_unique<pedaleira::ui::testbed::FakeTone3000Feed>(setup);
+    }
     if (scenario.audio)
       playTone(*engine.processor, scenario.toneHz);
     pedaleira::ui::AppShell shell(*engine.client);
@@ -1269,12 +1519,29 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
         auto grid = std::make_unique<pedaleira::ui::GridPage>(*engine.client);
         if (juce::String(scenario.select).isNotEmpty())
           grid->selectBlock(resolve(*engine.client, juce::String(scenario.select)).toString());
+        if (tone3000 != nullptr)
+          grid->setTone3000Feed(tone3000.get());
         for (const auto& open : juce::StringArray::fromTokens(scenario.open, ";", "")) {
           if (open.startsWith("picker:")) {
             const juce::StringArray parts = juce::StringArray::fromTokens(open.substring(7), ":", "");
             grid->openPicker(parts[0].getIntValue(), parts[1].getIntValue());
-            if (parts.size() > 2)
-              grid->picker().setFilter(parts[2], 0, {});
+            if (parts.size() > 2) {
+              // A dash leaves the category out.
+              grid->picker().setFilter(parts[2] == "-" ? juce::String() : parts[2], parts[3].getIntValue(), parts[4]);
+            }
+          } else if (open.startsWith("pickclick:")) {
+            grid->picker().clickName(open.fromFirstOccurrenceOf(":", false, false));
+          } else if (open.startsWith("t3k:")) {
+            auto& panel = grid->picker().tone3000Panel();
+            const juce::StringArray parts = juce::StringArray::fromTokens(open.substring(4), ":", "");
+            if (parts[0] == "tab")
+              panel.selectTab(static_cast<pedaleira::ui::Tone3000List>(parts[1].getIntValue()));
+            else if (parts[0] == "tone")
+              panel.selectTone(parts[1].getIntValue());
+            else if (parts[0] == "capture")
+              panel.selectCapture(parts[1].getIntValue());
+            else if (parts[0] == "add")
+              panel.addSelected();
           } else if (open.startsWith("editor:")) {
             grid->openEditor(resolve(*engine.client, open.substring(7)).toString());
           } else if (open.startsWith("replace:")) {

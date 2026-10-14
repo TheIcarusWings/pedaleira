@@ -6,6 +6,7 @@
 
 #if PEDALEIRA_STANDALONE_DEVICE
 #include "standalone/StandaloneDevice.h"
+#include "standalone/Tone3000LiveFeed.h"
 #endif
 
 namespace pedaleira::ui {
@@ -31,6 +32,11 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   client = std::make_unique<LocalEngineClient>(processor.commandLayer().agents());
   shell = std::make_unique<AppShell>(*client);
   grid = std::make_unique<GridPage>(*client);
+#if PEDALEIRA_STANDALONE_DEVICE
+  // The library's TONE3000 chip, over the client the application already has.
+  tone3000Feed = makeTone3000LiveFeed();
+  grid->setTone3000Feed(tone3000Feed.get());
+#endif
   shell->setPageComponent(Page::grid, grid.get());
   library = std::make_unique<LibraryPage>(*client);
   importer = std::make_unique<ImportPage>(*client);
@@ -160,6 +166,8 @@ PedaleiraEditor::~PedaleiraEditor() {
   device.reset();
   library.reset();
   grid.reset();
+  // The block library held the feed.
+  tone3000Feed.reset();
   comingSoon.clear();
   shell.reset();
   setLookAndFeel(nullptr);

@@ -1,5 +1,6 @@
 #include "Processor.h"
 #include "LibraryPaths.h"
+#include "NamLibrary.h"
 #include "json.hpp"
 #include "NAM/wavenet/a2_fast.h"
 #include <algorithm>
@@ -96,29 +97,7 @@ bool namConfigIsPhaseSafe(const nlohmann::json& modelJson) {
 // Gate for drop-loaded local NAM files: the catalog only serves
 // architecture-2 models (the runtime is tuned around them: 48 kHz training
 // rate, the slimmable tiers, the fast path), so local files must be A2 too.
-// Same container shape as namConfigIsPhaseSafe: a bare A2 WaveNet, or a
-// SlimmableContainer whose every submodel is one.
-bool namConfigIsA2(const nlohmann::json& modelJson) {
-  const std::string architecture = modelJson.value("architecture", "");
-  if (architecture == "WaveNet") {
-    int channels = 0;
-    return modelJson.contains("config") &&
-           nam::wavenet::a2_fast::is_a2_shape(modelJson["config"], &channels);
-  }
-  if (architecture == "SlimmableContainer") {
-    if (!modelJson.contains("config") || !modelJson["config"].contains("submodels"))
-      return false;
-    const auto& submodels = modelJson["config"]["submodels"];
-    if (!submodels.is_array() || submodels.empty())
-      return false;
-    for (const auto& entry : submodels) {
-      if (!entry.contains("model") || !namConfigIsA2(entry["model"]))
-        return false;
-    }
-    return true;
-  }
-  return false;
-}
+// The check, and the sentence a refused file gets, are NamLibrary::inspectJson.
 
 // Stash folder for drop-loaded local models. The block's toneJson persists
 // the stash path as its model_url, so a cache-lost reload (undo after
@@ -197,7 +176,7 @@ juce::String localGearFromIr(const juce::AudioFormatReader& reader) {
 // object { id, name, model_url[, gear] } for the synthetic tone, or void
 // with `error` set to a user-facing message.
 juce::var stashLocalBytes(const juce::String& filename, juce::MemoryOutputStream& decoded,
-                          juce::String& error) {
+                          juce::String& error, const juce::String& sourcePath = {}) {
   auto fail = [&](const juce::String& message) {
     juce::Logger::writeToLog("[LocalLoad] " + filename + ": " + message);
     error = message;
@@ -213,12 +192,14 @@ juce::var stashLocalBytes(const juce::String& filename, juce::MemoryOutputStream
   // localGearFromNamMetadata / localGearFromIr); "" when unknown.
   juce::String gear;
   if (isNam) {
+    // The architecture check names what is wrong with a file Pedaleira can't
+    // load (an LSTM, an A1 WaveNet), so the player is told, not just refused.
+    const NamLibrary::Info info = NamLibrary::inspectBytes(decoded.getData(), decoded.getDataSize());
+    if (!info.readable || !info.supported)
+      return fail(info.reason.isNotEmpty() ? info.reason : juce::String("Not a valid NAM file"));
     try {
       const auto* bytes = static_cast<const char*>(decoded.getData());
-      const nlohmann::json config = nlohmann::json::parse(bytes, bytes + decoded.getDataSize());
-      if (!namConfigIsA2(config))
-        return fail("Only A2 NAM files are supported");
-      gear = localGearFromNamMetadata(config);
+      gear = localGearFromNamMetadata(nlohmann::json::parse(bytes, bytes + decoded.getDataSize()));
     } catch (const std::exception&) {
       return fail("Not a valid NAM file");
     }
@@ -252,6 +233,15 @@ juce::var stashLocalBytes(const juce::String& filename, juce::MemoryOutputStream
     // cleanLocalModelStash).
     stash.setLastModificationTime(juce::Time::getCurrentTime());
   }
+
+  // The stash names are hashes; remember what the player called this file so
+  // search and the recent list can show it (NamLibrary).
+  // A copy loaded again from the stash by its hash name keeps the name it has.
+  if (stash.getFileName().equalsIgnoreCase(filename))
+    NamLibrary::touchLoaded(stash.getFileName());
+  else
+    NamLibrary::noteLoaded(filename.upToLastOccurrenceOf(".", false, false), sourcePath,
+                           stash.getFileName());
 
   // Positive, content-stable model id. It's only ever compared within its
   // own block (cache key, activeModelId), so collisions across different
@@ -289,7 +279,7 @@ juce::var stashLocalFileFromDisk(const juce::File& file, juce::String& error) {
     error = "Couldn't read the file";
     return {};
   }
-  return stashLocalBytes(file.getFileName(), bytes, error);
+  return stashLocalBytes(file.getFileName(), bytes, error, file.getFullPathName());
 }
 
 // A file the OS document picker handed us as a security-scoped URL.

@@ -11,6 +11,7 @@
 #include "../widgets/Dialog.h"
 #include "SettingsAgents.h"
 #include "SettingsAudio.h"
+#include "SettingsCaptures.h"
 #include "SettingsExpression.h"
 #include "SettingsInfo.h"
 #include "SettingsPlugins.h"
@@ -24,7 +25,7 @@ namespace pedaleira::ui {
 
 class SettingsPage : public juce::Component, private juce::Timer {
 public:
-  enum class Part { audio, midi, expression, plugins, agents, remote, about };
+  enum class Part { audio, midi, expression, plugins, captures, agents, remote, about };
 
   // The device is null when this process has none of its own (a plugin in a
   // host); the audio section then says where it is set.
@@ -59,8 +60,8 @@ private:
   EngineClient& engine;
   DeviceSettings* device;
   Part part = Part::audio;
-  std::array<std::unique_ptr<SettingsSection>, 7> sections;
-  std::array<std::unique_ptr<NavButton>, 7> navButtons;
+  std::array<std::unique_ptr<SettingsSection>, 8> sections;
+  std::array<std::unique_ptr<NavButton>, 8> navButtons;
   juce::Viewport viewport;
   Dialog prompt;
 };

@@ -1,0 +1,356 @@
+{
+ "trials": [
+  {
+   "id": "r1t01",
+   "reference": "clips/r1t01-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t01-nry0hp",
+     "file": "clips/r1t01-nry0hp.mp4"
+    },
+    {
+     "cid": "r1t01-rfkhwb",
+     "file": "clips/r1t01-rfkhwb.mp4"
+    },
+    {
+     "cid": "r1t01-r8wouj",
+     "file": "clips/r1t01-r8wouj.mp4"
+    },
+    {
+     "cid": "r1t01-4ycglr",
+     "file": "clips/r1t01-4ycglr.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t02",
+   "reference": "clips/r1t02-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t02-6t7oiz",
+     "file": "clips/r1t02-6t7oiz.mp4"
+    },
+    {
+     "cid": "r1t02-1jcfjr",
+     "file": "clips/r1t02-1jcfjr.mp4"
+    },
+    {
+     "cid": "r1t02-tzuujv",
+     "file": "clips/r1t02-tzuujv.mp4"
+    },
+    {
+     "cid": "r1t02-8dbaat",
+     "file": "clips/r1t02-8dbaat.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t03",
+   "reference": "clips/r1t03-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t03-yq6fnu",
+     "file": "clips/r1t03-yq6fnu.mp4"
+    },
+    {
+     "cid": "r1t03-3o83to",
+     "file": "clips/r1t03-3o83to.mp4"
+    },
+    {
+     "cid": "r1t03-4eiw5o",
+     "file": "clips/r1t03-4eiw5o.mp4"
+    },
+    {
+     "cid": "r1t03-zc32yu",
+     "file": "clips/r1t03-zc32yu.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t04",
+   "reference": "clips/r1t04-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t04-sv6nm3",
+     "file": "clips/r1t04-sv6nm3.mp4"
+    },
+    {
+     "cid": "r1t04-9nnq2f",
+     "file": "clips/r1t04-9nnq2f.mp4"
+    },
+    {
+     "cid": "r1t04-pwi6g2",
+     "file": "clips/r1t04-pwi6g2.mp4"
+    },
+    {
+     "cid": "r1t04-be9y6b",
+     "file": "clips/r1t04-be9y6b.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t05",
+   "reference": "clips/r1t05-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t05-yslsx7",
+     "file": "clips/r1t05-yslsx7.mp4"
+    },
+    {
+     "cid": "r1t05-7c7h1s",
+     "file": "clips/r1t05-7c7h1s.mp4"
+    },
+    {
+     "cid": "r1t05-d32hvr",
+     "file": "clips/r1t05-d32hvr.mp4"
+    },
+    {
+     "cid": "r1t05-ip3wz9",
+     "file": "clips/r1t05-ip3wz9.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t06",
+   "reference": "clips/r1t06-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t06-ro4ccx",
+     "file": "clips/r1t06-ro4ccx.mp4"
+    },
+    {
+     "cid": "r1t06-ot1c2v",
+     "file": "clips/r1t06-ot1c2v.mp4"
+    },
+    {
+     "cid": "r1t06-5e010n",
+     "file": "clips/r1t06-5e010n.mp4"
+    },
+    {
+     "cid": "r1t06-elokir",
+     "file": "clips/r1t06-elokir.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t07",
+   "reference": "clips/r1t07-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t07-23dvsa",
+     "file": "clips/r1t07-23dvsa.mp4"
+    },
+    {
+     "cid": "r1t07-8bt6z1",
+     "file": "clips/r1t07-8bt6z1.mp4"
+    },
+    {
+     "cid": "r1t07-xbsyqi",
+     "file": "clips/r1t07-xbsyqi.mp4"
+    },
+    {
+     "cid": "r1t07-er677w",
+     "file": "clips/r1t07-er677w.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t08",
+   "reference": "clips/r1t08-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t08-dp9tzq",
+     "file": "clips/r1t08-dp9tzq.mp4"
+    },
+    {
+     "cid": "r1t08-b38g9v",
+     "file": "clips/r1t08-b38g9v.mp4"
+    },
+    {
+     "cid": "r1t08-kvrsi9",
+     "file": "clips/r1t08-kvrsi9.mp4"
+    },
+    {
+     "cid": "r1t08-pqvg01",
+     "file": "clips/r1t08-pqvg01.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t09",
+   "reference": "clips/r1t09-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t09-lkpstc",
+     "file": "clips/r1t09-lkpstc.mp4"
+    },
+    {
+     "cid": "r1t09-btsxj2",
+     "file": "clips/r1t09-btsxj2.mp4"
+    },
+    {
+     "cid": "r1t09-eh0gbm",
+     "file": "clips/r1t09-eh0gbm.mp4"
+    },
+    {
+     "cid": "r1t09-7aery1",
+     "file": "clips/r1t09-7aery1.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t10",
+   "reference": "clips/r1t10-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t10-zk8keb",
+     "file": "clips/r1t10-zk8keb.mp4"
+    },
+    {
+     "cid": "r1t10-ywry0h",
+     "file": "clips/r1t10-ywry0h.mp4"
+    },
+    {
+     "cid": "r1t10-is3kdm",
+     "file": "clips/r1t10-is3kdm.mp4"
+    },
+    {
+     "cid": "r1t10-fhx71i",
+     "file": "clips/r1t10-fhx71i.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t11",
+   "reference": "clips/r1t11-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t11-3ypj09",
+     "file": "clips/r1t11-3ypj09.mp4"
+    },
+    {
+     "cid": "r1t11-t24cgi",
+     "file": "clips/r1t11-t24cgi.mp4"
+    },
+    {
+     "cid": "r1t11-5monvb",
+     "file": "clips/r1t11-5monvb.mp4"
+    },
+    {
+     "cid": "r1t11-qy1qvw",
+     "file": "clips/r1t11-qy1qvw.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t12",
+   "reference": "clips/r1t12-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t12-ovx9bt",
+     "file": "clips/r1t12-ovx9bt.mp4"
+    },
+    {
+     "cid": "r1t12-4v94fo",
+     "file": "clips/r1t12-4v94fo.mp4"
+    },
+    {
+     "cid": "r1t12-jzmvxi",
+     "file": "clips/r1t12-jzmvxi.mp4"
+    },
+    {
+     "cid": "r1t12-wcvngz",
+     "file": "clips/r1t12-wcvngz.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t13",
+   "reference": "clips/r1t13-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t13-838y5d",
+     "file": "clips/r1t13-838y5d.mp4"
+    },
+    {
+     "cid": "r1t13-ncssvh",
+     "file": "clips/r1t13-ncssvh.mp4"
+    },
+    {
+     "cid": "r1t13-0fupja",
+     "file": "clips/r1t13-0fupja.mp4"
+    },
+    {
+     "cid": "r1t13-gtn35x",
+     "file": "clips/r1t13-gtn35x.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t14",
+   "reference": "clips/r1t14-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t14-c1j4xw",
+     "file": "clips/r1t14-c1j4xw.mp4"
+    },
+    {
+     "cid": "r1t14-o85vpf",
+     "file": "clips/r1t14-o85vpf.mp4"
+    },
+    {
+     "cid": "r1t14-e1q06s",
+     "file": "clips/r1t14-e1q06s.mp4"
+    },
+    {
+     "cid": "r1t14-27r2ri",
+     "file": "clips/r1t14-27r2ri.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t15",
+   "reference": "clips/r1t15-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t15-ar49h2",
+     "file": "clips/r1t15-ar49h2.mp4"
+    },
+    {
+     "cid": "r1t15-9trb80",
+     "file": "clips/r1t15-9trb80.mp4"
+    },
+    {
+     "cid": "r1t15-xucafm",
+     "file": "clips/r1t15-xucafm.mp4"
+    },
+    {
+     "cid": "r1t15-cxa72i",
+     "file": "clips/r1t15-cxa72i.mp4"
+    }
+   ]
+  },
+  {
+   "id": "r1t16",
+   "reference": "clips/r1t16-ref.mp4",
+   "clips": [
+    {
+     "cid": "r1t16-qibzf8",
+     "file": "clips/r1t16-qibzf8.mp4"
+    },
+    {
+     "cid": "r1t16-y3o2fu",
+     "file": "clips/r1t16-y3o2fu.mp4"
+    },
+    {
+     "cid": "r1t16-ivcz4g",
+     "file": "clips/r1t16-ivcz4g.mp4"
+    },
+    {
+     "cid": "r1t16-5umb0d",
+     "file": "clips/r1t16-5umb0d.mp4"
+    }
+   ]
+  }
+ ]
+}

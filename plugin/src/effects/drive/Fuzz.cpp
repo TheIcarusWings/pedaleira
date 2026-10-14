@@ -20,6 +20,14 @@
 //              lows and the highs both stand about 5 dB above a mid notch near
 //              1 kHz; the top is rolled off from about 15 kHz. Bias has no
 //              effect here (the stage is always fully fed).
+//   Open       a measured voicing (drive/DriveCommon.h, VoiceShape) fitted to
+//              transistor fuzzes on a unit: a hard, lopsided clip with a
+//              response that stays open to the top, Tone moving its low-pass.
+//   Thick      a measured voicing of a bass fuzz: two clipping stages and a
+//              very large bass lift after them, so a low note comes out far
+//              louder (and cleaner, its harmonics in the falling part of the
+//              lift) than a mid note.
+//   Bias has no effect on the measured voicings.
 //
 // The dead zone is a smooth function, v^3 / (v^2 + dz^2), which is v for a
 // large input and falls away as v^3 below dz, so it adds no sharp corner of
@@ -41,14 +49,15 @@ public:
   static constexpr const char* kKindId = "drive.fuzz";
 
   enum Param { kVoicing = 0, kFuzzPercent, kBiasPercent, kTonePercent, kLevelDb };
-  enum Voicing { kSilicon = 0, kGermanium, kSustain, kScooped };
+  enum Voicing { kSilicon = 0, kGermanium, kSustain, kScooped, kOpen, kThick };
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
       BlockParamTable t;
-      t.push_back(BlockParamSpec::choiceParam(
-                      "voicing", "Voicing", juce::StringArray{"Silicon", "Germanium", "Sustain", "Scooped"},
-                      kSilicon)
+      t.push_back(BlockParamSpec::choiceParam("voicing", "Voicing",
+                                              juce::StringArray{"Silicon", "Germanium", "Sustain",
+                                                                "Scooped", "Open", "Thick"},
+                                              kSilicon)
                       .notAutomatable()
                       .withAffectsTail());
       t.push_back(BlockParamSpec::floatParam("fuzzPercent", "Fuzz", "%", 0.0f, 100.0f, 60.0f));
@@ -90,6 +99,8 @@ protected:
       lane.stackHigh.setCutoff(kStackHighHz, sampleRate);
       lane.stackTop.set(kStackTopHz, 0.7071, sampleRate);
     }
+    voiced.prepare(sampleRate);
+    voicedGain.prepare(osRate, 0.02);
     appliedVoicing = -1;
     resetEffect();
   }
@@ -109,6 +120,8 @@ protected:
       lane.stackTop.reset();
       lane.dc.reset();
     }
+    voiced.reset();
+    voicedGain.snapOnNextTarget();
     tick.reset();
     gain.snapOnNextTarget();
     tone.snapOnNextTarget();
@@ -118,7 +131,12 @@ protected:
   void processEffect(juce::AudioBuffer<float>& buffer, const BlockProcessContext&) override {
     const int numSamples = buffer.getNumSamples();
     const int numLanes = juce::jmin(buffer.getNumChannels(), kMaxLanes);
-    const int voicing = juce::jlimit(0, 3, static_cast<int>(param(kVoicing) + 0.5f));
+    const int chosen = juce::jlimit(0, 5, static_cast<int>(param(kVoicing) + 0.5f));
+    if (chosen >= kOpen) {
+      processVoiced(buffer, chosen, numSamples, numLanes);
+      return;
+    }
+    const int voicing = juce::jlimit(0, 3, chosen);
     const float fuzz = param(kFuzzPercent) * 0.01f;
     const float starved = 1.0f - param(kBiasPercent) * 0.01f;  // 0 well fed .. 1 starved
 
@@ -195,6 +213,56 @@ protected:
   }
 
 private:
+  void processVoiced(juce::AudioBuffer<float>& buffer, int voicing, int numSamples, int numLanes) {
+    if (voicing != appliedVoicing) {
+      voiced.setShape(kShapes[voicing - kOpen]);
+      appliedVoicing = voicing;
+    }
+    voicedGain.setTarget(voiced.gainFor(param(kFuzzPercent) * 0.01f));
+    tone.setTarget(param(kTonePercent) * 0.01f);
+    level.setTarget(fx::dbToGain(param(kLevelDb)));
+
+    oversampler.run(buffer, [&](float* const* io, int frames, int numReal) {
+      for (int i = 0; i < frames; ++i) {
+        const float g = voicedGain.next();
+        for (int ch = 0; ch < numReal; ++ch)
+          io[ch][i] = voiced.clipSample(ch, io[ch][i], g);
+      }
+    });
+
+    for (int i = 0; i < numSamples; ++i) {
+      const float t = tone.next();
+      const float g = level.next();
+      if (tick.step())
+        voiced.setTone(t);
+      for (int ch = 0; ch < numLanes; ++ch) {
+        float* data = buffer.getWritePointer(ch);
+        data[i] = voiced.postSample(ch, data[i]) * g;
+      }
+    }
+  }
+
+  // The measured voicings, in the order of the choice (Open, Thick). Fitted
+  // to the unit (CorOS d14e) at the middle of each pedal's knobs.
+  // clang-format off
+  static constexpr VoiceShape kShapes[2] = {
+      // Open
+      {.inputHz = 29.27f, .splitHz = 0.0f, .preLowpassHz = 11700.0f, .minGain = 2.0f,
+       .maxGain = 2055.0f, .clipLevel = 0.02043f, .knee = 4, .bias = 0.6931f, .clean = 0.0f,
+       .secondHz = 0.0f, .secondGain = 1.0f, .secondLevel = 0.3f, .toneHz = 9816.0f, .toneQ = 0.3f,
+       .toneOctaves = 2.5f, .lowPeakHz = 226.1f, .lowPeakQ = 0.3f, .lowPeakDb = 0.9361f,
+       .midPeakHz = 1000.0f, .midPeakQ = 0.7f, .midPeakDb = 0.0f, .highShelfHz = 1000.0f,
+       .highShelfDb = 0.0f, .postHighpassHz = 0.0f, .makeup = 4.732f},
+      // Thick
+      {.inputHz = 40.53f, .splitHz = 0.0f, .preLowpassHz = 0.0f, .minGain = 1.081f,
+       .maxGain = 5000.0f, .clipLevel = 0.3551f, .knee = 4, .bias = -0.6f, .clean = 0.0f,
+       .secondHz = 15.22f, .secondGain = 4.834f, .secondLevel = 0.3f, .toneHz = 16578.0f,
+       .toneQ = 0.7353f, .toneOctaves = 2.5f, .lowPeakHz = 52.8f, .lowPeakQ = 0.2512f,
+       .lowPeakDb = 29.71f, .midPeakHz = 6145.0f, .midPeakQ = 0.3479f, .midPeakDb = 7.061f,
+       .highShelfHz = 1000.0f, .highShelfDb = 0.0f, .postHighpassHz = 0.0f, .makeup = 0.01585f},
+  };
+  // clang-format on
+
   struct Voicings {
     float minGain, maxGain;  // gain range of the Fuzz control
     float level;             // clipping level of the (first) stage, full-scale units
@@ -240,6 +308,8 @@ private:
   Oversampler4x oversampler;
   ControlTick tick{kControlGrid};
   fx::SmoothedParam gain, tone, level;
+  fx::SmoothedParam voicedGain;
+  VoicedStage voiced;
   float starveAttack{0.01f}, starveRelease{0.001f};
   int appliedVoicing{-1};
   double sampleRate{48000.0};

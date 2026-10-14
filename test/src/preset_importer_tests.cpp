@@ -870,7 +870,7 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheFactoryDriveModels) {
   };
   const Expected expected[] = {
       {"Myth Drive", "drive.transparent"},  {"Obsessive Drive", "drive.overdrive"},
-      {"OD250", "drive.overdrive"},         {"Rodent Drive", "drive.distortion"},
+      {"OD250", "drive.distortion"},        {"Rodent Drive", "drive.distortion"},
       {"Green 808", "drive.overdrive"},     {"Exotic", "drive.boost"},
       {"Freeman BOD", "drive.metal"},      {"Brit Blues", "drive.overdrive"},
       {"Chief DS1", "drive.distortion"},    {"Brit Governor", "drive.metal"},
@@ -878,9 +878,9 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheFactoryDriveModels) {
       {"Chief SD1", "drive.overdrive"},     {"Fuzz Pi", "drive.fuzz"},
       {"Chief BD2", "drive.overdrive"},     {"Rage Booster", "drive.trebleboost"},
       {"Facial Fuzz", "drive.fuzz"},        {"Exotic Z Boost", "drive.boost"},
-      {"Red Drive", "drive.overdrive"},     {"Vemural Ray", "drive.transparent"},
+      {"Red Drive", "drive.overdrive"},     {"Vemural Ray", "drive.overdrive"},
       {"No-Bell OD1", "drive.overdrive"},   {"Thunderpaw", "drive.distortion"},
-      {"MK3 Silicon Fuzz", "drive.fuzz"},   {"81 Creations Drive", "drive.overdrive"},
+      {"MK3 Silicon Fuzz", "drive.fuzz"},   {"81 Creations Drive", "drive.distortion"},
       {"BDDI", "drive.bass"},               {"Douglas MT 3K", "drive.bass"},
       {"Douglas Vintage MT", "drive.bass"}, {"Soviet Fuzz", "drive.fuzz"},
       {"Exotic Bass Z Boost", "drive.bass"},
@@ -944,16 +944,22 @@ TEST(PresetImporterTest, DriveModelsGetTheirKindsAndTheKnobsOnOurScales) {
   EXPECT_NEAR(number(2, "tonePercent"), 50.0, 1e-3);
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "drive.overdrive");
-  EXPECT_NEAR(number(3, "drivePercent"), 40.0, 1e-3);
+  EXPECT_NEAR(number(3, "voicing"), 1.0, 1e-6) << "the focused voicing";
+  EXPECT_NEAR(number(3, "drivePercent"), 100.0 * std::pow(0.4, 1.61), 1e-2)
+      << "OVERDRIVE runs on a curve";
   EXPECT_NEAR(number(3, "tonePercent"), 60.0, 1e-3);
-  EXPECT_NEAR(number(3, "levelDb"), -1.4, 1e-3) << "LEVEL 7.5 with the measured 10.4 dB offset";
+  EXPECT_NEAR(number(3, "levelDb"), 3.6 * 7.5 - 21.7, 1e-3) << "LEVEL 7.5 with the measured offset";
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 4)), "drive.trebleboost");
-  EXPECT_NEAR(number(4, "gainDb"), 15.0, 1e-3);
+  EXPECT_NEAR(number(4, "voicing"), 1.0, 1e-6) << "the cranked voicing";
+  EXPECT_NEAR(number(4, "gainDb"), 15.64, 0.01)
+      << "VOLUME 5 is the unit's level after the clipping";
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 5)), "drive.fuzz");
-  EXPECT_NEAR(number(5, "voicing"), 1.0, 1e-6) << "the germanium voicing";
+  EXPECT_NEAR(number(5, "voicing"), 4.0, 1e-6) << "the open voicing";
   EXPECT_NEAR(number(5, "fuzzPercent"), 60.0, 1e-3);
+  EXPECT_NEAR(number(5, "tonePercent"), 91.0, 1e-3)
+      << "no tone knob: the default sets the unit's top end";
 
   // Models the table does not name land on the category's drive block at
   // its defaults, and the report says so.
@@ -966,6 +972,79 @@ TEST(PresetImporterTest, DriveModelsGetTheirKindsAndTheKnobsOnOurScales) {
   EXPECT_EQ(countIn(report["droppedParams"]), 0);
   for (int position = 0; position < 6; ++position)
     EXPECT_FALSE(static_cast<bool>(entryAt(report["mapped"], 0, position)["verified"])) << position;
+}
+
+TEST(PresetImporterTest, DriveModelsLandOnTheirMeasuredVoicings) {
+  // Every drive pedal measured on the unit names the voicing it was fitted
+  // to (drive/DriveCommon.h); a pedal with fewer knobs than our kind gets the
+  // rest from the table's defaults.
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  struct Expected {
+    const char* model;
+    const char* kind;
+    int voicing;
+  };
+  const Expected expected[] = {
+      {"Green 808", "drive.overdrive", 1},
+      {"Chief SD1", "drive.overdrive", 1},
+      {"Red Drive", "drive.overdrive", 1},
+      {"Chief OD1", "drive.overdrive", 1},
+      {"Brit Blues", "drive.overdrive", 2},
+      {"Vemural Ray", "drive.overdrive", 2},
+      {"Obsessive Drive", "drive.overdrive", 3},
+      {"No-Bell OD1", "drive.overdrive", 3},
+      {"Chief BD2", "drive.overdrive", 3},
+      {"Exotic", "drive.boost", 1},
+      {"Exotic Z Boost", "drive.boost", 2},
+      {"Rage Booster", "drive.trebleboost", 1},
+      {"Chief DS1", "drive.distortion", 2},
+      {"OD250", "drive.distortion", 1},
+      {"81 Creations Drive", "drive.distortion", 1},
+      {"Thunderpaw", "drive.distortion", 1},
+      {"Facial Fuzz", "drive.fuzz", 4},
+      {"MK3 Silicon Fuzz", "drive.fuzz", 4},
+      {"Soviet Fuzz", "drive.fuzz", 5},
+      {"BDDI", "drive.bass", 1},
+      {"Exotic Bass Z Boost", "drive.bass", 2},
+      {"Douglas MT 3K", "drive.bass", 3},
+      {"Douglas Vintage MT", "drive.bass", 3},
+  };
+  for (const Expected& item : expected) {
+    const juce::var model = table["models"][item.model];
+    ASSERT_TRUE(model.isObject()) << item.model;
+    EXPECT_EQ(model["kind"].toString(), item.kind) << item.model;
+    EXPECT_EQ(static_cast<int>(model["defaults"]["voicing"]), item.voicing) << item.model;
+  }
+
+  const juce::var foreign = parseJson(R"json({"format":"pedaleira-foreign-preset","version":1,
+    "source":"quad-cortex","name":"Measured","rows":[{"index":0,"blocks":[
+      {"position":0,"model":"No-Bell OD1","category":"Guitar Overdrive","enabled":true,
+       "params":{"DRIVE":{"value":5},"SPECTRUM":{"value":5},"LEVEL":{"value":5}}},
+      {"position":1,"model":"OD250","category":"Guitar Overdrive","enabled":true,
+       "params":{"GAIN":{"value":5},"VOLUME":{"value":5}}},
+      {"position":2,"model":"Douglas MT 3K","category":"Bass Overdrive","enabled":true,
+       "params":{"DRIVE":{"value":5},"TONE":{"value":5},"BLEND":{"value":5},"LEVEL":{"value":5}}},
+      {"position":3,"model":"Chief OD1","category":"Guitar Overdrive","enabled":true,
+       "params":{"GAIN":{"value":10},"LEVEL":{"value":5}}}]}]})json");
+  const importer::ImportResult result = importer::convertForeignPreset(foreign, table);
+  ASSERT_TRUE(result.ok) << result.error;
+  const juce::var preset = result.preset;
+  const auto number = [&](int position, const char* id) {
+    return static_cast<double>(kindParam(slotNode(preset, 0, position), id));
+  };
+  EXPECT_NEAR(number(0, "voicing"), 3.0, 1e-6) << "the heavy voicing";
+  EXPECT_NEAR(number(0, "tonePercent"), 100.0 * std::pow(0.5, 2.08), 1e-2)
+      << "SPECTRUM 5 is the unit's top";
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "drive.distortion");
+  EXPECT_NEAR(number(1, "voicing"), 1.0, 1e-6) << "the open voicing";
+  EXPECT_NEAR(number(1, "filterPercent"), 100.0, 1e-3) << "the unit is flat to the top";
+  EXPECT_NEAR(number(2, "voicing"), 3.0, 1e-6) << "the grit voicing";
+  EXPECT_NEAR(number(2, "crossoverHz"), 800.0, 1e-3) << "the lows stay clean";
+  EXPECT_NEAR(number(2, "blendPercent"), 50.0, 1e-3) << "BLEND 5 is the fitted mix";
+  EXPECT_NEAR(number(3, "drivePercent"), 100.0, 1e-3)
+      << "the curve still reaches the top of the knob";
+  EXPECT_EQ(countIn(result.report["mapped"]), 4);
+  EXPECT_EQ(countIn(result.report["droppedParams"]), 0);
 }
 
 TEST(PresetImporterTest, UtilityModelsGetTheirKinds) {

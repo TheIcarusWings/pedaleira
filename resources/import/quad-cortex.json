@@ -777,29 +777,31 @@
       "params": {
         "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -14.9 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -13.0 } }
       },
       "defaults": { "voicing": 1 },
-      "notes": "Closest is the transparent drive (a clean path plus a clipped path), on its smooth voicing, matched to the unit's response. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, GAIN 7, LEVEL 5): the unit is about 4.4 dB louder than our 0 dB, hence the offset."
+      "notes": "Closest is the transparent drive (a clean path plus a clipped path), on its smooth voicing, matched to the unit's response. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from unit measurements (CorOS d14e, LEVEL 5): first at GAIN 7, then re-measured at GAIN 5 at 30 dB below full scale, where the unit is about 5 dB louder than our 0 dB, hence the offset."
     },
     "Obsessive Drive": {
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
         "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -40.6 } }
+        "TONE": { "param": "tonePercent", "transform": { "scale": 100, "offset": 0, "exponent": 0.81, "inputMax": 10 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -37.7 } }
       },
-      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, VOLUME 5, other knobs at 5): the unit sits 22.6 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 3 },
+      "notes": "On our overdrive's heavy voicing (fully clipped, a large bass lift after the clipping), fitted to the unit. TONE runs on a curve so that 5 is the unit's top end (our 57 %). Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): VOLUME is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "OD250": {
-      "kind": "drive.overdrive",
+      "kind": "drive.distortion",
       "verified": false,
       "params": {
-        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -27.5 } }
+        "GAIN": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -25.1 } }
       },
-      "notes": "Gain and volume, the pedal's two knobs; our overdrive is the nearest voicing, its tone left at the default. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, VOLUME 5, other knobs at 5): the unit sits 9.5 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 1, "filterPercent": 100 },
+      "notes": "Gain and volume, the pedal's two knobs. On our distortion's open voicing (hard clipping to a level that does not follow the input, a one-pole filter), which matches the unit's response and distortion. The unit is flat to the top, so our filter is fully open. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): VOLUME is set so that 5 gives the unit's 1 kHz level at GAIN 5."
     },
     "Rodent Drive": {
       "kind": "drive.distortion",
@@ -816,11 +818,12 @@
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
-        "OVERDRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "OVERDRIVE": { "param": "drivePercent", "transform": { "scale": 100, "offset": 0, "exponent": 1.61, "inputMax": 10 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -28.4 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -21.7 } }
       },
-      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, OVERDRIVE 5, LEVEL 5): the unit sits 10.4 dB below our 0 dB at 1 kHz, hence the offset. On the unit OVERDRIVE 2, 5 and 8 change the harmonics far more than the level."
+      "defaults": { "voicing": 1 },
+      "notes": "On our overdrive's focused voicing (a clean path plus a soft clipped, high-passed path), fitted to the unit with the mid hump family. OVERDRIVE runs on a curve (5 is our 33 %) so the distortion at 100 Hz follows the unit at 2, 5 and 8, where the level barely moves. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level at OVERDRIVE 5."
     },
     "Exotic": {
       "kind": "drive.boost",
@@ -830,7 +833,8 @@
         "BASS": { "param": "bassDb", "transform": { "scale": 2.4, "offset": -12 } },
         "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } }
       },
-      "notes": "A clean boost: its gain (0 to 10) becomes 0 to 20 dB. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
+      "defaults": { "voicing": 1 },
+      "notes": "On our boost's warm voicing (a soft clipped boost with a broad low lift and a darker top, the same clipping as the warm overdrive), fitted to the unit; GAIN (0 to 10) becomes 0 to 20 dB of our Gain, which drives the clipping. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): the voicing's own level gives the unit's 1 kHz level at GAIN 5, and like the unit it barely moves with GAIN."
     },
     "Freeman BOD": {
       "kind": "drive.metal",
@@ -850,9 +854,10 @@
       "params": {
         "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -40.3 } }
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -34.2 } }
       },
-      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, VOLUME 5, other knobs at 5): the unit sits 22.3 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 2 },
+      "notes": "On our overdrive's warm voicing (a clean path plus a soft clipped path, a broad lift below 500 Hz and a darker top), fitted to the unit. On the unit GAIN also raises the level (about 6 dB from 2 to 8); ours keeps it nearly fixed. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): VOLUME is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "Chief DS1": {
       "kind": "drive.distortion",
@@ -860,9 +865,10 @@
       "params": {
         "DISTORTION": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "filterPercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -41.2 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -40.6 } }
       },
-      "notes": "Hard clipping distortion; its tone knob becomes our Filter. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, LEVEL 5, other knobs at 5): the unit sits 23.2 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 2 },
+      "notes": "Hard clipping distortion on our notched voicing (a lopsided clip, a bass lift and a narrow notch near 1 kHz), fitted to the unit: a 1 kHz note measures close to 100 % distortion and a 100 Hz one about a quarter of that. Its tone knob moves our top low-pass. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "Brit Governor": {
       "kind": "drive.metal",
@@ -894,20 +900,22 @@
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
-        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -27.7 } }
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 100, "offset": 0, "exponent": 3.76, "inputMax": 10 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -19.2 } }
       },
-      "notes": "Gain and level, the pedal's two knobs; our overdrive with its tone at the default. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, LEVEL 5, other knobs at 5): the unit sits 9.7 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 1 },
+      "notes": "On our overdrive's focused voicing (a clean path plus a soft clipped, high-passed path), fitted to the unit with the mid hump family. GAIN runs on a steep curve (5 is our 7 %): the unit keeps its lows nearly clean until GAIN is high. Its tone is fixed; ours stays at the middle. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level at GAIN 5."
     },
     "Chief SD1": {
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
-        "OVERDRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "OVERDRIVE": { "param": "drivePercent", "transform": { "scale": 100, "offset": 0, "exponent": 0.48, "inputMax": 10 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -27.1 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -19.5 } }
       },
-      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, LEVEL 5, other knobs at 5): the unit sits 9.1 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 1 },
+      "notes": "On our overdrive's focused voicing (a clean path plus a soft clipped, high-passed path), fitted to the unit with the mid hump family. OVERDRIVE runs on a curve (5 is our 72 %): this pedal distorts more at 100 Hz than the others of the family. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level at OVERDRIVE 5."
     },
     "Fuzz Pi": {
       "kind": "drive.fuzz",
@@ -915,38 +923,40 @@
       "params": {
         "SUSTAIN": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -40.9 } }
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -39.9 } }
       },
       "defaults": { "voicing": 3 },
-      "notes": "SUSTAIN, TONE and VOLUME, on the scooped voicing, matched to the unit's response. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, SUSTAIN 6, VOLUME 5): the unit sits about 22.9 dB below our 0 dB, hence the offset."
+      "notes": "SUSTAIN, TONE and VOLUME, on the scooped voicing, matched to the unit's response. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from unit measurements (CorOS d14e, VOLUME 5): first at SUSTAIN 6, then re-measured at SUSTAIN 5, where the unit sits about 21.9 dB below our 0 dB, hence the offset."
     },
     "Chief BD2": {
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
         "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -29.1 } }
+        "TONE": { "param": "tonePercent", "transform": { "scale": 100, "offset": 0, "exponent": 0.39, "inputMax": 10 } },
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -26.2 } }
       },
-      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, VOLUME 5, other knobs at 5): the unit sits 11.1 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 3 },
+      "notes": "On our overdrive's heavy voicing (fully clipped, a large bass lift after the clipping), fitted to the unit. TONE runs on a curve so that 5 is the unit's open top end (our 76 %). Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): VOLUME is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "Rage Booster": {
       "kind": "drive.trebleboost",
       "verified": false,
       "params": {
-        "VOLUME": { "param": "gainDb", "transform": { "scale": 3, "offset": 0 } }
+        "VOLUME": { "param": "gainDb", "transform": { "scale": 182.8, "offset": -160.93, "exponent": 0.05, "inputMax": 10 } }
       },
-      "notes": "VOLUME (0 to 10) becomes the boost, 0 to 30 dB. Range and level stay at our defaults. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
+      "defaults": { "voicing": 1 },
+      "notes": "On our treble boost's cranked voicing (a high-pass into a clipping stage at a fixed drive), fitted to the unit, where the distortion does not move with VOLUME: VOLUME is the level after the clipping. It runs on a curve close to the unit's (about 8 dB from 2 to 5 and 4 dB from 5 to 8). Range and level stay at our defaults. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): the curve gives the unit's 1 kHz level at VOLUME 5."
     },
     "Facial Fuzz": {
       "kind": "drive.fuzz",
       "verified": false,
       "params": {
         "FUZZ": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
-        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -27.3 } }
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -26.8 } }
       },
-      "defaults": { "voicing": 1 },
-      "notes": "FUZZ and VOLUME, on the germanium voicing. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, VOLUME 5, other knobs at 5): the unit sits 9.3 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 4, "tonePercent": 91 },
+      "notes": "FUZZ and VOLUME, on our open fuzz voicing (a hard, lopsided clip with an open top), fitted to the unit; the pedal has no tone knob, so ours sits where the unit's top end is (91 %). Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): VOLUME is set so that 5 gives the unit's 1 kHz level with FUZZ at 5."
     },
     "Exotic Z Boost": {
       "kind": "drive.boost",
@@ -956,7 +966,8 @@
         "BASS": { "param": "bassDb", "transform": { "scale": 2.4, "offset": -12 } },
         "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } }
       },
-      "notes": "A clean boost: its gain (0 to 10) becomes 0 to 20 dB. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
+      "defaults": { "voicing": 2 },
+      "notes": "On our boost's hot voicing (a low cut into a soft clipper), fitted to the unit: clean at a low GAIN, clipping gently from the middle up, its level rising less and less with GAIN as on the unit. GAIN (0 to 10) becomes 0 to 20 dB. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): the voicing's own level gives the unit's 1 kHz level at GAIN 5."
     },
     "Red Drive": {
       "kind": "drive.overdrive",
@@ -964,29 +975,32 @@
       "params": {
         "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -37.4 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -29.7 } }
       },
-      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, LEVEL 5, other knobs at 5): the unit sits 19.4 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 1 },
+      "notes": "On our overdrive's focused voicing (a clean path plus a soft clipped, high-passed path), fitted to the unit with the mid hump family. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level at DRIVE 5."
     },
     "Vemural Ray": {
-      "kind": "drive.transparent",
+      "kind": "drive.overdrive",
       "verified": false,
       "params": {
         "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "TREBLE": { "param": "trebleDb", "transform": { "scale": 2.4, "offset": -12 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+        "TREBLE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -13.4 } }
       },
-      "notes": "Closest is the transparent drive (a clean path plus a clipped path). Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
+      "defaults": { "voicing": 2 },
+      "notes": "On our overdrive's warm voicing (a clean path plus a soft clipped path, a broad lift below 500 Hz and a darker top), fitted to the unit. TREBLE moves our tone low-pass. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "No-Bell OD1": {
       "kind": "drive.overdrive",
       "verified": false,
       "params": {
         "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
-        "SPECTRUM": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -36.8 } }
+        "SPECTRUM": { "param": "tonePercent", "transform": { "scale": 100, "offset": 0, "exponent": 2.08, "inputMax": 10 } },
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -33.5 } }
       },
-      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, LEVEL 5, other knobs at 5): the unit sits 18.8 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 3 },
+      "notes": "On our overdrive's heavy voicing (fully clipped, a large bass lift after the clipping), fitted to the unit. SPECTRUM runs on a curve so that 5 is the unit's darker top end (our 24 %). Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "Thunderpaw": {
       "kind": "drive.distortion",
@@ -994,9 +1008,10 @@
       "params": {
         "DISTORTION": { "param": "distortionPercent", "transform": { "scale": 10, "offset": 0 } },
         "TREBLE": { "param": "filterPercent", "transform": { "scale": 10, "offset": 0 } },
-        "OUTPUT": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -24.7 } }
+        "OUTPUT": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -23.8 } }
       },
-      "notes": "Distortion, with the tone knob onto our Filter. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. OUTPUT is set from a unit measurement (CorOS d14e, OUTPUT 5, other knobs at 5): the unit sits 6.7 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 1 },
+      "notes": "Distortion, with the tone knob onto our Filter. On our distortion's open voicing (hard clipping to a level that does not follow the input, a one-pole filter), which matches the unit's response and distortion. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): OUTPUT is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "MK3 Silicon Fuzz": {
       "kind": "drive.fuzz",
@@ -1004,20 +1019,21 @@
       "params": {
         "ATTACK": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -26.5 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -25.7 } }
       },
-      "defaults": { "voicing": 0 },
-      "notes": "On the silicon voicing. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. LEVEL is set from a unit measurement (CorOS d14e, LEVEL 5, other knobs at 5): the unit sits 8.5 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 4 },
+      "notes": "On our open fuzz voicing (a hard, lopsided clip with an open top), fitted to the unit. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "81 Creations Drive": {
-      "kind": "drive.overdrive",
+      "kind": "drive.distortion",
       "verified": false,
       "params": {
-        "DRV": { "param": "drivePercent", "transform": { "scale": 1, "offset": 0 } },
-        "CUT": { "param": "tonePercent", "transform": { "scale": -1, "offset": 100 } },
-        "OUTPUT": { "param": "levelDb", "transform": { "scale": 1, "offset": -9.4 } }
+        "DRV": { "param": "distortionPercent", "transform": { "scale": 1, "offset": 0 } },
+        "CUT": { "param": "filterPercent", "transform": { "scale": -1, "offset": 100 } },
+        "OUTPUT": { "param": "levelDb", "transform": { "scale": 1, "offset": -6.4 } }
       },
-      "notes": "Drive, tone and level. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. OUTPUT is set from a unit measurement (CorOS d14e, OUTPUT 0 dB): the unit sits 9.4 dB below ours at 1 kHz, hence the offset."
+      "defaults": { "voicing": 1 },
+      "notes": "Drive, cut and output. On our distortion's open voicing (hard clipping to a level that does not follow the input, a one-pole filter), which matches the unit's response and distortion. CUT darkens as it goes up, so it is inverted onto our Filter. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): OUTPUT is set so that 0 dB gives the unit's 1 kHz level at DRV 50."
     },
     "BDDI": {
       "kind": "drive.bass",
@@ -1026,32 +1042,33 @@
         "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "BLEND": { "param": "blendPercent", "transform": { "scale": 10, "offset": 0 } },
         "PRESENCE": { "param": "presenceDb", "transform": { "scale": 2.4, "offset": -12 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -22.3 } }
       },
-      "notes": "Drive, blend and level; the lows stay clean below our crossover (200 Hz). Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
+      "defaults": { "voicing": 1 },
+      "notes": "On our bass drive's DI voicing (a nearly clean preamp with a fixed low and presence lift), fitted to the unit, which stays clean at bass level while DRIVE raises its gain. BLEND at 5 is the fitted mix. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "Douglas MT 3K": {
       "kind": "drive.bass",
       "verified": false,
       "params": {
-        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 100, "offset": 0, "exponent": 0.65, "inputMax": 10 } },
         "TONE": { "param": "presenceDb", "transform": { "scale": 2.4, "offset": -12 } },
         "BLEND": { "param": "blendPercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -21.8 } }
       },
-      "defaults": { "blendPercent": 100 },
-      "notes": "A bass distortion, approximated by Bass Drive at full blend. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
+      "defaults": { "voicing": 3, "crossoverHz": 800 },
+      "notes": "On our bass drive's grit voicing (a clean path plus a clipped, high-passed path), fitted to the unit, with the crossover at 800 Hz so the lows stay clean as they do on the unit. DRIVE runs on a curve (5 is our 64 %). BLEND at 5 is the fitted mix. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "Douglas Vintage MT": {
       "kind": "drive.bass",
       "verified": false,
       "params": {
-        "DRIVE": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
+        "DRIVE": { "param": "drivePercent", "transform": { "scale": 100, "offset": 0, "exponent": 1.42, "inputMax": 10 } },
         "BLEND": { "param": "blendPercent", "transform": { "scale": 10, "offset": 0 } },
-        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
+        "LEVEL": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -19.9 } }
       },
-      "defaults": { "blendPercent": 100 },
-      "notes": "A bass distortion, approximated by Bass Drive at full blend. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
+      "defaults": { "voicing": 3, "blendPercent": 50 },
+      "notes": "On our bass drive's grit voicing (a clean path plus a clipped, high-passed path), fitted to the unit. DRIVE runs on a curve (5 is our 37 %). BLEND at 5 is the fitted mix. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): LEVEL is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "Soviet Fuzz": {
       "kind": "drive.fuzz",
@@ -1059,20 +1076,20 @@
       "params": {
         "SUSTAIN": { "param": "fuzzPercent", "transform": { "scale": 10, "offset": 0 } },
         "TONE": { "param": "tonePercent", "transform": { "scale": 10, "offset": 0 } },
-        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -42.3 } }
+        "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -20.2 } }
       },
-      "defaults": { "voicing": 2 },
-      "notes": "A bass fuzz, on the sustain voicing, which does not keep the lows clean. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified. VOLUME is set from a unit measurement (CorOS d14e, VOLUME 5, other knobs at 5): the unit sits 24.3 dB below our 0 dB at 1 kHz, hence the offset."
+      "defaults": { "voicing": 5 },
+      "notes": "A bass fuzz, on our thick fuzz voicing (two clipping stages and a very large bass lift), fitted to the unit. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): VOLUME is set so that 5 gives the unit's 1 kHz level with the other knobs at 5."
     },
     "Exotic Bass Z Boost": {
       "kind": "drive.bass",
       "verified": false,
       "params": {
-        "GAIN": { "param": "drivePercent", "transform": { "scale": 5, "offset": 0 } },
+        "GAIN": { "param": "drivePercent", "transform": { "scale": 10, "offset": 0 } },
         "VOLUME": { "param": "levelDb", "transform": { "scale": 3.6, "offset": -18 } }
       },
-      "defaults": { "blendPercent": 50 },
-      "notes": "A boost for bass, approximated by Bass Drive at a light setting; use Clean Boost for a plain boost. Knob names are the unit's own (catalogue, CorOS d14e); the scaling is ours and unverified."
+      "defaults": { "voicing": 2, "blendPercent": 50 },
+      "notes": "On our bass drive's boost voicing (a low cut and a soft top into a soft clipper), fitted to the unit: clean at bass level, clipping gently when pushed, the level following GAIN as on the unit. Knob names are the unit's own (catalogue, CorOS d14e). Measured on a unit (CorOS d14e): VOLUME is set so that 5 gives the unit's 1 kHz level at GAIN 5."
     }
   },
   "categories": {

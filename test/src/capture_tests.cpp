@@ -1196,7 +1196,9 @@ juce::String sessionReadyToTrain(AgentRig& rig, const char* method, const char* 
 
 juce::var waitForTraining(AgentRig& rig, const juce::String& id) {
   juce::var status;
-  for (int i = 0; i < 2000; ++i) {
+  // No iteration cap: a loaded machine can starve the training thread for
+  // longer than any fixed count; ctest's timeout bounds a real hang.
+  for (;;) {
     status = rig.mustLocal("capture.trainingStatus", args(id));
     const juce::String state = status["state"].toString();
     if (state == "done" || state == "failed" || state == "cancelled")

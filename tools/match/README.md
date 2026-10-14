@@ -163,6 +163,7 @@ ratios, a reverb at two decays and a bypass take):
 | `params` | QC parameters by their catalogue name, **in the parameter's own units** (ms, dB, %, ...). A list parameter takes its option index. A parameter whose range the unit publishes only as 0 to 1 takes `{ "wire": 0.5 }`. Parameters you leave out stay at the block's defaults, because every take starts from a fresh block. |
 | `ours` | Optional. `kind` (a kind id such as `delay.digital`), `params` (our parameter ids and values), and the common settings `mix`, `inputGain`, `outputGain`, `enabled`. What it gives wins over the mapping. |
 | `signalGainDb` | Optional, a number from -60 to 0 (default 0): play the test signal that many dB below nominal for this take (see "Signal level"). |
+| `after` | Optional, `{ "model": ..., "params": {...} }`: a second block in column 2 after the take's block (a cab after an amp, for a listening take). Same rules as `model` and `params`; ours is rendered without it. |
 | `bypass` | `true` for the unit's own path: no block on the row; ours renders an empty chain. |
 | `notes` | Free text for the report. |
 

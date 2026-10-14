@@ -741,6 +741,26 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(names.count("remove_block"), 1)
         self.assertEqual(unit.cells, {})
 
+    def test_a_second_block_follows_the_first_and_is_cleared_before_the_next_take(self):
+        unit = FakeUnit()
+        chained = {"name": "comp-hall", "model": "VCA Comp", "params": {"THRESHOLD": -30},
+                   "after": {"model": "Hall", "params": {"MIX": 40}}}
+        plan = write_plan(self.root, [chained, COMP_TAKE])
+        code, out, err = self.run_main(self.argv(plan, "--go", "--yes"), fake_deps(fake_kit(unit)))
+        self.assertEqual(code, qm.EXIT_OK, err)
+        placed = [(c[1]["column"], c[1]["model"]) for c in unit.calls if c[0] == "set_block"]
+        self.assertEqual(placed, [(0, 5005), (1, 8003), (0, 5005)])
+        removed = [c[1]["column"] for c in unit.calls if c[0] == "remove_block"]
+        self.assertEqual(removed, [1, 0])
+        self.assertIn(("set_param", {"row": 1, "column": 1, "param": "MIX", "real": 40.0}), unit.calls)
+
+    def test_a_second_block_needs_a_model_and_no_bypass(self):
+        with self.assertRaises(qm.PlanError) as caught:
+            qm.parse_plan([{"name": "a", "model": "VCA Comp", "after": {"params": {}}},
+                           {"name": "b", "bypass": True, "after": {"model": "Hall"}}])
+        self.assertIn("after.model", str(caught.exception))
+        self.assertIn("no second block", str(caught.exception))
+
     def test_use_current_recalls_nothing(self):
         unit = FakeUnit()
         plan = write_plan(self.root, [COMP_TAKE])

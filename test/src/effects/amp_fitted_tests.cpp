@@ -19,7 +19,9 @@
 //
 // AmpFitHarness.Measure is the fitting loop's measuring tool: with
 // PEDALEIRA_AMP_FIT set to a description file it prints the same numbers as
-// JSON (and is skipped otherwise):
+// JSON (and is skipped otherwise). PEDALEIRA_AMP_FIT_OFFSET, _GAINS, _KNOBS and
+// _TONES set how far under nominal the signals are played, the GAIN points,
+// other knobs for them and the tone knobs to sweep (see the test):
 //
 //   PEDALEIRA_AMP_FIT=resources/amps/lead-100.json \
 //     build/test/DspTests_artefacts/Release/DspTests --gtest_filter='AmpFitHarness.*'
@@ -223,11 +225,45 @@ TEST(AmpFitHarness, Measure) {
   ASSERT_TRUE(file.good()) << path;
   std::stringstream text;
   text << file.rdbuf();
-  std::cout << "{\"file\": \"" << path << "\", \"gain\": [";
+  // Options: PEDALEIRA_AMP_FIT_OFFSET, how far under nominal the signals are
+  // played (dB; by default 36 for the staircase and the THD and line level for
+  // the test signal); PEDALEIRA_AMP_FIT_GAINS, the GAIN points (default
+  // "2,5,8,10"); PEDALEIRA_AMP_FIT_KNOBS, other knobs for the GAIN points
+  // ("master=35"); PEDALEIRA_AMP_FIT_TONES, knobs whose 0 to 10 change of the
+  // response (at GAIN 2, the others at 5) is printed ("bass,treble,presence").
+  const char* offsetText = std::getenv("PEDALEIRA_AMP_FIT_OFFSET");
+  const bool offsetGiven = offsetText != nullptr && *offsetText != 0;
+  const double offset = offsetGiven ? std::atof(offsetText) : ampfit::kDefaultOffsetDb;
+  const double sweepOffset = offsetGiven ? offset : 0.0;
+  auto list = [](const char* name, const char* fallback) {
+    const char* value = std::getenv(name);
+    std::vector<std::string> items;
+    std::stringstream in(value != nullptr ? value : fallback);
+    for (std::string item; std::getline(in, item, ',');)
+      if (!item.empty())
+        items.push_back(item);
+    return items;
+  };
+  auto bands = [](const std::array<double, EffectMatch::kNumBands>& r) {
+    std::ostringstream o;
+    o << "[";
+    for (int b = 0; b < EffectMatch::kNumBands; ++b)
+      o << (b ? ", " : "") << r[static_cast<size_t>(b)];
+    o << "]";
+    return o.str();
+  };
+  std::cout << "{\"file\": \"" << path << "\", \"offset\": " << offset << ", \"gain\": [";
   bool first = true;
-  for (const double knob : {2.0, 5.0, 8.0, 10.0}) {
+  for (const std::string& knobText : list("PEDALEIRA_AMP_FIT_GAINS", "2,5,8,10")) {
+    const double knob = std::atof(knobText.c_str());
+    fxtest::Params knobs = atGain(knob);
+    for (const std::string& pair : list("PEDALEIRA_AMP_FIT_KNOBS", "")) {
+      const size_t eq = pair.find('=');
+      if (eq != std::string::npos)
+        knobs.push_back({juce::String(pair.substr(0, eq)), std::atof(pair.c_str() + eq + 1)});
+    }
     std::string error;
-    const auto m = ampfit::measureGainPoint(text.str(), atGain(knob), error);
+    const auto m = ampfit::measureGainPoint(text.str(), knobs, error, offset);
     ASSERT_TRUE(m.has_value()) << error;
     std::cout << (first ? "" : ", ") << "{\"knob\": " << knob << ", \"gs\": " << m->smallSignalGainDb
               << ", \"bend\": " << (m->bendDb ? std::to_string(*m->bendDb) : "null") << ", \"ceiling\": " << m->ceilingDb
@@ -235,14 +271,28 @@ TEST(AmpFitHarness, Measure) {
     first = false;
   }
   std::string error;
-  const auto r = ampfit::measureResponse(text.str(), atGain(5.0), error);
-  ASSERT_TRUE(r.has_value()) << error;
-  std::cout << "], \"responseGain5\": [";
-  for (int b = 0; b < EffectMatch::kNumBands; ++b)
-    std::cout << (b ? ", " : "") << (*r)[static_cast<size_t>(b)];
+  const auto s = ampfit::measureSweeps(text.str(), atGain(5.0), error, sweepOffset);
+  ASSERT_TRUE(s.has_value()) << error;
+  std::cout << "], \"responseGain5\": " << bands(s->responseLow) << ", \"sweepGainLow\": " << s->gainLowDb
+            << ", \"sweepGainHigh\": " << s->gainHighDb << ", \"tones\": {";
+  first = true;
+  for (const std::string& knob : list("PEDALEIRA_AMP_FIT_TONES", "")) {
+    fxtest::Params low = atGain(2.0), high = atGain(2.0);
+    low.push_back({juce::String(knob), 0.0});
+    high.push_back({juce::String(knob), 100.0});
+    const auto a = ampfit::measureSweeps(text.str(), low, error, sweepOffset);
+    ASSERT_TRUE(a.has_value()) << error;
+    const auto b = ampfit::measureSweeps(text.str(), high, error, sweepOffset);
+    ASSERT_TRUE(b.has_value()) << error;
+    std::array<double, EffectMatch::kNumBands> delta{};
+    for (size_t i = 0; i < delta.size(); ++i)
+      delta[i] = b->responseLow[i] - a->responseLow[i];
+    std::cout << (first ? "" : ", ") << "\"" << knob << "\": " << bands(delta);
+    first = false;
+  }
   const auto level = ampfit::measureLevel(text.str(), atGain(5.0), -18.0, error);
   ASSERT_TRUE(level.has_value()) << error;
-  std::cout << "], \"level1kAtMinus18\": " << level->first << "}" << std::endl;
+  std::cout << "}, \"level1kAtMinus18\": " << level->first << "}" << std::endl;
 }
 
 namespace {

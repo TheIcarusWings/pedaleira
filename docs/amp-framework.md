@@ -31,8 +31,8 @@ guitar -> input coupling high-pass -> grid stopper low-pass
        -> stage 1 (input stage)  [cathode network -> triode -> plate load] -> gain pot (bright cap) -> coupling
        -> stage 2                [cathode network -> triode -> plate load] -> coupling
        -> stage 3 ... (up to 6 stages, one gain pot, a coupling after every stage but the last)
-       -> passive tone stack (treble, middle, bass) -> master
-       -> power amp (push-pull saturation, global feedback with presence and depth, supply sag)
+       -> passive tone stack (treble, middle, bass) -> master -> tone cut (when the amp has one)
+       -> power amp (push-pull or solid-state saturation, global feedback with presence and depth, supply sag)
        -> output transformer corner -> level
 ```
 
@@ -52,10 +52,10 @@ farads, henries and volts, derive their corners and gains from them, allocate no
 | `Filters.h`: `OnePole`, `Svf` | A 6 dB per octave low-pass or high-pass; a 12 dB per octave state variable filter with low, band and high outputs. | Exponential one-pole; the trapezoidal (TPT) state variable filter, V. Zavalishin, *The Art of VA Filter Design*. |
 | `FastMath.h` | Reciprocal and reciprocal square root, 23 bits, without the latency of a divide. | The hardware estimate plus one Newton-Raphson step. |
 | `TriodeStage.h`: `TriodeStage`, `TriodeCircuit` | One common-cathode triode stage as a static, asymmetric waveshaper: grid conduction clips the positive swing at the bias voltage, cutoff clips the negative swing later; a grid-leak bias shift that follows the drive; the stage gain mu Ra / (Ra + rp). | The curve follows the plate characteristics of N. Koren, "Improved vacuum tube models for SPICE simulations" (2003) in the shape x / sqrt(1 + x^2); grid conduction and bias shift as surveyed by J. Pakarinen and D. T. Yeh, "A review of digital techniques for modeling vacuum-tube guitar amplifiers", *Computer Music Journal* 33(2), 2009; first-order antiderivative anti-aliasing, J. D. Parker, V. Zavalishin and E. Le Bivic, DAFx-16 (2016), and S. Bilbao, F. Esqueda, J. D. Parker and V. Valimaki, "Antiderivative antialiasing for stateful systems" (2017). |
-| `CouplingFilters.h`: `CouplingNetwork`, `CathodeShelf`, `GainPot` | The coupling capacitor into a series resistor and a grid leak (a high-pass with a divider); the cathode resistor with its bypass capacitor (a low shelf: less gain below 1 / (2 pi Rk Ck), from cathode feedback); the gain pot between two stages, an audio taper with a floor resistor, loaded by the next grid leak, with a bright capacitor across its upper part (H(s) = H0 (1 + s tz) / (1 + s tp)). | Textbook common-cathode stage with cathode bypass; the pot and bright cap as an exact first-order network. |
+| `CouplingFilters.h`: `CouplingNetwork`, `CathodeShelf`, `GainPot`, `ToneCut` | The coupling capacitor into a series resistor and a grid leak (a high-pass with a divider); the cathode resistor with its bypass capacitor (a low shelf: less gain below 1 / (2 pi Rk Ck), from cathode feedback); the gain pot between two stages, an audio taper with a floor resistor, loaded by the next grid leak, with a bright capacitor across its upper part (H(s) = H0 (1 + s tz) / (1 + s tp)); the tone cut of a power amp without global feedback, a pot and a capacitor that shunt the drive of the output tubes (H(s) = (1 + s Rc C) / (1 + s (Rsrc + Rc) C)). | Textbook common-cathode stage with cathode bypass; the pot and bright cap, and the tone cut, as exact first-order networks. |
 | `ToneStack.h` | The passive treble, middle and bass tone stack of the Fender / Marshall family, with the interaction between the knobs and the mid dip. | Closed form third-order transfer function, D. T. Yeh and J. O. Smith, "Discretization of the '59 Fender Bassman Tone Stack", DAFx-06 (2006), re-derived from the netlist (see the correction below); bilinear transform in double precision. |
 | `WdfToneStack.h` | The same network, solved as a wave digital filter with an R-type adaptor. An independent reference for `ToneStack.h` (it shares no algebra with it), and a complete alternative implementation. | A. Fettweis, "Wave digital filters: theory and practice", *Proc. IEEE* 74(2), 1986; R-type adaptors for arbitrary topologies, K. J. Werner, J. O. Smith and J. S. Abel, DAFx-15 (2015); the library chowdsp_wdf, J. Chowdhury, arXiv:2210.12554. |
-| `PowerAmp.h` | A push-pull pentode power stage: soft saturation scaled by the supply headroom, class AB crossover character, global negative feedback through the output transformer's low-pass, Presence (removes high-frequency feedback) and Depth (removes feedback in the speaker's resonance band). | Feedback structure as in Pakarinen and Yeh (2009); the output transformer is two poles in the feedback path, the screen grid and the phase inverter are not modelled. |
+| `PowerAmp.h` | A push-pull pentode power stage: soft saturation scaled by the supply headroom, class AB crossover character, global negative feedback through the output transformer's low-pass, Presence (removes high-frequency feedback) and Depth (removes feedback in the speaker's resonance band). Or a solid-state output stage: linear up to its rail and clipped flat there (with antiderivative anti-aliasing), in the same feedback loop. | Feedback structure as in Pakarinen and Yeh (2009); the output transformer is two poles in the feedback path, the screen grid and the phase inverter are not modelled. |
 | `SagModel.h` | Supply sag: the high-voltage rail droops under load and recovers over tens of milliseconds, so loud passages compress and bloom. | The usual lumped rectifier-and-reservoir description (Pakarinen and Yeh): depth = source resistance x full load current / B+, recovery = source resistance x reservoir capacitance. |
 | `GainStages.h`: `GainStageSpec`, `ClassicGainStage` | The whole of one gain stage as component values, and its classic realisation: the pieces above chained. | See "The two stage models". |
 | `WdfTriodeStage.h`: `WdfGainStage` and the plate, cathode and pot trees | The same stage with the networks around the tube solved as wave digital filter trees and the tube as a nonlinear root. | Wave digital filters as above; wave digital triode stages go back to M. Karjalainen and J. Pakarinen, "Wave digital simulation of a vacuum-tube amplifier", ICASSP 2006; the implicit tube equation is solved per sample by Newton's method. The tree library is chowdsp_wdf. |
@@ -234,7 +234,7 @@ The output stage.
 | Field | Type | Unit | Range | Default | | Meaning |
 |---|---|---|---|---|---|---|
 | `tube` | string |  |  | EL34 |  | A label for the output tubes. |
-| `topology` | string |  |  | push_pull_ab |  | "push_pull_ab" has crossover character; "push_pull_a" has none. |
+| `topology` | string |  |  | push_pull_ab |  | "push_pull_ab" has crossover character; "push_pull_a" has none; "solid_state" has none and is linear up to its rail, where it clips flat (a transistor power amp; the knee and the crossover are not used). |
 | `open_loop_gain` | number |  | 1 to 1000 | 20 |  | Forward gain of the stage before its saturation. (default provenance: fitted) |
 | `feedback` | object |  |  |  |  | The global negative feedback network. |
 | `feedback.series_ohm` | number | ohm | 1 to 1e+7 | 4000 |  | The feedback resistor from the output back. (default provenance: schematic) |
@@ -248,6 +248,11 @@ The output stage.
 | `depth.capacitance_f` | number | F | 1e-9 to 1 | 2.1e-5 |  | Its capacitance. (default provenance: schematic) |
 | `depth.resistance_ohm` | number | ohm | 0.1 to 100000 | 63 |  | Its resistance: sets the width. (default provenance: schematic) |
 | `depth.max_cut` | number |  | 0 to 1 | 0.85 |  | The largest fraction of that band's feedback removed at full depth. (default provenance: fitted) |
+| `tone_cut` | object |  |  |  |  | A tone cut ahead of the output tubes: a pot (plus a fixed resistor) in series with a capacitor that shunts the drive, which comes from `source_ohm`. Turned up it takes the highs away. Left out: no tone cut. The `presence` control can drive it (see the panel). |
+| `tone_cut.source_ohm` | number | ohm | 100 to 1e+7 |  | required | What drives the network (the phase inverter's plate). (default provenance: schematic) |
+| `tone_cut.pot_ohm` | number | ohm | 0 to 1e+7 |  | required | The tone cut pot. (default provenance: schematic) |
+| `tone_cut.min_ohm` | number | ohm | 0 to 1e+7 | 0 |  | Resistance left in the branch with the cut fully up. (default provenance: schematic) |
+| `tone_cut.capacitor_f` | number | F | 1e-12 to 0.0001 |  | required | The capacitor in series with the pot. (default provenance: schematic) |
 | `transformer` | object |  |  |  |  | Output transformer corners. |
 | `transformer.high_corner_hz` | number | Hz | 500 to 100000 | 9000 |  | Output transformer high corner (two poles in the feedback path). (default provenance: fitted) |
 | `transformer.low_corner_hz` | number | Hz | 1 to 500 | 12 |  | Output transformer low corner (the output DC blocker). (default provenance: fitted) |
@@ -282,7 +287,10 @@ Values with no component behind them; they tie the model to levels.
 parameter ids of the block: `gain`, `bass`, `middle`, `treble`, `presence`, `depth`, `master`,
 `bright` (a switch), `voicing` (a choice). A control that is left out is not on the amp and is held
 at the middle of its travel. Without a `panel` section every control the parts allow is present,
-linear, over its full travel (the master with taper 2).
+linear, over its full travel (the master with taper 2). An amp with a tone cut and no presence
+control gives its tone cut knob the `presence` slot (`"presence": {"label": "Tone Cut", "target":
+"power_amp.tone_cut"}`), so the block keeps its ten parameters; a tone cut no knob drives is held at
+the middle of its travel.
 
 | Control | `target` (must be exactly this) | What it moves |
 |---|---|---|
@@ -292,6 +300,7 @@ linear, over its full travel (the master with taper 2).
 | `middle` | `tone_stack.middle_pot_ohm` | Position `m`. |
 | `treble` | `tone_stack.treble_pot_ohm` | Position `t`. |
 | `presence` | `power_amp.presence` | The presence pot (0 = most feedback, 1 = most high frequency feedback removed). |
+| `presence` | `power_amp.tone_cut` | On an amp with a `tone_cut` (and no presence control): the tone cut (0 = least cut, 1 = most); the presence network is then held at the middle of its travel. |
 | `depth` | `power_amp.depth` | How much of the resonance band's feedback is removed. |
 | `master` | `master` | The master volume between the tone stack and the power amp: gain = position / `calibration.power_drive_v` volts. |
 | `voicing` | `voicings` | Which voicing is selected. |
@@ -664,6 +673,46 @@ the numbers for any file, for a fitting loop:
 PEDALEIRA_AMP_FIT=my-amp.json build/test/DspTests_artefacts/Release/DspTests --gtest_filter='AmpFitHarness.*'
 ```
 
+### The clean and crunch amps
+
+Ten more descriptions were fitted the same way to clean and crunch reference amps, each with the
+topology of its kind (two to four 12AX7 stages around the gain pot, the tone stack, the power amp)
+and the controls of its circuit only:
+
+| File | Name | What it is | Panel |
+|---|---|---|---|
+| `glass-forty.json` | Glass Forty | A bright 6L6 clean with a lot of headroom; the feedback power amp clips first, with a hard knee. | volume, bass, treble |
+| `bell-thirty.json` | Bell Thirty | A chiming EL84 clean, no global feedback; the second stage clips before the voicing network, which keeps the highs when driven. | volume, tone cut |
+| `steady-120.json` | Steady 120 | A solid-state clean: stages kept far from their limits, the `solid_state` power amp (linear up to its rail), no sag. Under 0.01 percent THD where the reference reads 0.0. | volume, bass, middle, treble |
+| `velvet-fifty.json` | Velvet Fifty | A smooth 6L6 clean with a soft knee and some low-level distortion from its recovery stage. | gain, bass, middle, treble, master |
+| `ember-five.json` | Ember Five | A small single-ended EL84 amp, no global feedback (class A without crossover stands for the single-ended stage). | volume, bass, treble |
+| `amber-fifty.json` | Amber Fifty | A British-style 50 W EL34 crunch whose GAIN barely moves its small-signal gain. | gain, bass, middle, treble, presence, master |
+| `copper-eighteen.json` | Copper Eighteen | A small EL84 crunch, no global feedback. | volume, tone cut |
+| `dust-forty.json` | Dust Forty | A tweed-style 6L6 crunch, a little feedback, a tube rectifier. | volume, bass, middle, treble, presence |
+| `bronze-twenty.json` | Bronze Twenty | A chiming EL84 crunch, no global feedback. | volume, bass, treble, tone cut |
+| `silk-hundred.json` | Silk Hundred | A smooth overdrive channel: four 12AX7 stages into a 6L6 power amp with feedback. | drive, bass, middle, treble, presence, master |
+
+These references were played 24 dB (clean) or 36 dB (crunch) under their nominal level: the
+staircase from -84 or -96 dBFS, the THD at the staircase's -18 dBFS step (-42 or -54 dBFS), and the
+test signal itself, read as the low sweep's response and the 1 kHz gain of both sweeps with every
+knob at 5, and as the change of the response when each tone knob goes from 0 to 10 at GAIN 2.
+`test/src/effects/amp_fitted_clean_crunch_tests.cpp` checks each file against them; the harness
+takes the same settings:
+
+```
+PEDALEIRA_AMP_FIT=resources/amps/glass-forty.json PEDALEIRA_AMP_FIT_OFFSET=24 \
+PEDALEIRA_AMP_FIT_TONES=bass,treble \
+  build/test/DspTests_artefacts/Release/DspTests --gtest_filter='AmpFitHarness.*'
+```
+
+Two of them take another knob for their GAIN sweep (`PEDALEIRA_AMP_FIT_KNOBS`): the reference
+Velvet Fifty's sweep is 6 dB under its level with every knob at 5 (its master at 3.5 fits), and the
+reference Silk Hundred's about 5 dB over it (its master at 6.7). Where the fit falls short is in the
+test file: the highs of the crunch amps' responses (the clipping comes after the tone stack, so the
+sweep compresses the treble the reference keeps), a few tone knob bands where the treble, middle
+and bass network cannot take the reference's shape, and the THD of Ember Five at VOLUME 8 and 10
+(18 and 33 percent within a few dB of the bend, more than the framework's curves make).
+
 ## Licences
 
 - **The code** of the framework (the components, the loader, the amp kinds, the tools) is under
@@ -690,7 +739,10 @@ PEDALEIRA_AMP_FIT=my-amp.json build/test/DspTests_artefacts/Release/DspTests --g
   a recovery stage and phase inverter): the level they add is absorbed in `calibration`.
 - The effects loop (a placeholder: the signal does not pass through one), speaker and cabinet
   (use an IR block), microphonics, heater hum, power supply ripple and the screen grid.
-- A tone stack that is not the treble, middle and bass (TMB) circuit.
+- A tone stack that is not the treble, middle and bass (TMB) circuit, and the source impedance
+  that drives the tone stack.
+- A single-ended output stage: its asymmetric, partly expanding curve (class A push-pull, without
+  crossover, is the nearest the power amp has).
 - Grid current loading the coupling network exactly: the grid-conduction bias shift is a fitted
   behavioural element in both stage models.
 - Anti-aliasing of the wave digital stage beyond the 4x oversampling.

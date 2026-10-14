@@ -3,8 +3,8 @@
 //
 //   in -> [input coupling high-pass -> grid stopper low-pass -> gain stages
 //         (each: cathode, triode, plate load, [gain pot], coupling) -> passive
-//         tone stack -> master -> power amp with presence / depth feedback and
-//         supply sag]
+//         tone stack -> master -> [tone cut] -> power amp with presence /
+//         depth feedback and supply sag]
 //
 // The audio engine in plugin/src/effects/amp/dsp/AmpProcessor.h runs this
 // four times oversampled and owns the knobs; this class owns the circuit.
@@ -66,6 +66,8 @@ struct ControlFrame {
   float chargeSeconds[kMaxLinks]{};
   ToneStackDesign tone;
   float presence{0.0f}, depth{0.0f};
+  /** The tone cut position (when the amp has one). */
+  float toneCut{0.5f};
   float sagDepth{0.2f}, sagReleaseSeconds{0.07f};
   float masterGain{0.0f};
 };
@@ -97,7 +99,11 @@ inline ControlFrame makeControlFrame(const AmpDescription& d, const PanelValues&
     const float sourceOhms = sender.hasPot ? sender.pot.sourceResistance : sender.triode.sourceImpedance();
     f.chargeSeconds[k] = f.leakSeconds[k] * chargeRatio(sourceOhms, sender.coupling, receiver.triode);
   }
-  f.presence = panelPosition(d.control(PanelId::Presence), v.presence);
+  // A presence control that drives the tone cut leaves the presence network
+  // at the middle of its travel, as a control that is not on the amp.
+  const float presence = panelPosition(d.control(PanelId::Presence), v.presence);
+  f.presence = d.presenceDrivesToneCut ? 0.5f : presence;
+  f.toneCut = d.presenceDrivesToneCut ? presence : 0.5f;
   f.depth = panelPosition(d.control(PanelId::Depth), v.depth);
   f.sagDepth = v.sagDepth;
   f.sagReleaseSeconds = v.sagReleaseSeconds;
@@ -110,6 +116,8 @@ struct AmpCircuitCore {
   OnePole gridStopper;
   ClassicGainStage classic[kMaxStages];
   ToneStackFilter tone;
+  ToneCut toneCut;
+  bool hasToneCut{false};
   PowerAmp power;
   SagModel sag;
   float masterGain{0.0f};
@@ -150,6 +158,8 @@ public:
         leak * chargeRatio(d.input.sourceOhms + d.input.gridStopperOhms, d.input.network, d.stages[0].spec.triode);
     setGridTimes(0, leak, charge);
     sag.prepare(rate, sagParamsFor(d.voicings[d.defaultVoicing].supply));
+    hasToneCut = d.power.hasToneCut;
+    toneCut.prepare(rate, d.power.toneCut);
     power.prepare(rate, d.power.params);
     reset();
   }
@@ -164,6 +174,7 @@ public:
         classic[k].reset();
     }
     tone.reset();
+    toneCut.reset();
     power.reset();
     sag.reset();
   }
@@ -177,6 +188,8 @@ public:
       setGridTimes(k + 1, f.leakSeconds[k], f.chargeSeconds[k]);
     }
     tone.setDesign(f.tone);
+    if (hasToneCut)
+      toneCut.setPosition(f.toneCut);
     power.setPresence(f.presence);
     power.setDepth(f.depth);
     sag.setDepth(f.sagDepth);
@@ -204,6 +217,9 @@ public:
     }
     for (int i = 0; i < n; ++i)
       v[i] = tone.process(v[i]) * masterGain;
+    if (hasToneCut)
+      for (int i = 0; i < n; ++i)
+        v[i] = toneCut.process(v[i]);
   }
 
   float powerSample(float v) noexcept {

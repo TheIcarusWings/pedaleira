@@ -1566,10 +1566,11 @@
         },
         "topology": {
           "type": "string",
-          "description": "\"push_pull_ab\" has crossover character; \"push_pull_a\" has none.",
+          "description": "\"push_pull_ab\" has crossover character; \"push_pull_a\" has none; \"solid_state\" has none and is linear up to its rail, where it clips flat.",
           "enum": [
             "push_pull_ab",
-            "push_pull_a"
+            "push_pull_a",
+            "solid_state"
           ],
           "default": "push_pull_ab"
         },
@@ -1943,6 +1944,155 @@
             }
           },
           "description": "The depth (resonance) network."
+        },
+        "tone_cut": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_ohm",
+            "pot_ohm",
+            "capacitor_f"
+          ],
+          "properties": {
+            "source_ohm": {
+              "description": "What drives the network (the phase inverter's plate). Unit: ohm.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 100,
+                  "maximum": 10000000.0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 100,
+                      "maximum": 10000000.0
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "pot_ohm": {
+              "description": "The tone cut pot. Unit: ohm.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000000.0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 10000000.0
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "min_ohm": {
+              "description": "Resistance left in the branch with the cut fully up. Unit: ohm.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000000.0
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 10000000.0
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "default": 0
+            },
+            "capacitor_f": {
+              "description": "The capacitor in series with the pot. Unit: F.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 1e-12,
+                  "maximum": 0.0001
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 1e-12,
+                      "maximum": 0.0001
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "description": "A tone cut ahead of the output tubes: a pot (plus a fixed resistor) in series with a capacitor that shunts the drive. Turned up it takes the highs away. The presence control can drive it."
         },
         "transformer": {
           "type": "object",
@@ -2894,7 +3044,7 @@
           "required": [
             "target"
           ],
-          "description": "Targets: power_amp.presence"
+          "description": "Targets: power_amp.presence, or power_amp.tone_cut on an amp with a tone cut"
         },
         "depth": {
           "type": "object",

@@ -120,12 +120,16 @@ struct PowerDescription {
   /** "EL34", "6L6", "EL84", "6V6", "KT88", "6550" or "custom": a label for the
       output tubes; their behaviour is in the knee and crossover values. */
   std::string tube{"EL34"};
-  /** "push_pull_ab" (crossover character) or "push_pull_a" (none). */
+  /** "push_pull_ab" (crossover character), "push_pull_a" (none) or
+      "solid_state" (no crossover, linear up to a hard clip at the rail). */
   std::string topology{"push_pull_ab"};
   PowerAmpParams params;
   /** The output transformer's low corner (the output DC blocker). The high
       corner is params.transformerLowpassHz. */
   float transformerLowCornerHz{12.0f};
+  /** A tone cut network ahead of the output tubes (CouplingFilters.h), or none. */
+  bool hasToneCut{false};
+  ToneCutParams toneCut;
   /** The supply before a voicing's overrides. */
   SagSupply supply;
   std::string rectifier{"tube"};
@@ -172,6 +176,11 @@ struct AmpDescription {
 
   /** The stage that carries the gain pot, or -1. */
   int potStage{-1};
+
+  /** True when the presence control drives the tone cut (target
+      "power_amp.tone_cut") instead of the presence network, which is then held
+      at the middle of its travel. */
+  bool presenceDrivesToneCut{false};
 
   /** Values with an explicit provenance or note, and every fitted value. */
   std::vector<ValueNote> notes;

@@ -286,6 +286,42 @@ TEST(AmpCoupling, BrightCapLiftsHighsMostWhenTurnedDownAndFadesToNothing) {
   EXPECT_NEAR(lowFreq, toDecibels(pot.gain()), 0.5);
 }
 
+TEST(AmpCoupling, ToneCutFollowsItsNetworkAndCutsMoreTurnedUp) {
+  const double fs = 192000.0;
+  amp::ToneCutParams parts;
+  parts.sourceResistance = 100.0e3f;
+  parts.potResistance = 100.0e3f;
+  parts.minResistance = 2.2e3f;
+  parts.capacitance = 4.7e-9f;
+  // H(s) = (1 + s Rc C) / (1 + s (Rsrc + Rc) C), Rc = Rmin + Rpot (1 - position).
+  const auto analogDb = [&](float position, double hz) {
+    const double rc = parts.minResistance + parts.potResistance * (1.0 - position);
+    const std::complex<double> s(0.0, 2.0 * kPiValue * hz);
+    const double c = parts.capacitance;
+    return toDecibels(std::abs((1.0 + s * rc * c) / (1.0 + s * (parts.sourceResistance + rc) * c)));
+  };
+  double lastHigh = 1.0e9;
+  for (const float position : {0.0f, 0.5f, 1.0f}) {
+    amp::ToneCut cut;
+    cut.prepare(fs, parts);
+    cut.setPosition(position);
+    const double branch = parts.minResistance + parts.potResistance * (1.0f - position);
+    EXPECT_NEAR(cut.highRatio(), branch / (parts.sourceResistance + branch), 1.0e-6);
+    for (const double hz : {100.0, 1000.0, 3000.0, 10000.0}) {
+      cut.reset();
+      EXPECT_NEAR(gainDb([&](float x) { return cut.process(x); }, hz, fs, 0.1f), analogDb(position, hz), 0.75)
+          << "position " << position << " at " << hz << " Hz";
+    }
+    // Unity in the lows, less of the highs the further it is turned up.
+    cut.reset();
+    EXPECT_NEAR(gainDb([&](float x) { return cut.process(x); }, 15.0, fs, 0.1f, 2.0), 0.0, 0.1);
+    cut.reset();
+    const double high = gainDb([&](float x) { return cut.process(x); }, 8000.0, fs, 0.1f);
+    EXPECT_LT(high, lastHigh - 1.0);
+    lastHigh = high;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tone stack
 // ---------------------------------------------------------------------------
@@ -473,6 +509,44 @@ TEST(AmpPowerAmp, ClosedLoopGainFollowsTheFeedbackFormula) {
   pa.setDepth(0.0f);
   const double expected = toDecibels(params.openLoopGain / (1.0 + params.openLoopGain * params.feedbackFraction()));
   EXPECT_NEAR(gainDb([&](float x) { return pa.process(x, 1.0f); }, 500.0, fs, 0.01f, 0.5), expected, 0.6);
+}
+
+TEST(AmpPowerAmp, ASolidStateStageIsCleanUpToItsRailAndClipsThere) {
+  const double fs = 192000.0;
+  auto thdAt = [&](bool hardClip, float level, float& peak) {
+    amp::PowerAmpParams params;
+    params.hardClip = hardClip;
+    params.crossoverRatio = 1.0f;
+    params.presenceMinResistor = 1.0e7f;  // no presence network: the loop is flat
+    amp::PowerAmp pa;
+    pa.prepare(fs, params);
+    pa.setPresence(0.0f);
+    pa.setDepth(0.0f);
+    const size_t n = static_cast<size_t>(0.25 * fs);
+    std::vector<float> out(n);
+    peak = 0.0f;
+    for (size_t i = 0; i < n; ++i) {
+      out[i] = pa.process(level * static_cast<float>(std::sin(2.0 * kPiValue * 1000.0 * static_cast<double>(i) / fs)), 1.0f);
+      if (i > n / 2)
+        peak = std::max(peak, std::abs(out[i]));
+    }
+    double harmonics = 0.0;
+    for (int k = 2; k <= 10; ++k)
+      harmonics += std::pow(amplitudeAt(out, n / 2, 1000.0 * k, fs), 2.0);
+    return 100.0 * std::sqrt(harmonics) / amplitudeAt(out, n / 2, 1000.0, fs);
+  };
+  // The closed-loop gain is A / (1 + A beta) = 4: 0.18 in swings to about 0.72.
+  float peak = 0.0f;
+  const double clean = thdAt(true, 0.18f, peak);
+  EXPECT_LT(clean, 0.01) << "linear below the rail";
+  EXPECT_NEAR(peak, 0.72f, 0.03f);
+  float softPeak = 0.0f;
+  EXPECT_GT(thdAt(false, 0.18f, softPeak), 10.0 * clean + 0.1) << "where the tube stage already bends";
+  // Driven past the rail it clips flat at the rail.
+  const double clipped = thdAt(true, 1.0f, peak);
+  EXPECT_GT(clipped, 5.0);
+  EXPECT_LE(peak, 1.05f);
+  EXPECT_GT(peak, 0.95f);
 }
 
 TEST(AmpPowerAmp, PresenceLiftsTheHighsAndDepthLiftsTheLows) {

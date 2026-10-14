@@ -202,13 +202,13 @@
       "kind": "dynamics.gate",
       "verified": false,
       "params": {
-        "THRESHOLD": { "param": "thresholdDb", "transform": "linear" },
+        "THRESHOLD": { "param": "thresholdDb", "unit": "dB", "transform": { "scale": 1.155, "offset": -10.95 } },
         "ATTACK": { "param": "attackMs", "transform": "linear" },
         "HOLD": { "param": "holdMs", "transform": "linear" },
         "RELEASE": { "param": "releaseMs", "transform": "linear" },
         "RANGE": { "param": "rangeDb", "transform": "linear" }
       },
-      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified."
+      "notes": "Settings names from the unit's catalogue (CorOS d14e); scaling ours, unverified. THRESHOLD measured on a unit (CorOS d14e, plan v14) with a sine: the real threshold in dBFS peak is 1.155 x setting - 10.95, fitted on settings -20, -30, -40 and -50 (setting -60 gave about -80). Our gate's detector follows the peaks of the waveform, so the peak law is used as it is (an RMS detector would take an offset of -13.96); results below our -80 are clamped and reported."
     },
     "Adaptive Gate": {
       "kind": "dynamics.gate",
@@ -344,34 +344,37 @@
       "kind": "delay.analog",
       "verified": false,
       "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
         "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
         "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Feedback and mix only; the time is not mapped. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
+      "notes": "Time, feedback and mix; the time is DELAY TIME in milliseconds (name assumed from the Digital Delay). Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
     },
     "Tape Delay": {
       "kind": "delay.tape",
       "verified": false,
       "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
         "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
         "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Feedback and mix only; the time, wow, flutter and drive are not mapped. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
+      "notes": "Time, feedback and mix; wow, flutter and drive are not mapped. The time is DELAY TIME in milliseconds (name assumed from the Digital Delay). Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
     },
     "Simple Delay": {
       "kind": "delay.simple",
       "verified": false,
       "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
         "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
         "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Feedback and mix only; the time is not mapped. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
+      "notes": "Time, feedback and mix; the time is DELAY TIME in milliseconds (name assumed from the Digital Delay). Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
     },
     "Slapback Delay": {
       "kind": "delay.slapback",
@@ -384,7 +387,7 @@
         "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
         "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 40 to 200 ms, FEEDBACK and MIX in percent, LOW PASS and HIGH PASS in Hz. LOW PASS becomes our tone sweep; HIGH PASS has no counterpart here and is dropped, and the saturation and wobble are ours and stay at their defaults. A FEEDBACK above our 60% is clamped and reported. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. The curve of DELAY TIME has not been measured, so the dump's value is taken as milliseconds."
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 40 to 200 ms, FEEDBACK and MIX in percent, LOW PASS and HIGH PASS in Hz. LOW PASS becomes our tone sweep; HIGH PASS has no counterpart here and is dropped, and the saturation and wobble are ours and stay at their defaults. A FEEDBACK above our 60% is clamped and reported. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. DELAY TIME is 40 to 200 ms. Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds."
     },
     "Dual Delay": {
       "kind": "delay.dual",
@@ -401,7 +404,7 @@
         "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
         "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME L and R 7 to 6000 ms, FEEDBACK L and R and X-FEEDBACK in percent, HIGH PASS 20 to 800 Hz and LOW PASS 1000 to 16000 Hz (the L and R names are the catalogue's wording, not yet seen in a dump). HIGH PASS is our low cut and LOW PASS our high cut. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. The curve of the times has not been measured, so the dump's values are taken as milliseconds."
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME L and R 7 to 6000 ms, FEEDBACK L and R and X-FEEDBACK in percent, HIGH PASS 20 to 800 Hz and LOW PASS 1000 to 16000 Hz (the L and R names are the catalogue's wording, not yet seen in a dump). HIGH PASS is our low cut and LOW PASS our high cut. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. DELAY TIME L and R follow the same law. Measured on a unit (CorOS d14e, plan v13): with SYNC off each plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown times arrive here in milliseconds."
     },
     "Reverse Delay": {
       "kind": "delay.reverse",
@@ -412,7 +415,7 @@
         "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 20 to 4000 ms (ours is 100 to 2000, so a value outside is clamped and reported), FEEDBACK and MIX in percent, HIGH PASS and LOW PASS in Hz. LOW PASS becomes our tone; HIGH PASS has no counterpart here and is dropped. The curve of DELAY TIME has not been measured."
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 20 to 4000 ms (ours is 100 to 2000, so a value outside is clamped and reported), FEEDBACK and MIX in percent, HIGH PASS and LOW PASS in Hz. LOW PASS becomes our tone; HIGH PASS has no counterpart here and is dropped. DELAY TIME follows the same law. Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds."
     },
     "Dual Reverse Delay": {
       "kind": "delay.reverse",
@@ -423,7 +426,7 @@
         "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Placed on our reverse delay, which has one side: only the left time and feedback are taken and the right ones are dropped (the L and R names are the catalogue's wording, not yet seen in a dump). LOW PASS becomes our tone; HIGH PASS is dropped."
+      "notes": "Placed on our reverse delay, which has one side: only the left time and feedback are taken and the right ones are dropped (the L and R names are the catalogue's wording, not yet seen in a dump). LOW PASS becomes our tone; HIGH PASS is dropped. DELAY TIME L follows the same law. Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds."
     },
     "Circular Delay": {
       "kind": "delay.multitap",
@@ -436,16 +439,17 @@
         "LOW PASS": { "param": "highCutHz", "unit": "Hz", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Placed on our multi-tap delay, a diffused cluster of repeats. From a unit's catalogue (CorOS d14e): DELAY TIME 27 to 2000 ms, FEEDBACK 0 to 95 %, DIFFUSION and MIX in percent, HIGH PASS and LOW PASS in Hz. HIGH PASS is our low cut and LOW PASS our high cut. The tap count and pattern are ours and stay at their defaults. The sound is a neighbour of the unit's, not a copy."
+      "notes": "Placed on our multi-tap delay, a diffused cluster of repeats. From a unit's catalogue (CorOS d14e): DELAY TIME 27 to 2000 ms, FEEDBACK 0 to 95 %, DIFFUSION and MIX in percent, HIGH PASS and LOW PASS in Hz. HIGH PASS is our low cut and LOW PASS our high cut. The tap count and pattern are ours and stay at their defaults. Measured on a unit (CorOS d14e, plan v13): DELAY TIME with SYNC off is linear in the wire value, so it is taken as milliseconds as it is. The sound is a neighbour of the unit's, not a copy."
     },
     "Simple Ping Pong Delay": {
       "kind": "delay.pingpong",
       "verified": false,
       "params": {
+        "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Feedback and mix only; the time is not mapped."
+      "notes": "Time, feedback and mix (DELAY TIME name assumed from the Digital Delay). Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds. Measured on a unit (CorOS d14e, plan v13): the right side repeats at twice the time of the left, which our ping pong ratio choices (1:1, dotted, golden) cannot express, so the right line stays on its ratio."
     },
 
     "Room": {

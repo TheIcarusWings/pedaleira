@@ -1362,6 +1362,52 @@ TEST(PresetImporterTest, DelayModelsGetTheirKindsAndValuesOnOurScales) {
   EXPECT_TRUE(entryAt(report["approximated"], 0, 1, "param", "DYN DEPTH").isObject());
 }
 
+TEST(PresetImporterTest, TheDelayTimesFollowTheMeasured53LawAndTheUtilityGateItsPeakFit) {
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  // The wire law is in the curves table, one entry per time of the delays measured with SYNC off.
+  const juce::var curves = parseJson(
+      juce::File(__FILE__)
+          .getParentDirectory()
+          .getParentDirectory()
+          .getParentDirectory()
+          .getChildFile("resources/import/quad-cortex-curves.json")
+          .loadFileAsString()
+          .toRawUTF8());
+  for (const char* model : {"Digital Delay", "Simple Delay", "Tape Delay", "Analog Delay",
+                            "Slapback Delay", "Simple Ping Pong Delay", "Reverse Delay"})
+    EXPECT_NEAR(static_cast<double>(curves["models"][model]["DELAY TIME"]["exponent"]), 5.0 / 3.0,
+                1e-6)
+        << model;
+  for (const char* side : {"DELAY TIME L", "DELAY TIME R"})
+    for (const char* model : {"Dual Delay", "Dual Reverse Delay"})
+      EXPECT_NEAR(static_cast<double>(curves["models"][model][side]["exponent"]), 5.0 / 3.0, 1e-6)
+          << model;
+  EXPECT_FALSE(curves["models"]["Circular Delay"].isObject()) << "Circular Delay is linear";
+
+  const juce::var foreign = parseJson(R"json({"format":"pedaleira-foreign-preset","version":1,
+    "source":"quad-cortex","name":"Time and gate","rows":[{"index":0,"blocks":[
+      {"position":0,"model":"Simple Delay (M)","category":"Delay","enabled":true,
+       "params":{"DELAY TIME":{"value":300,"unit":"ms"},"FEEDBACK":{"value":30,"unit":"%"}}},
+      {"position":1,"model":"Utility Gate","category":"Gate","enabled":true,
+       "params":{"THRESHOLD":{"value":-20,"unit":"dB"}}},
+      {"position":2,"model":"Utility Gate","category":"Gate","enabled":true,
+       "params":{"THRESHOLD":{"value":-50,"unit":"dB"}}},
+      {"position":3,"model":"Utility Gate","category":"Gate","enabled":true,
+       "params":{"THRESHOLD":{"value":-60,"unit":"dB"}}}]}]})json");
+  const importer::ImportResult result = importer::convertForeignPreset(foreign, table);
+  ASSERT_TRUE(result.ok) << result.error;
+  const auto number = [&](int position, const char* id) {
+    return static_cast<double>(kindParam(slotNode(result.preset, 0, position), id));
+  };
+  EXPECT_EQ(kindOf(slotNode(result.preset, 0, 0)), "delay.simple");
+  EXPECT_NEAR(number(0, "timeMs"), 300.0, 1e-3) << "the dump already holds the shown time";
+  EXPECT_NEAR(number(0, "feedback"), 30.0, 1e-3);
+  // Peak dBFS = 1.155 x setting - 10.95 (CorOS d14e, plan v14).
+  EXPECT_NEAR(number(1, "thresholdDb"), 1.155 * -20.0 - 10.95, 1e-3);
+  EXPECT_NEAR(number(2, "thresholdDb"), 1.155 * -50.0 - 10.95, 1e-3);
+  EXPECT_NEAR(number(3, "thresholdDb"), -80.0, 1e-3) << "setting -60 is about -80 and clamps there";
+}
+
 }  // namespace
 
 TEST(PresetImporterTest, EqualiserModelsGetTheirKinds) {

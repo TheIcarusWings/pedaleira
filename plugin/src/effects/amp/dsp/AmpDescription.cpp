@@ -419,16 +419,16 @@ public:
 
   void readPower(const json& obj) {
     const std::string path = "power_amp";
-    allowOnly(obj, path, {"tube", "topology", "open_loop_gain", "feedback", "presence", "depth", "transformer", "knee_mix",
-                          "crossover", "supply"});
+    allowOnly(obj, path, {"tube", "topology", "open_loop_gain", "feedback", "presence", "depth", "tone_cut", "transformer",
+                          "knee_mix", "crossover", "supply"});
     PowerDescription& power = out.power;
     readString(obj, path, "tube", power.tube, false);
     static const char* const tubes[] = {"EL34", "6L6", "EL84", "6V6", "KT88", "6550", "custom"};
     if (std::none_of(std::begin(tubes), std::end(tubes), [&](const char* t) { return power.tube == t; }))
       fail(child(path, "tube"), "must be one of EL34, 6L6, EL84, 6V6, KT88, 6550, custom");
     readString(obj, path, "topology", power.topology, false);
-    if (power.topology != "push_pull_ab" && power.topology != "push_pull_a")
-      fail(child(path, "topology"), "must be \"push_pull_ab\" or \"push_pull_a\"");
+    if (power.topology != "push_pull_ab" && power.topology != "push_pull_a" && power.topology != "solid_state")
+      fail(child(path, "topology"), "must be \"push_pull_ab\", \"push_pull_a\" or \"solid_state\"");
     PowerAmpParams& p = power.params;
     readFloat(obj, path, "open_loop_gain", p.openLoopGain, Provenance::Fitted, 1.0, 1000.0);
     readFloat(obj, path, "knee_mix", p.kneeMix, Provenance::Fitted, 0.0, 1.0);
@@ -452,6 +452,18 @@ public:
     readFloat(depth, child(path, "depth"), "resistance_ohm", p.depthResistance, Provenance::Schematic, 0.1, 1.0e5);
     readFloat(depth, child(path, "depth"), "max_cut", p.depthMaxCut, Provenance::Fitted, 0.0, 1.0);
 
+    if (find(obj, "tone_cut") != nullptr) {
+      const std::string cutPath = child(path, "tone_cut");
+      const json& cut = objectField(obj, path, "tone_cut", true, none);
+      allowOnly(cut, cutPath, {"source_ohm", "pot_ohm", "min_ohm", "capacitor_f"});
+      ToneCutParams& c = power.toneCut;
+      readFloat(cut, cutPath, "source_ohm", c.sourceResistance, Provenance::Schematic, 100.0, 1.0e7, true);
+      readFloat(cut, cutPath, "pot_ohm", c.potResistance, Provenance::Schematic, 0.0, 1.0e7, true);
+      readFloat(cut, cutPath, "min_ohm", c.minResistance, Provenance::Schematic, 0.0, 1.0e7);
+      readFloat(cut, cutPath, "capacitor_f", c.capacitance, Provenance::Schematic, 1.0e-12, 1.0e-4, true);
+      power.hasToneCut = true;
+    }
+
     const json& transformer = objectField(obj, path, "transformer", false, none);
     allowOnly(transformer, child(path, "transformer"), {"high_corner_hz", "low_corner_hz"});
     readFloat(transformer, child(path, "transformer"), "high_corner_hz", p.transformerLowpassHz, Provenance::Fitted, 500.0, 100000.0);
@@ -461,8 +473,9 @@ public:
     allowOnly(crossover, child(path, "crossover"), {"ratio", "width"});
     readFloat(crossover, child(path, "crossover"), "ratio", p.crossoverRatio, Provenance::Fitted, 0.0, 1.0);
     readFloat(crossover, child(path, "crossover"), "width", p.crossoverWidth, Provenance::Fitted, 0.01, 10.0);
-    if (power.topology == "push_pull_a")
+    if (power.topology != "push_pull_ab")
       p.crossoverRatio = 1.0f;
+    p.hardClip = power.topology == "solid_state";
 
     const json& supply = objectField(obj, path, "supply", true, none);
     readSupply(supply, child(path, "supply"), power.supply, power.rectifier);
@@ -592,9 +605,19 @@ public:
       std::string target;
       readString(obj, path, "target", target, true);
       const std::string expected = canonicalTarget(id);
-      if (target != expected)
-        fail(child(path, "target"), "the " + std::string(panelIdName(id)) + " control drives \"" + expected + "\" in this description, not \"" + target + "\"");
+      // The presence control can drive a tone cut instead (an amp without
+      // global feedback has no presence network to move).
+      const bool toneCut = id == PanelId::Presence && target == "power_amp.tone_cut";
+      if (toneCut && !out.power.hasToneCut)
+        fail(child(path, "target"), "this amp has no tone cut (give power_amp a tone_cut)");
+      if (target != expected && !toneCut)
+        fail(child(path, "target"), "the " + std::string(panelIdName(id)) + " control drives \"" + expected +
+                                        "\" in this description" +
+                                        (id == PanelId::Presence && out.power.hasToneCut ? " (or \"power_amp.tone_cut\")" : "") +
+                                        ", not \"" + target + "\"");
       control.target = target;
+      if (toneCut)
+        out.presenceDrivesToneCut = true;
       control.taper = id == PanelId::Master ? 2.0f : 1.0f;
       readFloat(obj, path, "taper", control.taper, Provenance::Schematic, 0.2, 8.0);
       if (const json* range = find(obj, "range")) {

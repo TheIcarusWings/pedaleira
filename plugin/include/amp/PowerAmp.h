@@ -6,7 +6,9 @@
 //   - the output stage: a push-pull pair of pentodes, a symmetric soft
 //     saturation (a blend of a soft and a sharper knee) scaled by the
 //     available headroom, plus class AB crossover character (the gain dips
-//     near zero crossing, `crossoverRatio` of the full gain at idle);
+//     near zero crossing, `crossoverRatio` of the full gain at idle); or,
+//     with `hardClip`, a solid-state output stage: exactly linear up to its
+//     rail and clipped flat there (no crossover, no knee);
 //   - global negative feedback from the output back to the input of the
 //     stage: closed-loop gain is A / (1 + A * beta * Hfb), so the loop
 //     flattens the response and tames distortion where the feedback is
@@ -50,6 +52,10 @@
 //                         (the sharp part is not antialiased; 0 by default)
 //   crossoverRatio        small-signal gain at idle relative to full gain
 //   crossoverWidth        level over which the crossover notch recovers
+//   hardClip              a solid-state stage: clip(t) = max(-1, min(1, t))
+//                         in place of the soft curve, anti-aliased with its
+//                         antiderivative (t^2 / 2 inside, |t| - 1/2 outside);
+//                         the knee and the crossover are not used
 // Controls: setPresence(0..1) and setDepth(0..1).
 //
 // Interface: process(x, headroom) returns the output (after the transformer
@@ -83,6 +89,7 @@ struct PowerAmpParams {
   float kneeMix{0.0f};
   float crossoverRatio{0.9f};
   float crossoverWidth{0.3f};
+  bool hardClip{false};
 
   float feedbackFraction() const noexcept { return shuntResistor / (shuntResistor + feedbackResistor); }
   float depthHz() const noexcept {
@@ -112,7 +119,8 @@ public:
     depth.reset();
     feedbackSignal = 0.0f;
     lastT = 0.0f;
-    lastRoot = 1.0f;
+    // The antiderivative at t = 0: sqrt(1 + 0) for the soft curve, 0 for the clip.
+    lastRoot = params.hardClip ? 0.0f : 1.0f;
   }
 
   /** 0..1: Presence pot position (1 = most high-frequency feedback removed). */
@@ -129,6 +137,8 @@ public:
     const float h = std::max(headroom, 0.05f);
     const float v = params.openLoopGain * (x - beta * feedbackSignal);
     const float t = std::clamp(v * recip(h), -1.0e3f, 1.0e3f);
+    if (params.hardClip)
+      return feedBack(h * clipped(t));
     const float t2 = t * t;
     // Soft saturation s(t) = t / sqrt(1 + t^2), anti-aliased with its
     // antiderivative sqrt(1 + t^2) (see TriodeStage.h for the method).
@@ -145,8 +155,26 @@ public:
     }
     const float w2 = params.crossoverWidth * params.crossoverWidth;
     const float crossover = (t2 + params.crossoverRatio * w2) * recip(t2 + w2);
-    const float y = h * shaped * crossover;
+    return feedBack(h * shaped * crossover);
+  }
 
+private:
+  /** The hard clip at +-1, anti-aliased with its antiderivative (first order,
+      as the soft curve); exactly linear between the rails. */
+  float clipped(float t) noexcept {
+    const float a = std::abs(t);
+    const float integral = a <= 1.0f ? 0.5f * t * t : a - 0.5f;
+    const float step = t - lastT;
+    const float shaped = std::abs(step) > 1.0e-3f ? (integral - lastRoot) * recip(step)
+                                                  : std::clamp(0.5f * (t + lastT), -1.0f, 1.0f);
+    lastT = t;
+    lastRoot = integral;
+    return shaped;
+  }
+
+  /** The stage's output `y` through the transformer low-pass; keeps the
+      feedback for the next sample. */
+  float feedBack(float y) noexcept {
     // The feedback for the NEXT sample: the output through the transformer
     // low-pass, minus the presence and depth bands.
     const float lowpassed = lowB.lowpass(lowA.lowpass(y));
@@ -157,7 +185,6 @@ public:
     return lowpassed;
   }
 
-private:
   PowerAmpParams params;
   double sampleRate{48000.0};
   OnePole lowA, lowB, presence;

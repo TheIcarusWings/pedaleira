@@ -41,6 +41,17 @@
 //   circuit. Rb is the lower section in parallel with Rload. Setting Cb to 0
 //   removes the bright cap.
 //
+// ToneCut
+//   What it models: the tone cut control of a power amp without global
+//   feedback: a pot Rpot (plus a fixed Rmin) in series with a capacitor C that
+//   shunts the signal driving the output tubes, which comes from a source
+//   resistance Rsrc (the phase inverter's plate). Turning the cut up takes
+//   resistance out of the branch, so more of the highs go to ground:
+//     H(s) = (1 + s Rc C) / (1 + s (Rsrc + Rc) C),  Rc = Rmin + Rpot (1 - position)
+//   unity at low frequencies, a shelf down to Rc / (Rsrc + Rc) above the
+//   corner 1 / (2 pi (Rsrc + Rc) C); with the cut fully up and Rmin = 0 it is
+//   a plain first-order low-pass.
+//
 // Sample rate: every setter takes the rate the filter runs at. Plain C++ and
 // std only (amp/Filters.h). One instance is ONE channel.
 #include <algorithm>
@@ -146,6 +157,47 @@ private:
   OnePole lift;
   float midGain{1.0f};
   float highRatio{1.0f};
+};
+
+struct ToneCutParams {
+  float sourceResistance{100.0e3f};  // what drives the network: the phase inverter's plate
+  float potResistance{100.0e3f};
+  float minResistance{0.0f};  // resistance left in the branch with the cut fully up
+  float capacitance{4.7e-9f};
+};
+
+class ToneCut {
+public:
+  void prepare(double newSampleRate, const ToneCutParams& newParams) noexcept {
+    params = newParams;
+    sampleRate = newSampleRate;
+    setPosition(0.0f);
+    reset();
+  }
+  void reset() noexcept { pole.reset(); }
+
+  /** `position` 0..1 (1 = the most cut). Call at control rate. */
+  void setPosition(float position) noexcept {
+    const float p = std::clamp(position, 0.0f, 1.0f);
+    const float branch = params.minResistance + params.potResistance * (1.0f - p);
+    const float total = params.sourceResistance + branch;
+    shelf = branch / total;
+    pole.setCutoff(1.0 / (kTwoPi * static_cast<double>(total) * params.capacitance), sampleRate);
+  }
+
+  /** Gain at high frequencies relative to the low ones. */
+  float highRatio() const noexcept { return shelf; }
+
+  float process(float x) noexcept {
+    const float low = pole.lowpass(x);
+    return low + shelf * (x - low);
+  }
+
+private:
+  ToneCutParams params;
+  double sampleRate{48000.0};
+  OnePole pole;
+  float shelf{1.0f};
 };
 
 }  // namespace amp

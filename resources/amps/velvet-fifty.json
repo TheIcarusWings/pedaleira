@@ -1,0 +1,148 @@
+{
+  "format": "pedaleira-amp",
+  "version": 1,
+  "metadata": {
+    "name": "Velvet Fifty",
+    "author": "Pedaleira",
+    "licence": "MIT",
+    "summary": "A smooth clean amp: a 12AX7 input stage, the gain pot, two more 12AX7 stages, a treble, middle and bass tone stack, a master volume and a push-pull pair of 6L6 with global feedback. The reference's GAIN sweep was taken 6 dB quieter than its setting with every knob at 5, which fits its master at 3.5 for that sweep: the fit and the tests measure the sweep there. A typical topology of the kind, not the schematic of one product; its values were fitted to measurements of a reference amp (its GAIN sweep, its response with every knob at 5 and its tone knob sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "references": [
+      "D. T. Yeh and J. O. Smith, the closed-form analysis of the treble, middle and bass tone stack, DAFx-06, 2006",
+      "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
+      "Pedaleira measurements of a reference amp played through a modelling unit's USB input: GAIN sweeps with a 1 kHz staircase, THD at the staircase's -18 dBFS step, the test signal's sweeps and the tone knob sweeps (2026), with the signal 24 dB under its nominal level"
+    ]
+  },
+  "model": {"stage_solver": "classic"},
+  "input": {
+    "coupling_capacitor_f": {"value": 1.47e-09, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"},
+    "grid_leak_ohm": 1000000,
+    "grid_stopper_ohm": 68000,
+    "miller_f": 1.6e-10,
+    "source_ohm": {"value": 10000, "provenance": "fitted", "note": "assumed pickup impedance for the grid charge path"}
+  },
+  "stages": [
+    {
+      "name": "V1 input stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {"value": 9.92e-12, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"},
+      "cathode": {
+        "resistor_ohm": 1500,
+        "bias_current_a": {"value": 0.0008, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
+        "bypass_capacitor_f": 2.5e-05
+      },
+      "coupling": {
+        "capacitance_f": {"value": 1.89e-08, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"},
+        "series_ohm": 0,
+        "grid_leak_ohm": 1000000
+      },
+      "gain_pot": {
+        "resistance_ohm": 1000000,
+        "floor_ohm": {"value": 7750, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: Gs at GAIN 2, 5, 8 and 10 (the gain law)"},
+        "source_ohm": 100000,
+        "load_ohm": 1000000,
+        "taper": {"value": 6, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: Gs at GAIN 2, 5, 8 and 10 (the gain law)"},
+        "bright_capacitor_f": 0
+      }
+    },
+    {
+      "name": "V2 gain stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {"value": 9.12e-12, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"},
+      "cathode": {
+        "resistor_ohm": 1500,
+        "bias_current_a": {"value": 0.000671, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
+        "bypass_capacitor_f": "ideal"
+      },
+      "coupling": {
+        "capacitance_f": {"value": 2.99e-08, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"},
+        "series_ohm": {"value": 298000, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
+        "grid_leak_ohm": 1000000
+      }
+    },
+    {
+      "name": "V3 recovery stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {"value": 1.26e-11, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"},
+      "cathode": {
+        "resistor_ohm": 1500,
+        "bias_current_a": {"value": 0.000265, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
+        "bypass_capacitor_f": "ideal"
+      }
+    }
+  ],
+  "tone_stack": {
+    "type": "tmb",
+    "treble_pot_ohm": {"value": 1000000, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the tone knob responses"},
+    "bass_pot_ohm": {"value": 99900, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the tone knob responses"},
+    "middle_pot_ohm": {"value": 1670, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the tone knob responses"},
+    "slope_ohm": {"value": 10700, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the tone knob responses"},
+    "treble_cap_f": {"value": 1.1e-10, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the tone knob responses"},
+    "bass_cap_f": {"value": 5.76e-08, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the tone knob responses"},
+    "middle_cap_f": {"value": 2.2e-07, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the tone knob responses"}
+  },
+  "effects_loop": {"present": false, "note": "placeholder: the signal does not pass through a loop"},
+  "power_amp": {
+    "tube": "6L6",
+    "topology": "push_pull_ab",
+    "open_loop_gain": {"value": 28.2, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
+    "feedback": {
+      "series_ohm": {"value": 3690, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
+      "shunt_ohm": 1000
+    },
+    "presence": {
+      "pot_ohm": 0,
+      "min_ohm": {"value": 10000000, "provenance": "schematic", "note": "no presence network: an open branch (10 megohm)"},
+      "capacitor_f": 4.7e-08
+    },
+    "depth": {
+      "inductance_h": {"value": 0.0341, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"},
+      "capacitance_f": 2.1e-05,
+      "resistance_ohm": 63,
+      "max_cut": {"value": 1, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"}
+    },
+    "transformer": {
+      "high_corner_hz": {"value": 8000, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"},
+      "low_corner_hz": {"value": 15.9, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"}
+    },
+    "knee_mix": {"value": 0.317, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
+    "crossover": {
+      "ratio": {"value": 0.887, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
+      "width": {"value": 0.41, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"}
+    },
+    "supply": {"b_plus_v": 450, "source_ohm": 60, "full_load_a": 0.25, "reservoir_f": 0.0001, "attack_s": 0.008, "rectifier": "solid_state"}
+  },
+  "calibration": {
+    "input_full_scale_v": {"value": 1.01, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the small-signal gain (Gs) at GAIN 2, 5, 8 and 10"},
+    "power_drive_v": {"value": 6.8, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
+    "coupling_gain_rise": 0,
+    "output_trim": {"value": 0.105, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the ceiling of the gain sweep"},
+    "control_smoothing_s": 0.02
+  },
+  "panel": {
+    "gain": {
+      "label": "Gain",
+      "target": "stages[0].gain_pot",
+      "taper": {"value": 0.643, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: Gs at GAIN 2, 5, 8 and 10 (the gain law)"},
+      "range": [0.0, 0.597]
+    },
+    "bass": {
+      "label": "Bass",
+      "target": "tone_stack.bass_pot_ohm",
+      "taper": {"value": 1.83, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"}
+    },
+    "middle": {
+      "label": "Middle",
+      "target": "tone_stack.middle_pot_ohm",
+      "taper": {"value": 0.498, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"}
+    },
+    "treble": {
+      "label": "Treble",
+      "target": "tone_stack.treble_pot_ohm",
+      "taper": {"value": 2.22, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the response with every knob at 5"}
+    },
+    "master": {"label": "Master", "target": "master", "taper": 2}
+  }
+}

@@ -284,6 +284,53 @@ TEST(AmpDescriptionLoader, ATubeOtherThanThe12AX7NeedsItsOwnCutoffVoltage) {
   EXPECT_FLOAT_EQ(parsed.description.stages[1].spec.triode.cutoffGridVolts, 4.2f);
 }
 
+namespace {
+
+// The shipped amp with a tone cut ahead of the power tubes, and its presence
+// knob moved onto it when `onPresence`.
+std::string withToneCut(bool onPresence) {
+  std::string text = edited(shipped(), "\"depth\": { \"inductance_h\": 0.12,",
+                            "\"tone_cut\": { \"source_ohm\": 100000, \"pot_ohm\": 100000, \"min_ohm\": 2200, \"capacitor_f\": 4.7e-9 },\n"
+                            "    \"depth\": { \"inductance_h\": 0.12,");
+  if (onPresence)
+    text = edited(text, "\"presence\": { \"label\": \"Presence\", \"target\": \"power_amp.presence\" }",
+                  "\"presence\": { \"label\": \"Tone Cut\", \"target\": \"power_amp.tone_cut\" }");
+  return text;
+}
+
+}  // namespace
+
+TEST(AmpDescriptionLoader, AToneCutIsReadAndThePresenceKnobCanDriveIt) {
+  const Parsed plain = parse(shipped());
+  ASSERT_TRUE(plain.ok) << plain.error;
+  EXPECT_FALSE(plain.description.power.hasToneCut);
+  EXPECT_FALSE(plain.description.presenceDrivesToneCut);
+
+  const Parsed held = parse(withToneCut(false));
+  ASSERT_TRUE(held.ok) << held.error;
+  EXPECT_TRUE(held.description.power.hasToneCut);
+  EXPECT_FALSE(held.description.presenceDrivesToneCut) << "a tone cut no knob drives is held at the middle";
+  EXPECT_FLOAT_EQ(held.description.power.toneCut.sourceResistance, 100000.0f);
+  EXPECT_FLOAT_EQ(held.description.power.toneCut.minResistance, 2200.0f);
+  EXPECT_FLOAT_EQ(held.description.power.toneCut.capacitance, 4.7e-9f);
+
+  const Parsed driven = parse(withToneCut(true));
+  ASSERT_TRUE(driven.ok) << driven.error;
+  EXPECT_TRUE(driven.description.presenceDrivesToneCut);
+  EXPECT_EQ(driven.description.control(amp::PanelId::Presence).label, "Tone Cut");
+  EXPECT_EQ(driven.description.control(amp::PanelId::Presence).target, "power_amp.tone_cut");
+
+  // Without the network there is nothing for the knob to drive; the network
+  // needs its parts; only the presence control can drive it.
+  expectRejected(edited(shipped(), "\"target\": \"power_amp.presence\"", "\"target\": \"power_amp.tone_cut\""),
+                 "panel.presence.target: this amp has no tone cut");
+  expectRejected(edited(withToneCut(false), "\"capacitor_f\": 4.7e-9 }", "\"cap\": 4.7e-9 }"),
+                 "power_amp.tone_cut.cap: unknown field");
+  expectRejected(edited(withToneCut(false), ", \"capacitor_f\": 4.7e-9 }", " }"), "power_amp.tone_cut.capacitor_f: missing");
+  expectRejected(edited(withToneCut(false), "\"target\": \"power_amp.depth\"", "\"target\": \"power_amp.tone_cut\""),
+                 "panel.depth.target");
+}
+
 TEST(AmpDescriptionLoader, AMinimalDescriptionTakesDefaultsForTheRest) {
   const char* text = R"({
     "format": "pedaleira-amp", "version": 1,
@@ -479,6 +526,46 @@ TEST(AmpCustom, APanelWithoutAControlLeavesThatPartAtMiddle) {
   const Stereo bassHigh = render({{"bass", 100}, {"voicing", 1}});
   EXPECT_EQ(maxAbsDifference(trebleLow, trebleHigh), 0.0);
   EXPECT_GT(maxAbsDifference(bassLow, bassHigh), 0.01);
+}
+
+TEST(AmpCustom, APresenceKnobOnTheToneCutTakesTheHighsAway) {
+  // Two quiet tones, 300 Hz and 4 kHz, at low gain: the amp stays linear.
+  std::vector<float> tones(static_cast<size_t>(kRate));
+  for (size_t i = 0; i < tones.size(); ++i) {
+    const double t = static_cast<double>(i) / kRate;
+    tones[i] = static_cast<float>(1.0e-3 * (std::sin(2.0 * juce::MathConstants<double>::pi * 300.0 * t) +
+                                            std::sin(2.0 * juce::MathConstants<double>::pi * 4000.0 * t)));
+  }
+  const Stereo in{tones, tones};
+  auto render = [&](const std::string& text, double presence) {
+    const auto custom = makeKind("amp.custom");
+    juce::String error;
+    EXPECT_TRUE(custom->loadDescription(juce::String(text), error)) << error.toStdString();
+    return renderProcessor(*custom, {{"presence", presence}, {"gain", 0}, {"voicing", 1}}, in, 128, 1);
+  };
+  auto amplitude = [](const std::vector<float>& x, double hz) {
+    double c = 0.0, s = 0.0;
+    const size_t from = x.size() / 2;
+    for (size_t i = from; i < x.size(); ++i) {
+      const double phase = 2.0 * juce::MathConstants<double>::pi * hz * static_cast<double>(i) / kRate;
+      c += x[i] * std::cos(phase);
+      s += x[i] * std::sin(phase);
+    }
+    return std::sqrt(c * c + s * s);
+  };
+  // The 4 kHz tone against the 300 Hz one, in dB.
+  auto tiltDb = [&](const Stereo& out) { return toDb(amplitude(out.left, 4000.0) / amplitude(out.left, 300.0)); };
+  const std::string driven = withToneCut(true);
+  const double open = tiltDb(render(driven, 0.0)), cut = tiltDb(render(driven, 100.0));
+  std::cout << "[ TONE CUT ] 4 kHz against 300 Hz: " << open << " dB open, " << cut << " dB cut" << std::endl;
+  EXPECT_LT(cut, open - 10.0) << "turning the tone cut up darkens the amp";
+  // The presence network stays at the middle: with the tone cut held there
+  // too, presence 50 on either description is the same amp.
+  const Stereo a = render(driven, 50.0);
+  const Stereo b = render(withToneCut(false), 50.0);
+  EXPECT_LT(maxAbsDifference(a, b), 1.0e-9);
+  // And the amp without a tone cut is not the amp with one.
+  EXPECT_GT(maxAbsDifference(b, render(shipped(), 50.0)), 1.0e-6);
 }
 
 TEST(AmpCustom, TheKnobTaperAndRangeOfThePanelAreHonoured) {

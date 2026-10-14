@@ -331,6 +331,11 @@ public:
   bool renderBlockImpulseResponse(const std::string& blockId, double sampleRate, std::vector<float>& out,
                                   juce::String& error) const;
 
+  // How a front end draws the block's controls (BlockProcessor::describeFaceplate):
+  // an object for an amp block, void for a block of a kind with no faceplate
+  // or an unknown block.
+  juce::var getBlockFaceplate(const std::string& blockId) const;
+
   // Takes a block out of (true) or back into (false) the audible rig
   // without touching its saved `enabled` switch or the undo history. (A
   // scene change does the same thing to the audio through `enabled` itself;

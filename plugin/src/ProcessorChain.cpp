@@ -2337,6 +2337,15 @@ bool TONE3000Processor::renderBlockImpulseResponse(const std::string& blockId, d
   return true;
 }
 
+juce::var TONE3000Processor::getBlockFaceplate(const std::string& blockId) const {
+  juce::ScopedLock lock(chainMutex);
+  for (const auto& l : lanes)
+    for (const auto& b : l)
+      if (b->id == blockId && b->type == ChainBlockType::KIND && b->processor != nullptr && !b->isMissingKind())
+        return b->processor->describeFaceplate();
+  return {};
+}
+
 juce::var TONE3000Processor::getBlockParams(const std::string& blockId) const {
   // A hosted plugin's parameter text is a call into the plugin (message
   // thread, and the VST3 wrapper may take the message-manager lock), so it

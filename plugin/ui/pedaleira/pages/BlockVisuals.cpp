@@ -664,91 +664,6 @@ protected:
   }
 };
 
-// An amp's knobs as its own face: a faceplate with a row of knobs, a jewel
-// light for the block being on and the sag the engine reports.
-class AmpFace final : public BlockVisual {
-protected:
-  juce::String heading() const override { return "Amp"; }
-  bool framed() const override { return false; }
-
-  bool liveMatters(const BlockLive& before, const BlockLive& after) const override {
-    const auto sag = [](const BlockLive& l) {
-      const auto it = l.readings.find("sag");
-      return it != l.readings.end() ? it->second : 0.0;
-    };
-    return std::abs(sag(before) - sag(after)) > 0.02;
-  }
-
-  void draw(juce::Graphics& g, Rectangle<float> box) override {
-    // The chassis with its top rail in the block's colour.
-    g.setColour(colour::drop);
-    g.fillRoundedRectangle(box.translated(0.0f, size::dropDepth), size::panelRadius);
-    g.setColour(colour::raised);
-    g.fillRoundedRectangle(box, size::panelRadius);
-    g.setColour(accent);
-    g.fillRoundedRectangle(box.withHeight(5.0f), 2.5f);
-    g.setColour(colour::line);
-    g.drawRoundedRectangle(box.reduced(0.5f), size::panelRadius, 1.0f);
-    auto inner = box.reduced(12.0f, 14.0f);
-    auto top = inner.removeFromTop(14.0f);
-    paint::label(g, "Amp", top.toNearestInt(), juce::Justification::centredLeft, accent);
-    // The jewel light.
-    const auto jewel = Rectangle<float>(9.0f, 9.0f).withCentre({top.getRight() - 6.0f, top.getCentreY()});
-    g.setColour(enabled ? accent : colour::faint);
-    g.fillEllipse(jewel);
-    if (enabled) {
-      g.setColour(accent.withAlpha(0.25f));
-      g.fillEllipse(jewel.expanded(4.0f));
-    }
-    // The grille along the bottom.
-    auto grille = inner.removeFromBottom(26.0f);
-    g.setColour(colour::ground);
-    g.fillRoundedRectangle(grille, 4.0f);
-    g.setColour(colour::line);
-    for (float y = grille.getY() + 4.0f; y < grille.getBottom() - 2.0f; y += 4.0f)
-      g.drawHorizontalLine(juce::roundToInt(y), grille.getX() + 4.0f, grille.getRight() - 4.0f);
-    const auto sag = live.readings.find("sag");
-    if (sag != live.readings.end()) {
-      g.setColour(accent.withAlpha(0.8f));
-      g.fillRoundedRectangle(grille.reduced(4.0f, 8.0f).withWidth((grille.getWidth() - 8.0f) * static_cast<float>(juce::jlimit(0.0, 1.0, sag->second))), 2.0f);
-      smallText(g, "Sag", grille.reduced(8.0f, 0.0f), juce::Justification::centredRight, colour::text);
-    }
-    inner.removeFromBottom(8.0f);
-    std::vector<const KnobParam*> knobs;
-    for (const auto& p : params)
-      if (p.type == "float" && !p.common && p.unit != "dB" && knobs.size() < 8)
-        knobs.push_back(&p);
-    if (knobs.empty())
-      return;
-    const int perRow = knobs.size() > 4 ? 4 : static_cast<int>(knobs.size());
-    const int rows = (static_cast<int>(knobs.size()) + perRow - 1) / perRow;
-    const float cellW = inner.getWidth() / static_cast<float>(perRow), cellH = inner.getHeight() / static_cast<float>(rows);
-    for (size_t i = 0; i < knobs.size(); ++i) {
-      const auto cell = Rectangle<float>(cellW, cellH).withPosition(inner.getX() + cellW * static_cast<float>(i % perRow),
-                                                                  inner.getY() + cellH * static_cast<float>(i / perRow));
-      const float radius = juce::jmin(15.0f, cellH * 0.32f);
-      const auto centre = juce::Point<float>(cell.getCentreX(), cell.getY() + radius + 4.0f);
-      const double pos = knobs[i]->toPosition(knobs[i]->value);
-      const float start = juce::MathConstants<float>::pi * 1.25f, sweep = juce::MathConstants<float>::pi * 1.5f;
-      juce::Path track;
-      track.addCentredArc(centre.x, centre.y, radius + 4.0f, radius + 4.0f, 0.0f, start, start + sweep, true);
-      g.setColour(colour::line);
-      g.strokePath(track, juce::PathStrokeType(2.0f));
-      g.setColour(colour::drop);
-      g.fillEllipse(Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre.translated(0.0f, 1.5f)));
-      g.setColour(colour::control);
-      g.fillEllipse(Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre));
-      const float angle = start + sweep * static_cast<float>(pos);
-      g.setColour(accent);
-      g.drawLine({centre.getPointOnCircumference(radius * 0.35f, angle), centre.getPointOnCircumference(radius * 0.95f, angle)}, 2.5f);
-      g.setFont(type::sans(10.0f, type::Weight::semibold));
-      g.setColour(colour::muted);
-      g.drawText(knobs[i]->name, juce::Rectangle<float>(cellW, 12.0f).withCentre({centre.x, centre.y + radius + 14.0f}).toNearestInt(),
-                 juce::Justification::centred, true);
-    }
-  }
-};
-
 // ####################
 // PITCH
 // ####################
@@ -910,7 +825,8 @@ std::unique_ptr<BlockVisual> makeBlockVisual(Category category, const juce::Stri
     case Category::reverb: return std::make_unique<ReverbVisual>();
     case Category::modulation: return std::make_unique<LfoVisual>();
     case Category::drive: return std::make_unique<DriveVisual>();
-    case Category::amp: return std::make_unique<AmpFace>();
+    // An amp is its faceplate (AmpFaceplate), not a picture above sections.
+    case Category::amp: return nullptr;
     case Category::pitch: return std::make_unique<PitchVisual>();
     default: return std::make_unique<GlyphVisual>(category);
   }

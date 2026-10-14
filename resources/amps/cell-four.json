@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A four-stage high gain channel with a deep low-end resonance (a 12AX7 input stage, a gain pot, three cascaded gain stages, a treble-middle-bass tone stack) into a push-pull power amp with presence and depth feedback. The topology and the starting values are those of the High Gain description; the gain law, the levels, the clipping points, the tone stack and the feedback network were then fitted to measurements of a reference amp (its GAIN sweep and its line-level response at GAIN 5). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "high_gain",
     "references": [
       "D. T. Yeh and J. O. Smith, Discretization of the '59 Fender Bassman Tone Stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -111,7 +112,21 @@
     "presence": {"label": "Presence", "target": "power_amp.presence"},
     "depth": {"label": "Depth", "target": "power_amp.depth"},
     "master": {"label": "Master", "target": "master", "taper": 2.0},
-    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"}
+    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"},
+    "faceplate": {
+      "accent": "#B6F23A",
+      "nameplate": "right",
+      "tag": "German",
+      "character": "Four-channel German high gain, precise and dense",
+      "strip": "cells",
+      "knob_cap": "round",
+      "groups": [
+        {"title": "Input", "controls": ["gain", "bright"]},
+        {"title": "Shaping", "controls": ["bass", "middle", "treble"]},
+        {"title": "Power", "controls": ["presence", "depth"]},
+        {"title": "Output", "controls": ["master"]}
+      ]
+    }
   },
 
   "default_cab": {"speaker": "Oak", "size": "4x12", "back": "closed", "mic": "dynamic",

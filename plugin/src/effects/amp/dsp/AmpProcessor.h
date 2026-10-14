@@ -66,6 +66,44 @@ public:
 
   const amp::AmpDescription& description() const noexcept { return *desc; }
 
+  /** The faceplate of block.getFaceplate: the description's panel style with
+      the defaults filled in, and the names a front end needs to draw it. */
+  juce::var describeFaceplate() const override {
+    const amp::AmpDescription& d = *desc;
+    const amp::Faceplate face = amp::resolveFaceplate(d);
+    juce::Array<juce::var> groups;
+    for (const amp::PanelGroup& group : face.groups) {
+      juce::Array<juce::var> controls;
+      for (const amp::PanelId id : group.controls) {
+        auto* control = new juce::DynamicObject();
+        control->setProperty("id", amp::panelIdName(id));
+        control->setProperty("label", juce::String(d.control(id).label));
+        controls.add(juce::var(control));
+      }
+      auto* box = new juce::DynamicObject();
+      box->setProperty("title", juce::String(group.title));
+      box->setProperty("columns", group.columns);
+      box->setProperty("controls", controls);
+      groups.add(juce::var(box));
+    }
+    juce::Array<juce::var> voicings;
+    for (int v = 0; v < d.numVoicings; ++v)
+      voicings.add(juce::String(d.voicings[v].name));
+    auto* plate = new juce::DynamicObject();
+    plate->setProperty("name", juce::String(d.name));
+    plate->setProperty("family", juce::String(amp::ampFamilyName(d.family)));
+    plate->setProperty("styled", face.styled);
+    plate->setProperty("tag", juce::String(face.tag));
+    plate->setProperty("character", juce::String(face.character));
+    plate->setProperty("accent", juce::String(face.accent));
+    plate->setProperty("nameplate", amp::nameplateId(face.nameplate));
+    plate->setProperty("knobCap", amp::knobCapId(face.knobCap));
+    plate->setProperty("strip", amp::stripPatternId(face.strip));
+    plate->setProperty("voicings", voicings);
+    plate->setProperty("groups", groups);
+    return juce::var(plate);
+  }
+
   /** Swaps the description. Rebuilds the circuits when the block is already
       prepared (which allocates for the wave digital model): the caller must
       keep the audio thread out. */

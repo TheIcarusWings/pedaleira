@@ -17,6 +17,11 @@ namespace pedaleira::ui {
 class Knob : public juce::Component {
 public:
   enum class Assignment { none, scene, expression };
+  // The shape of the cap. round is the design system's flat cap with a pointer
+  // line; the others are the amp faceplates' (pointer: a wedge, chicken head:
+  // a teardrop that turns with the value, fader: a vertical slider instead of
+  // a knob).
+  enum class Cap { round, pointer, chickenHead, fader };
 
   explicit Knob(const juce::String& name);
 
@@ -35,6 +40,22 @@ public:
   // The arc's colour when nothing is assigned (a block's category colour in
   // its settings); white by default.
   void setAccent(juce::Colour colour);
+  void setCap(Cap newCap);
+  Cap getCap() const { return cap; }
+  // The name and value under the knob, on by default; the scene and pedal tag
+  // under them too. A knob that sits in a row of its own text turns them off.
+  void setTextShown(bool shown);
+  void setTagShown(bool shown);
+  // The height of what is drawn above the text for a cap of this diameter (a
+  // fader is a tall box), and the height of a whole cell: that, the name and
+  // the value.
+  static int visualHeight(Cap cap, int diameter);
+  static int cellHeight(Cap cap, int diameter, bool withTag = true);
+  // The mouse is over the knob or it is being turned: the owner may show its
+  // value in a bubble. onHotChanged tells when that starts or stops.
+  bool isHot() const { return hover.target() > 0.5f || turning.target() > 0.5f; }
+  juce::String getValueText() const { return valueText; }
+  std::function<void()> onHotChanged;
 
   std::function<void(double)> onChange;
   // A right click (or control click): the knob's menu, such as assigning
@@ -53,6 +74,9 @@ public:
 
 private:
   std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
+  void paintCap(juce::Graphics& g, juce::Point<float> centre, float box, float angle, juce::Colour arc, float alpha, float lit,
+                float active) const;
+  void paintFader(juce::Graphics& g, juce::Colour arc, float alpha, float lit, float active) const;
 
   double position = 0.0;
   double defaultPosition = 0.0;
@@ -63,6 +87,8 @@ private:
   bool bypassed = false;
   juce::Colour accent = colour::text;
   int diameter = 64;
+  Cap cap = Cap::round;
+  bool textShown = true, tagShown = true;
   // The mouse over the knob (a halo and a brighter track), and a turn in
   // progress (the value lights up and the cap grows a little).
   Tween hover{*this};

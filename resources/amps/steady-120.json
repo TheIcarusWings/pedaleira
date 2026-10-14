@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A solid-state clean amp with no distortion of its own: two transistor gain stages around the volume pot, a treble, middle and bass tone stack and a solid-state power amp with feedback that is linear up to its rails and clips flat there. The framework's stages are tube stages; here they stand for transistor stages and are given bias and cutoff voltages (30 V and 60 V) far above any signal they see, so they never bend, and the supply does not sag. A typical topology of the kind, not the schematic of one product; its values were fitted to measurements of a reference amp (its VOLUME sweep, its response with every knob at 5 and its tone knob sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "clean",
     "references": [
       "D. T. Yeh and J. O. Smith, the closed-form analysis of the treble, middle and bass tone stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -112,6 +113,18 @@
       "label": "Treble",
       "target": "tone_stack.treble_pot_ohm",
       "taper": {"value": 0.949, "provenance": "fitted", "note": "fitted to the Steady 120 measurements: the response with every knob at 5"}
+    },
+    "faceplate": {
+      "accent": "#9AA4AF",
+      "nameplate": "left",
+      "tag": "Solid State",
+      "character": "Flat solid-state jazz clean",
+      "strip": "steps",
+      "knob_cap": "fader",
+      "groups": [
+        {"title": "Channel", "controls": ["gain"]},
+        {"title": "Equaliser", "controls": ["bass", "middle", "treble"]}
+      ]
     }
   }
 }

@@ -3,7 +3,7 @@
 // so a new kind is still grouped), and the picture at the top of the panel,
 // one family per category: a response curve for equalisers, the transfer curve
 // for dynamics, the echoes of a delay, the decay of a reverb, the wave of a
-// modulation, the saturation of a drive and the face of an amp, the interval
+// modulation, the saturation of a drive, the interval
 // of a pitch block and a level glyph for the rest. The pictures are drawn
 // from the parameters (and, where the engine reports them, live levels and
 // readings) and repaint only when something they show has moved.
@@ -49,7 +49,8 @@ protected:
   virtual void draw(juce::Graphics& g, juce::Rectangle<float> area) = 0;
   // Whether a live change is worth a repaint.
   virtual bool liveMatters(const BlockLive& before, const BlockLive& after) const;
-  // Whether the picture has the frame and heading (the amp face has its own).
+  // Whether the picture has the frame and heading (a picture that draws its
+  // own turns this off).
   virtual bool framed() const { return true; }
 
   const KnobParam* find(std::initializer_list<const char*> ids) const;
@@ -71,7 +72,8 @@ protected:
 };
 
 // The picture for a category; nothing for the graphic equaliser, whose band
-// sliders are the picture.
+// sliders are the picture, and nothing for an amp, which is drawn as its
+// faceplate (AmpFaceplate.h).
 std::unique_ptr<BlockVisual> makeBlockVisual(Category category, const juce::String& kindId);
 
 // Exposed for the testbed's checks.

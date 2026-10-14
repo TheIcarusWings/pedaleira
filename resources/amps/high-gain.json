@@ -7,6 +7,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A modern four-stage high gain preamp (a 12AX7 input stage, a gain pot with a bright cap, three cascaded gain stages, a treble-middle-bass tone stack) into a push-pull EL34 power amp with presence and depth feedback and a sagging supply. A typical topology of the genre, not the schematic of one product: the component values are the usual ones for this circuit, and what was chosen by ear or by fitting is marked \"fitted\".",
+    "family": "high_gain",
     "references": [
       "D. T. Yeh and J. O. Smith, Discretization of the '59 Fender Bassman Tone Stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009"
@@ -135,7 +136,19 @@
     "depth": { "label": "Depth", "target": "power_amp.depth" },
     "master": { "label": "Master", "target": "master", "taper": 2.0 },
     "bright": { "label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f" },
-    "voicing": { "label": "Voicing", "target": "voicings" }
+    "voicing": { "label": "Voicing", "target": "voicings" },
+    "faceplate": {
+      "accent": "#F08A4B",
+      "nameplate": "left",
+      "tag": "Modern",
+      "character": "Four-stage modern high gain, the first amp",
+      "strip": "chevron",
+      "knob_cap": "round",
+      "groups": [
+        {"title": "Preamp", "controls": ["gain", "bass", "middle", "treble", "bright"]},
+        {"title": "Power", "controls": ["presence", "depth", "master", "voicing"]}
+      ]
+    }
   },
 
   "default_cab": {"speaker": "Granite", "size": "4x12", "back": "closed", "mic": "dynamic",

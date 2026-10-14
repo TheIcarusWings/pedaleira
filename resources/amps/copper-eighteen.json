@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A small EL84 crunch amp: a 12AX7 input stage, the volume pot, a second 12AX7 stage, a fixed voicing network (a treble, middle and bass network at fixed settings, standing for the channel's coupling and voicing parts) and a push-pull pair of EL84 with no global feedback, whose drive is shunted by a tone cut control. A typical topology of the kind, not the schematic of one product; its values were fitted to measurements of a reference amp (its VOLUME sweep, its response with every knob at 5 and its tone cut sweep). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "crunch",
     "references": [
       "D. T. Yeh and J. O. Smith, the closed-form analysis of the treble, middle and bass tone stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -118,6 +119,18 @@
       "label": "Tone Cut",
       "target": "power_amp.tone_cut",
       "taper": {"value": 4.02, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: the tone cut responses"}
+    },
+    "faceplate": {
+      "accent": "#D9772B",
+      "nameplate": "left",
+      "tag": "Brit 18",
+      "character": "Small EL84 crunch, touch sensitive",
+      "strip": "crosses",
+      "knob_cap": "round",
+      "groups": [
+        {"title": "Drive", "controls": ["gain"]},
+        {"title": "Power", "controls": ["presence"]}
+      ]
     }
   }
 }

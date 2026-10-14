@@ -6,11 +6,14 @@
 // reuses the editors' bodies (EffectEditor, NamEditor, IrEditor) inside a
 // viewport, so there is one set of controls; what it changes goes through the
 // same commands, and it follows the rig by being shown again after a scene
-// change, an undo or a preset load. Collapsed it is a slim bar.
+// change, an undo or a preset load. An amp is not a list of sections: its
+// body is its faceplate (AmpFaceplate), whose controls are the amp's
+// parameters. Collapsed it is a slim bar.
 #pragma once
 
 #include "../EngineClient.h"
 #include "../widgets/Controls.h"
+#include "AmpFaceplate.h"
 #include "BlockStyle.h"
 #include "EditorParts.h"
 #include "GridModel.h"
@@ -48,6 +51,8 @@ public:
   std::optional<double> shownValue(const juce::String& paramId) const;
   juce::String shownName() const { return context.name; }
   bool hasPicture() const { return visual != nullptr; }
+  // The faceplate of an amp block, or null for any other block.
+  const AmpFaceplate* ampFaceplate() const { return faceplate; }
   juce::Rectangle<int> contentBounds() const;
 
   std::function<void(const juce::String& blockId)> onOpenEditor;
@@ -91,6 +96,8 @@ private:
   juce::Viewport viewport;
   std::unique_ptr<BlockEditorBody> body;
   EffectEditor* effect = nullptr;
+  // The body of an amp block, drawn straight into the content area.
+  AmpFaceplate* faceplate = nullptr;
   std::unique_ptr<BlockVisual> visual;
 
   std::map<juce::String, std::vector<ReadingSpec>> readingSpecs;

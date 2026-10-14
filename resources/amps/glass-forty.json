@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A bright clean amp with a lot of headroom: a 12AX7 input stage, the volume pot, a second 12AX7 stage, a bass and treble tone stack (the middle is a fixed resistor) and a push-pull pair of 6L6 with global feedback, no master volume. A typical topology of the kind, not the schematic of one product; its values were fitted to measurements of a reference amp (its VOLUME sweep, its response with every knob at 5 and its tone knob sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "clean",
     "references": [
       "D. T. Yeh and J. O. Smith, the closed-form analysis of the treble, middle and bass tone stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -122,6 +123,18 @@
       "label": "Treble",
       "target": "tone_stack.treble_pot_ohm",
       "taper": {"value": 2.42, "provenance": "fitted", "note": "fitted to the Glass Forty measurements: the response with every knob at 5"}
+    },
+    "faceplate": {
+      "accent": "#35E0E0",
+      "nameplate": "top",
+      "tag": "US Clean",
+      "character": "Bright 6L6 clean with lots of headroom",
+      "strip": "rings",
+      "knob_cap": "round",
+      "groups": [
+        {"title": "Volume", "controls": ["gain"]},
+        {"title": "Tone", "controls": ["treble", "bass"]}
+      ]
     }
   }
 }

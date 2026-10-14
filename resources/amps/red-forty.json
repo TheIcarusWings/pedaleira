@@ -6,6 +6,7 @@
     "author": "Pedaleira",
     "licence": "MIT",
     "summary": "A classic-voiced high gain preamp with a big low end (a 12AX7 input stage, a gain pot, three cascaded gain stages, a treble-middle-bass tone stack) into a push-pull EL34 power amp with a strong resonance (depth) control. The topology and the starting values are those of the High Gain description; the gain law, the levels, the clipping points, the tone stack and the feedback network were then fitted to measurements of a reference amp (its GAIN sweep, its line-level responses and its tone, presence and resonance sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "high_gain",
     "references": [
       "D. T. Yeh and J. O. Smith, Discretization of the '59 Fender Bassman Tone Stack, DAFx-06, 2006",
       "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
@@ -115,7 +116,20 @@
     "presence": {"label": "Presence", "target": "power_amp.presence"},
     "depth": {"label": "Depth", "target": "power_amp.depth"},
     "master": {"label": "Master", "target": "master", "taper": 2.0},
-    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"}
+    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"},
+    "faceplate": {
+      "accent": "#E5484D",
+      "nameplate": "top",
+      "tag": "US Modern",
+      "character": "EL34 high gain, thick and aggressive",
+      "strip": "dots",
+      "knob_cap": "round",
+      "groups": [
+        {"title": "Gain", "controls": ["gain", "bright"]},
+        {"title": "Tone stack", "controls": ["bass", "middle", "treble"]},
+        {"title": "Power", "controls": ["presence", "depth", "master"]}
+      ]
+    }
   },
 
   "default_cab": {"speaker": "Granite", "size": "4x12", "back": "closed", "mic": "dynamic",

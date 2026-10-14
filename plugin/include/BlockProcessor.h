@@ -427,6 +427,12 @@ public:
       hosted plugin; block.loadDescription gives it a new one. */
   virtual bool takesDescription() const noexcept { return false; }
 
+  /** How a front end draws this block's controls as a faceplate (an amp's
+      panel style, docs/amp-framework.md), as an object: name, family, accent,
+      nameplate, groups and the rest, see block.getFaceplate. Void for a kind
+      that has none. Any thread. */
+  virtual juce::var describeFaceplate() const { return {}; }
+
   /** Whether `text` is a description this kind can load; `error` says what is
       wrong and where when it is not. Changes nothing. Any thread. */
   virtual bool checkDescription(const juce::String& text, juce::String& error) const {

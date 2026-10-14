@@ -13,9 +13,11 @@ copy their shape. Everything named here is documented in its header.
 | Helpers private to a family (no kinds) | `plugin/src/effects/<family>/detail/*.cpp`, headers in `plugin/include/effects/<family>/` |
 | Shared DSP (do not add without asking) | `plugin/include/effects/dsp/`, `plugin/src/effects/dsp/` |
 
-Families: `dynamics`, `eq`, `filter`, `delay`, `reverb`, `modulation`, `pitch`, `drive`, `amp`. The amp family
+Families: `dynamics`, `eq`, `filter`, `delay`, `reverb`, `modulation`, `pitch`, `drive`, `amp`, `cab`. The amp family
 is composed from the reusable, JUCE-free components in `plugin/include/amp` (namespace `amp`: triode
-stage, coupling and bright filters, tone stack, power amp, sag), each with its own unit tests.
+stage, coupling and bright filters, tone stack, power amp, sag), each with its own unit tests. The
+cab family computes a mic'd cab's impulse response from the JUCE-free model in `plugin/include/cab`
+(`docs/cab-framework.md`).
 Both folders are globbed (`CONFIGURE_DEPENDS`): adding a file needs no CMake edit and no
 edit to any shared source (the list of hooks is generated into the build folder). Never
 touch `BlockKinds.cpp`, `Processor.cpp`, the harness or a CMake file for an effect; if

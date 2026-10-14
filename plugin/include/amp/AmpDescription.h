@@ -148,6 +148,28 @@ struct CalibrationDescription {
   float controlSmoothSeconds{0.02f};
 };
 
+/** The cab an amp is meant to be heard through: the settings of a cab.model
+    block (docs/cab-framework.md). Optional, and only a suggestion for whoever
+    builds a rig around the amp: nothing of the amp's own sound depends on
+    it. The strings are the cab.model choices as the format writes them. */
+struct DefaultCab {
+  bool present{false};
+  /** The speaker's name, as its description gives it ("Granite"). */
+  std::string speaker;
+  /** "1x12", "2x12", "4x12", "1x10" or "2x10". */
+  std::string size{"4x12"};
+  /** "closed" or "open". */
+  std::string back{"closed"};
+  /** "dynamic", "ribbon" or "condenser". */
+  std::string mic{"dynamic"};
+  float positionPercent{35.0f};
+  float distanceCm{2.5f};
+  float angleDeg{0.0f};
+  float roomPercent{10.0f};
+  float lowCutHz{30.0f};
+  float highCutHz{16000.0f};
+};
+
 struct AmpDescription {
   // ---- Metadata -----------------------------------------------------------
   int version{kAmpDescriptionVersion};
@@ -173,6 +195,8 @@ struct AmpDescription {
   PowerDescription power;
   CalibrationDescription calibration;
   PanelControl panel[kPanelControls];
+  /** The cab the amp is meant for; `present` false when the file names none. */
+  DefaultCab defaultCab;
 
   /** The stage that carries the gain pot, or -1. */
   int potStage{-1};

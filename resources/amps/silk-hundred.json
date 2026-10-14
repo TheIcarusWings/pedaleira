@@ -128,6 +128,7 @@
     "output_trim": {"value": 0.122, "provenance": "fitted", "note": "fitted to the Silk Hundred measurements: the ceiling of the gain sweep"},
     "control_smoothing_s": 0.02
   },
+  "default_cab": {"speaker": "Oak", "size": "1x12", "back": "closed", "mic": "ribbon", "position_percent": 40, "distance_cm": 5},
   "panel": {
     "gain": {
       "label": "Drive",

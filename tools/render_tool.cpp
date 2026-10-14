@@ -11,7 +11,7 @@
 //                 [--rate <hz>] [--block <samples>] [--tail <seconds>]
 //                 [--oversample <1|2|4|8>] [--out-channels <1..8>] [--info]
 //                 [--state-out <state.json>] [--plugin-path <folder>]...
-//                 [--library <folder>]
+//                 [--library <folder>] [--cab-ir <file.wav>]
 //   PedaleiraRender --describe | --describe-markdown
 //
 // A JSON preset's model files are looked for in an Assets folder beside it,
@@ -24,7 +24,10 @@
 // --run takes a JSON array of {"command": "...", "args": {...}} applied in
 // order after the preset (if any) has loaded; the first failing command stops
 // the run with its error. --state-out writes the state.get result of the rig
-// that was rendered. --plugin-path (repeatable) scans a folder for VST3
+// that was rendered. --cab-ir writes the impulse response of the rig's first
+// cab.model block (docs/cab-framework.md) as a 24-bit WAV at the render rate
+// (--rate, else the input's, else 48 kHz); with it --in and --out may be left
+// out, and nothing is rendered. --plugin-path (repeatable) scans a folder for VST3
 // plugins before the preset loads and the script runs, so chain.addPlugin can
 // name one by its file path or its name; the scan uses a scratch cache and
 // looks nowhere else, so the user's own plugin cache and plugin folders are
@@ -101,7 +104,7 @@ struct ScopedTempDir {
 };
 
 struct Options {
-  juce::File preset, input, output, runScript, stateOut, library;
+  juce::File preset, input, output, runScript, stateOut, library, cabIr;
   juce::StringArray pluginPaths;
   double rate = 0.0;  // 0 = the input file's rate
   int block = 128;
@@ -120,11 +123,13 @@ constexpr const char* kUsage =
     "                     [--out-channels <1..8, default: the input's channel count>] [--info]\n"
     "                     [--state-out <state.json>] [--plugin-path <folder>]...\n"
     "                     [--library <folder, default: an empty scratch library>]\n"
+    "                     [--cab-ir <file.wav>]\n"
     "       PedaleiraRender --describe | --describe-markdown\n"
     "  --run       JSON array of {\"command\": ..., \"args\": {...}}, applied after the preset\n"
     "  --state-out write the rendered rig's state (the state.get command) as JSON\n"
     "  --plugin-path scan this folder for VST3 plugins first (repeatable; scratch cache)\n"
     "  --library   the setlist library root the rig's library commands work on\n"
+    "  --cab-ir    write the first cab.model block's impulse response (--in, --out optional)\n"
     "  --describe  print every engine command as JSON (--describe-markdown: as a reference)";
 
 Options parseOptions(int argc, char** argv) {
@@ -164,6 +169,7 @@ Options parseOptions(int argc, char** argv) {
     else if (arg == "--state-out") opts.stateOut = absolute(value(i));
     else if (arg == "--plugin-path") opts.pluginPaths.add(absolute(value(i)).getFullPathName());
     else if (arg == "--library") opts.library = absolute(value(i));
+    else if (arg == "--cab-ir") opts.cabIr = absolute(value(i));
     else if (arg == "--describe") opts.describe = true;
     else if (arg == "--describe-markdown") opts.describeMarkdown = true;
     else throw UsageError("unknown argument: " + arg);
@@ -173,12 +179,16 @@ Options parseOptions(int argc, char** argv) {
   if (opts.describe || opts.describeMarkdown)
     return opts;
 
-  if (opts.input == juce::File())
+  const bool exportOnly = opts.cabIr != juce::File() && opts.input == juce::File();
+  if (opts.input == juce::File() && !exportOnly)
     throw UsageError("--in is required");
   if (opts.preset == juce::File() && opts.runScript == juce::File())
     throw UsageError("--preset or --run is required (or both)");
-  if (opts.output == juce::File() && !opts.info && opts.stateOut == juce::File())
-    throw UsageError("--out is required (or --info / --state-out to inspect only)");
+  if (opts.output == juce::File() && !opts.info && opts.stateOut == juce::File() &&
+      opts.cabIr == juce::File())
+    throw UsageError("--out is required (or --info / --state-out / --cab-ir to inspect only)");
+  if (exportOnly && opts.output != juce::File())
+    throw UsageError("--out needs --in");
   if (opts.block < 1 || opts.block > 65536)
     throw UsageError("--block must be between 1 and 65536");
   if (opts.oversample != 0 && opts.oversample != 1 && opts.oversample != 2 &&
@@ -403,6 +413,38 @@ juce::var describeBlocks(TONE3000Processor& proc) {
   return blocks;
 }
 
+// --cab-ir: the response of the rig's first cab.model block, through the
+// block.exportImpulse command.
+void exportCabIr(TONE3000Processor& proc, CommandRegistry& registry, const juce::File& file,
+                 double rate) {
+  const juce::var state = proc.getChainState(-1);
+  std::vector<const juce::Array<juce::var>*> lanes{state["chain"].getArray(),
+                                                   state["chainRight"].getArray()};
+  if (const auto* rows = state["grid"]["rows"].getArray()) {
+    lanes.clear();
+    for (const auto& row : *rows)
+      lanes.push_back(row["blocks"].getArray());
+  }
+  for (const auto* lane : lanes) {
+    if (lane == nullptr)
+      continue;
+    for (const auto& item : *lane) {
+      if (item["kindId"].toString() != "cab.model")
+        continue;
+      juce::DynamicObject::Ptr args = new juce::DynamicObject();
+      args->setProperty("blockId", item["blockId"]);
+      args->setProperty("file", file.getFullPathName());
+      args->setProperty("sampleRate", rate);
+      const CommandResult result = registry.run("block.exportImpulse", juce::var(args.get()));
+      if (!result.ok)
+        throw RenderError("block.exportImpulse failed: " + result.errorMessage.toStdString());
+      std::cerr << "wrote the cab's impulse response to " << file.getFullPathName() << "\n";
+      return;
+    }
+  }
+  throw RenderError("--cab-ir: the rig has no cab.model block");
+}
+
 int run(int argc, char** argv) {
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
@@ -437,7 +479,16 @@ int run(int argc, char** argv) {
   const bool hasPreset = opts.preset != juce::File();
   if (hasPreset && !opts.preset.existsAsFile())
     throw RenderError("preset file not found: " + opts.preset.getFullPathName().toStdString());
-  Audio input = readWav(opts.input);
+  // Exporting a cab's response alone needs a rig but no input: one frame of
+  // silence at the requested rate stands in for it.
+  Audio input;
+  if (opts.input != juce::File()) {
+    input = readWav(opts.input);
+  } else {
+    input.rate = opts.rate > 0.0 ? opts.rate : 48000.0;
+    input.samples.setSize(2, 1);
+    input.samples.clear();
+  }
 
   const double rate = opts.rate > 0.0 ? opts.rate : input.rate;
   if (std::abs(rate - input.rate) > 0.01) {
@@ -543,6 +594,9 @@ int run(int argc, char** argv) {
   if (opts.stateOut != juce::File())
     writeText(opts.stateOut,
               juce::JSON::toString(commands.registry().run("state.get").value) + "\n");
+
+  if (opts.cabIr != juce::File())
+    exportCabIr(proc, commands.registry(), opts.cabIr, rate);
 
   const int latency = proc.getLatencySamples();
   const juce::String presetName = proc.getChainState(-1)["preset"]["name"].toString();

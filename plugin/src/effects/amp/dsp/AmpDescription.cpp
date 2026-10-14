@@ -185,7 +185,8 @@ public:
     if (!root.is_object())
       fail("", "the top level must be an object");
     allowOnly(root, "", {"$schema", "format", "version", "metadata", "model", "input", "stages", "voicings",
-                         "default_voicing", "tone_stack", "effects_loop", "power_amp", "calibration", "panel"});
+                         "default_voicing", "tone_stack", "effects_loop", "power_amp", "calibration", "panel",
+                         "default_cab"});
 
     std::string format;
     readString(root, "", "format", format, true);
@@ -225,6 +226,54 @@ public:
     if (out.defaultVoicing < 0 || out.defaultVoicing >= out.numVoicings)
       fail("default_voicing", "must index one of the voicings");
     readPanel(find(root, "panel"));
+    readDefaultCab(find(root, "default_cab"));
+  }
+
+  /** The cab the amp is meant for (DefaultCab): checked like the cab.model
+      block's controls, kept as given. */
+  void readDefaultCab(const json* cab) {
+    if (cab == nullptr)
+      return;
+    if (!cab->is_object())
+      fail("default_cab", "must be an object");
+    const std::string path = "default_cab";
+    allowOnly(*cab, path, {"speaker", "size", "back", "mic", "position_percent", "distance_cm", "angle_deg",
+                           "room_percent", "low_cut_hz", "high_cut_hz"});
+    DefaultCab& target = out.defaultCab;
+    target = DefaultCab{};
+    target.present = true;
+    readString(*cab, path, "speaker", target.speaker, true);
+    if (target.speaker.empty())
+      fail(child(path, "speaker"), "must not be empty");
+    const auto readChoice = [&](const char* key, std::string& value, std::initializer_list<const char*> allowed) {
+      if (!readString(*cab, path, key, value, false))
+        return;
+      std::string list;
+      for (const char* option : allowed) {
+        if (value == option)
+          return;
+        list += list.empty() ? "" : ", ";
+        list += option;
+      }
+      fail(child(path, key), "must be one of " + list + ", not \"" + value + "\"");
+    };
+    readChoice("size", target.size, {"1x12", "2x12", "4x12", "1x10", "2x10"});
+    readChoice("back", target.back, {"closed", "open"});
+    readChoice("mic", target.mic, {"dynamic", "ribbon", "condenser"});
+    // Settings, not parts: no provenance note is kept for them.
+    const auto readSetting = [&](const char* key, float& value, double lo, double hi) {
+      double v = value;
+      const size_t notesBefore = out.notes.size();
+      if (readNumber(*cab, path, key, v, Provenance::Schematic, lo, hi))
+        value = static_cast<float>(v);
+      out.notes.resize(notesBefore);
+    };
+    readSetting("position_percent", target.positionPercent, 0.0, 100.0);
+    readSetting("distance_cm", target.distanceCm, 0.5, 100.0);
+    readSetting("angle_deg", target.angleDeg, 0.0, 60.0);
+    readSetting("room_percent", target.roomPercent, 0.0, 100.0);
+    readSetting("low_cut_hz", target.lowCutHz, 20.0, 400.0);
+    readSetting("high_cut_hz", target.highCutHz, 2000.0, 20000.0);
   }
 
   void readMetadata(const json& obj) {

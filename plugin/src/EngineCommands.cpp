@@ -13,6 +13,7 @@
 #include "PluginScanner.h"
 #include "Scenes.h"
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <optional>
@@ -1124,8 +1125,10 @@ void EngineCommands::registerBlockCommands() {
       "names the field, and the block is left as it was. Otherwise the block takes the amp's "
       "name, its voicing is set to the description's default, and the description's text is "
       "kept in the block's state (saved presets do not depend on the file staying where it "
-      "was). One undo step. A new amp.custom block starts as the shipped High Gain amp. Only "
-      "blocks of a kind that takes a description (see kinds.list: amp.custom) accept a file.",
+      "was). One undo step. A new amp.custom block starts as the shipped High Gain amp. A "
+      "cab.model block takes a speaker description instead (format pedaleira-cab-speaker, see "
+      "docs/cab-framework.md), which becomes its Custom speaker and is selected. Only blocks of "
+      "a kind that takes a description (amp.custom, cab.model) accept a file.",
       {blockIdParam,
        P::required("file", T::string,
                    "The description file, an absolute path (a relative one is taken from the "
@@ -1149,6 +1152,88 @@ void EngineCommands::registerBlockCommands() {
         if (!processor.setBlockDescription(blockId.toStdString(), file.loadFileAsString(), error))
           return fail(CommandError::invalidArgs, "block.loadDescription: " + error);
         return blockResult(blockId);
+      },
+  });
+
+  commands.add({
+      "block.exportImpulse",
+      "Writes the impulse response a cab.model block plays (docs/cab-framework.md) as a mono WAV "
+      "file, so the cab can be used as an IR anywhere: the response its settings give now "
+      "(speaker, box, mic, position, distance, angle, room and cuts; not its level), computed "
+      "at the sample rate asked for, about 85 ms long. 16 and 24 bit files are scaled so their "
+      "peak is at -1 dBFS (the answer's gainDb says by how much); a 32 bit float file keeps the "
+      "level the block plays at. Only blocks of a kind that synthesises its own response accept "
+      "this (cab.model).",
+      {blockIdParam,
+       P::required("file", T::string,
+                   "The WAV file to write, an absolute path (a relative one is taken from the "
+                   "working directory). An existing file is replaced.")
+           .path(),
+       P::optional("sampleRate", T::number, "The file's sample rate in Hz.")
+           .range(8000.0, 192000.0)
+           .withDefault(48000.0),
+       P::optional("bits", T::integer, "16 or 24 (integer) or 32 (float).").withDefault(24)},
+      // Nothing of the rig changes, but a file is written: an edit, not a read
+      // (as preset.exportJson).
+      true,
+      CommandPermission::edit,
+      [this](const juce::var& args) {
+        const juce::String blockId = args["blockId"].toString();
+        if (auto error = toneBlockError(processor.getChainState(-1), blockId))
+          return *error;
+        const int bits = static_cast<int>(args["bits"]);
+        if (bits != 16 && bits != 24 && bits != 32)
+          return fail(CommandError::invalidArgs, "block.exportImpulse: bits must be 16, 24 or 32");
+        const double sampleRate = static_cast<double>(args["sampleRate"]);
+        std::vector<float> response;
+        juce::String error;
+        if (!processor.renderBlockImpulseResponse(blockId.toStdString(), sampleRate, response, error))
+          return fail(CommandError::invalidArgs, "block.exportImpulse: " + error);
+
+        float gain = 1.0f;
+        if (bits != 32) {
+          float peak = 0.0f;
+          for (const float v : response)
+            peak = std::max(peak, std::abs(v));
+          if (peak > 0.0f)
+            gain = juce::Decibels::decibelsToGain(-1.0f) / peak;
+          for (float& v : response)
+            v *= gain;
+        }
+
+        const juce::File file =
+            juce::File::getCurrentWorkingDirectory().getChildFile(args["file"].toString());
+        if (!file.getParentDirectory().createDirectory().wasOk())
+          return fail(CommandError::failed, "cannot create the folder of " + file.getFullPathName());
+        juce::TemporaryFile temporary(file);
+        {
+          std::unique_ptr<juce::OutputStream> stream = temporary.getFile().createOutputStream();
+          if (stream == nullptr)
+            return fail(CommandError::failed, "cannot write " + file.getFullPathName());
+          juce::WavAudioFormat wav;
+          auto writer = wav.createWriterFor(
+              stream, juce::AudioFormatWriterOptions{}
+                          .withSampleRate(sampleRate)
+                          .withNumChannels(1)
+                          .withBitsPerSample(bits)
+                          .withSampleFormat(
+                              bits == 32 ? juce::AudioFormatWriterOptions::SampleFormat::floatingPoint
+                                         : juce::AudioFormatWriterOptions::SampleFormat::integral));
+          const float* channel = response.data();
+          if (writer == nullptr ||
+              !writer->writeFromFloatArrays(&channel, 1, static_cast<int>(response.size())))
+            return fail(CommandError::failed, "cannot write " + file.getFullPathName());
+        }
+        if (!temporary.overwriteTargetFileWithTemporary())
+          return fail(CommandError::failed, "cannot write " + file.getFullPathName());
+        return ok({
+            {"blockId", blockId},
+            {"file", file.getFullPathName()},
+            {"sampleRate", sampleRate},
+            {"bits", bits},
+            {"samples", static_cast<int>(response.size())},
+            {"gainDb", juce::Decibels::gainToDecibels(gain, -200.0f)},
+        });
       },
   });
 

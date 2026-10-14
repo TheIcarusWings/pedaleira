@@ -1,6 +1,8 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <functional>
 #include <memory>
+#include <vector>
 #include "BlockParams.h"
 
 class ChainOversampler;
@@ -440,6 +442,17 @@ public:
     error = "this block takes no description";
     return false;
   }
+
+  /** Computes an impulse response at the sample rate it is given. */
+  using ImpulseResponseJob = std::function<std::vector<float>(double sampleRate)>;
+
+  /** For a kind that synthesises its own impulse response (cab.model): a job
+      that computes the response the block's settings ask for at the moment
+      the job is made, at any sample rate. The job owns everything it needs
+      (it may outlive the block), so a caller takes it under the chain lock
+      and runs it after letting go. Empty for every other kind. Not on the
+      audio thread. */
+  virtual ImpulseResponseJob impulseResponseJob() const { return {}; }
 
   /** False for a kind whose chunk already holds every parameter (a hosted
       plugin): its node then carries no Param children, which would only

@@ -194,6 +194,7 @@ All are built by default, and are in `build/tools/<name>_artefacts/Release/`.
 | [docs/agents.md](docs/agents.md) | Command server, permissions, sandbox rigs and the listen tools. |
 | [docs/commands.md](docs/commands.md) | The command reference, generated from the registry. |
 | [docs/effects.md](docs/effects.md) | How to write a built-in effect. |
+| [docs/cab-framework.md](docs/cab-framework.md) | The cab model: a mic'd guitar cab computed from physics, and the speaker description format. |
 | [docs/scenes.md](docs/scenes.md) | Scenes, stomps and footswitches. |
 | [docs/library.md](docs/library.md) | The setlist library and its JSON preset format. |
 | [docs/import.md](docs/import.md) | Importing presets from other products: the foreign format, readers, mapping tables. |

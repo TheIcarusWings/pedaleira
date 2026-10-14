@@ -3236,6 +3236,72 @@
           "description": "Targets: voicings"
         }
       }
+    },
+    "default_cab": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "speaker"
+      ],
+      "description": "The cab the amp is meant to be heard through: the settings of a cab.model block (docs/cab-framework.md). Optional, a suggestion only; nothing of the amp's own sound depends on it.",
+      "properties": {
+        "speaker": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The speaker's name as its description gives it (a shipped one: Granite, Ember, Velvet, Brass, Oak, Flint)."
+        },
+        "size": {
+          "enum": ["1x12", "2x12", "4x12", "1x10", "2x10"],
+          "default": "4x12"
+        },
+        "back": {
+          "enum": ["closed", "open"],
+          "default": "closed"
+        },
+        "mic": {
+          "enum": ["dynamic", "ribbon", "condenser"],
+          "default": "dynamic"
+        },
+        "position_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 35,
+          "description": "Where the mic points: 0 at the centre of the cone, 100 at its edge."
+        },
+        "distance_cm": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 100,
+          "default": 2.5,
+          "description": "From the grille cloth to the mic."
+        },
+        "angle_deg": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60,
+          "default": 0,
+          "description": "The mic's tilt off the speaker's axis."
+        },
+        "room_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 10
+        },
+        "low_cut_hz": {
+          "type": "number",
+          "minimum": 20,
+          "maximum": 400,
+          "default": 30
+        },
+        "high_cut_hz": {
+          "type": "number",
+          "minimum": 2000,
+          "maximum": 20000,
+          "default": 16000
+        }
+      }
     }
   }
 }

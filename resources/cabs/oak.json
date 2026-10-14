@@ -1,0 +1,43 @@
+{
+  "format": "pedaleira-cab-speaker",
+  "version": 1,
+  "metadata": {
+    "name": "Oak",
+    "author": "Pedaleira",
+    "licence": "MIT",
+    "summary": "Balanced and punchy: a thick low mid hump and even breakup peaks; sits between warm and tight."
+  },
+  "diameter_in": 12,
+  "thiele_small": {
+    "resonance_hz": 78,
+    "q_total": 0.9,
+    "compliance_l": 45
+  },
+  "voice_coil": {
+    "resistance_ohm": 6.4,
+    "inductance_mh": 0.4,
+    "loss_exponent": 0.65
+  },
+  "cone": {
+    "radiating_fraction": 0.5,
+    "breakup": [
+      {
+        "frequency_hz": 400,
+        "gain_db": 2.5,
+        "q": 1.0
+      },
+      {
+        "frequency_hz": 1800,
+        "gain_db": 5.0,
+        "q": 2.0
+      },
+      {
+        "frequency_hz": 3000,
+        "gain_db": 6.5,
+        "q": 2.5
+      }
+    ],
+    "rolloff_hz": 4900,
+    "rolloff_order": 4
+  }
+}

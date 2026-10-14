@@ -1,0 +1,48 @@
+{
+  "format": "pedaleira-cab-speaker",
+  "version": 1,
+  "metadata": {
+    "name": "Ember",
+    "author": "Pedaleira",
+    "licence": "MIT",
+    "summary": "Warm and vocal: a loose, round low end and a soft, early breakup centred on the upper mids, without bite."
+  },
+  "diameter_in": 12,
+  "thiele_small": {
+    "resonance_hz": 72,
+    "q_total": 1.1,
+    "compliance_l": 48
+  },
+  "voice_coil": {
+    "resistance_ohm": 6.4,
+    "inductance_mh": 0.4,
+    "loss_exponent": 0.65
+  },
+  "cone": {
+    "radiating_fraction": 0.5,
+    "breakup": [
+      {
+        "frequency_hz": 1100,
+        "gain_db": 3.5,
+        "q": 1.0
+      },
+      {
+        "frequency_hz": 2000,
+        "gain_db": 6.0,
+        "q": 2.0
+      },
+      {
+        "frequency_hz": 2900,
+        "gain_db": -3.0,
+        "q": 3.0
+      },
+      {
+        "frequency_hz": 3500,
+        "gain_db": 3.0,
+        "q": 3.0
+      }
+    ],
+    "rolloff_hz": 4800,
+    "rolloff_order": 4
+  }
+}

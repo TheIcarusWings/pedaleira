@@ -106,6 +106,7 @@
     "output_trim": {"value": 0.0861, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: the ceiling of the gain sweep"},
     "control_smoothing_s": 0.02
   },
+  "default_cab": {"speaker": "Ember", "size": "2x10", "back": "open", "mic": "dynamic", "position_percent": 35, "distance_cm": 2.5},
   "panel": {
     "gain": {
       "label": "Volume",

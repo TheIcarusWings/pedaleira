@@ -324,6 +324,13 @@ public:
   // chain revision moves.
   bool setBlockDescription(const std::string& blockId, const juce::String& text, juce::String& error);
 
+  // The impulse response a block that synthesises one (BlockProcessor::
+  // impulseResponseJob, cab.model) plays with its settings as they are, at
+  // `sampleRate`. Computed after the chain lock is released. False with
+  // `error` set for an unknown block or one of another kind.
+  bool renderBlockImpulseResponse(const std::string& blockId, double sampleRate, std::vector<float>& out,
+                                  juce::String& error) const;
+
   // Takes a block out of (true) or back into (false) the audible rig
   // without touching its saved `enabled` switch or the undo history. (A
   // scene change does the same thing to the audio through `enabled` itself;

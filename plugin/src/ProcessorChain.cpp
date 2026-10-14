@@ -2307,6 +2307,36 @@ bool TONE3000Processor::setBlockDescription(const std::string& blockId, const ju
   return true;
 }
 
+bool TONE3000Processor::renderBlockImpulseResponse(const std::string& blockId, double sampleRate,
+                                                   std::vector<float>& out, juce::String& error) const {
+  BlockProcessor::ImpulseResponseJob job;
+  {
+    juce::ScopedLock lock(chainMutex);
+    const ChainBlock* block = nullptr;
+    for (const auto& l : lanes)
+      for (const auto& b : l)
+        if (b->id == blockId)
+          block = b.get();
+    if (block == nullptr || block->type != ChainBlockType::KIND || block->processor == nullptr ||
+        block->isMissingKind()) {
+      error = "the block is not a block of a kind that synthesises an impulse response";
+      return false;
+    }
+    job = block->processor->impulseResponseJob();
+    if (!job) {
+      error = "a '" + block->kindId + "' block has no impulse response of its own";
+      return false;
+    }
+  }
+  // The audio thread runs again while the response is computed.
+  out = job(sampleRate);
+  if (out.empty()) {
+    error = "the response came out empty";
+    return false;
+  }
+  return true;
+}
+
 juce::var TONE3000Processor::getBlockParams(const std::string& blockId) const {
   // A hosted plugin's parameter text is a call into the plugin (message
   // thread, and the VST3 wrapper may take the message-manager lock), so it

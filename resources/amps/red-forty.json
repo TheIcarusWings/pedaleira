@@ -116,5 +116,8 @@
     "depth": {"label": "Depth", "target": "power_amp.depth"},
     "master": {"label": "Master", "target": "master", "taper": 2.0},
     "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"}
-  }
+  },
+
+  "default_cab": {"speaker": "Granite", "size": "4x12", "back": "closed", "mic": "dynamic",
+                  "position_percent": 30, "distance_cm": 2.5}
 }

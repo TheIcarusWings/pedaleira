@@ -317,6 +317,31 @@ changes. `levelDb` is the block's output level and is not part of the descriptio
 choice has three slots ("Voicing 1" to "Voicing 3"); a description with fewer uses the last one
 for the slots it does not have.
 
+### The default cab
+
+`default_cab` is optional: the cab the amp is meant to be heard through, as the settings of a
+`cab.model` block (`docs/cab-framework.md`). It is a suggestion for whoever builds a rig around the
+amp, kept in `AmpDescription::defaultCab`; nothing of the amp's own sound depends on it, and an amp
+without one is complete. Every shipped amp names one.
+
+| Field | Type | Unit | Range | Default | | Meaning |
+|---|---|---|---|---|---|---|
+| `speaker` | string |  |  |  | required | The speaker's name, as its description gives it (`metadata.name`; the shipped ones are Granite, Ember, Velvet, Brass, Oak and Flint). |
+| `size` | string |  |  | 4x12 |  | "1x12", "2x12", "4x12", "1x10" or "2x10". |
+| `back` | string |  |  | closed |  | "closed" or "open". |
+| `mic` | string |  |  | dynamic |  | "dynamic", "ribbon" or "condenser". |
+| `position_percent` | number | % | 0 to 100 | 35 |  | Where the mic points: 0 at the centre of the cone, 100 at its edge. |
+| `distance_cm` | number | cm | 0.5 to 100 | 2.5 |  | From the grille cloth to the mic. |
+| `angle_deg` | number | deg | 0 to 60 | 0 |  | The mic's tilt off the speaker's axis. |
+| `room_percent` | number | % | 0 to 100 | 10 |  | The room's early reflections. |
+| `low_cut_hz` | number | Hz | 20 to 400 | 30 |  | The cab block's low cut. |
+| `high_cut_hz` | number | Hz | 2000 to 20000 | 16000 |  | The cab block's high cut. |
+
+```json
+"default_cab": {"speaker": "Granite", "size": "4x12", "back": "closed", "mic": "dynamic",
+                "position_percent": 35, "distance_cm": 2.5}
+```
+
 ## The high gain amp, annotated
 
 `resources/amps/high-gain.json`, section by section. JSON has no comments, so they are here.
@@ -738,7 +763,8 @@ and bass network cannot take the reference's shape, and the THD of Ember Five at
 - Stages that are not common-cathode voltage amplifiers (cathode followers, long-tailed pairs,
   a recovery stage and phase inverter): the level they add is absorbed in `calibration`.
 - The effects loop (a placeholder: the signal does not pass through one), speaker and cabinet
-  (use an IR block), microphonics, heater hum, power supply ripple and the screen grid.
+  (use an IR block or a cab.model block, `docs/cab-framework.md`), microphonics, heater hum,
+  power supply ripple and the screen grid.
 - A tone stack that is not the treble, middle and bass (TMB) circuit, and the source impedance
   that drives the tone stack.
 - A single-ended output stage: its asymmetric, partly expanding curve (class A push-pull, without

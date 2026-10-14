@@ -446,10 +446,11 @@ TEST(GuitarProfiles, TheRecorderIsSafeAgainstTheAudioThread) {
       EXPECT_TRUE(recorder.take().empty());
       continue;
     }
-    for (int wait = 0; wait < 2000 && recorder.getState() != InputRecorder::State::full; ++wait)
+    // Wait for the audio thread to fill it, however long it is descheduled:
+    // a spin count would give up on a loaded machine. The audio thread
+    // always finishes a recording, and ctest's timeout bounds a real hang.
+    while (recorder.getState() != InputRecorder::State::full)
       std::this_thread::yield();
-    if (recorder.getState() != InputRecorder::State::full)
-      continue;
     const std::vector<float> samples = recorder.take();
     ASSERT_EQ(samples.size(), static_cast<size_t>(1000 + round));
     // A channel beyond the buffer falls back to the last one it has.

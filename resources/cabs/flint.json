@@ -1,0 +1,48 @@
+{
+  "format": "pedaleira-cab-speaker",
+  "version": 1,
+  "metadata": {
+    "name": "Flint",
+    "author": "Pedaleira",
+    "licence": "MIT",
+    "summary": "Sharp and cutting: a ten inch cone with a lean bottom, thin low mids and a pronounced peak around 4 kHz."
+  },
+  "diameter_in": 10,
+  "thiele_small": {
+    "resonance_hz": 100,
+    "q_total": 0.85,
+    "compliance_l": 22
+  },
+  "voice_coil": {
+    "resistance_ohm": 6.4,
+    "inductance_mh": 0.35,
+    "loss_exponent": 0.65
+  },
+  "cone": {
+    "radiating_fraction": 0.5,
+    "breakup": [
+      {
+        "frequency_hz": 900,
+        "gain_db": -4.0,
+        "q": 1.2
+      },
+      {
+        "frequency_hz": 2200,
+        "gain_db": 3.0,
+        "q": 2.0
+      },
+      {
+        "frequency_hz": 3000,
+        "gain_db": -2.0,
+        "q": 4.0
+      },
+      {
+        "frequency_hz": 4300,
+        "gain_db": 8.0,
+        "q": 3.0
+      }
+    ],
+    "rolloff_hz": 6200,
+    "rolloff_order": 4
+  }
+}

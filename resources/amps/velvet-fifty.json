@@ -121,6 +121,7 @@
     "output_trim": {"value": 0.105, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the ceiling of the gain sweep"},
     "control_smoothing_s": 0.02
   },
+  "default_cab": {"speaker": "Velvet", "size": "1x12", "back": "open", "mic": "ribbon", "position_percent": 40, "distance_cm": 5},
   "panel": {
     "gain": {
       "label": "Gain",

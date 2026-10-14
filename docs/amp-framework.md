@@ -22,7 +22,7 @@ Contents: [the signal flow](#the-signal-flow), [the components](#the-components-
 [the high gain amp, annotated](#the-high-gain-amp-annotated), [loading a description](#loading-a-description),
 [from a schematic to a description](#from-a-schematic-to-a-description),
 [measuring an amp and fitting the description](#measuring-an-amp-or-a-capture-and-fitting-the-description),
-[licences](#licences), [what is not modelled](#what-is-not-modelled).
+[the fitted amps](#the-fitted-amps), [licences](#licences), [what is not modelled](#what-is-not-modelled).
 
 ## The signal flow
 
@@ -629,6 +629,40 @@ device at one set of knob positions: fit at that position, then check the others
 A loop that tries values (coordinate descent on the score or on the failing metrics) is a short
 script around the three commands above: `compare` writes `score`, `allPass` and a `metrics` array
 (`group`, `name`, `reference`, `candidate`, `difference`, `allowed`, `pass`) as JSON on stdout.
+
+## The fitted amps
+
+Five descriptions in `resources/amps` were fitted to measurements of reference amps, each starting
+from `high-gain.json` (the same four-stage topology) and moving only what the measurements call for:
+
+| File | Name | What it is |
+|---|---|---|
+| `lead-100.json` | Lead 100 | A lead amp with a soft knee: the clipping builds up over about 7 dB of input. |
+| `red-forty.json` | Red Forty | Very high gain into an EL34 power amp with a strong resonance (depth) band. |
+| `heavy-hot.json` | Heavy Hot | Red Forty's circuit with a lower `output_trim` (about 2 dB quieter). |
+| `modern-three.json` | Modern Three | Clean at low gain (a steep gain law), and a hard knee once driven: the power amp, with heavy feedback, clips first. |
+| `cell-four.json` | Cell Four | Lead-like gain with a deep low-end resonance around 50 to 63 Hz. |
+
+What was measured on each reference, with every knob but GAIN at 5: a 1 kHz staircase played 36 dB
+down (-96 to -36 dBFS in 3 dB steps), read as the small-signal gain Gs (the lowest steps), the
+bend (the input where the gain is 1 dB under Gs) and the ceiling (the highest output); the THD of a
+1 kHz sine at -54 dBFS; at GAIN 2, 5, 8 and 10. And the test signal at line level, read as the low
+sweep's response, at GAIN 5 and at the extremes of the tone knobs where they were taken. Every
+value the fit moved carries `"provenance": "fitted"` and a note that names its target ("fitted to
+the Lead 100 measurements: the tone knob responses").
+
+Where the parts come from: the GAIN law is the gain pot's `taper` and `floor_ohm` with the panel's
+`taper` and `range`; Gs is `input_full_scale_v`; the ceiling is `output_trim`; the gap between the
+bend and the ceiling (how soft the knee is) and the THD come from the bias of the gain stages, the
+divider into each grid and `power_drive_v` (which of the preamp and the power amp clips first); the
+responses come from the tone stack, the presence and depth networks, the feedback and the
+interstage capacitors. `test/src/effects/amp_fitted_tests.cpp` measures each file the same way
+(`amp_fit_measure.h`) and checks it against its targets; its `AmpFitHarness.Measure` test prints
+the numbers for any file, for a fitting loop:
+
+```
+PEDALEIRA_AMP_FIT=my-amp.json build/test/DspTests_artefacts/Release/DspTests --gtest_filter='AmpFitHarness.*'
+```
 
 ## Licences
 

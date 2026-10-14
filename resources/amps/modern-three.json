@@ -1,0 +1,120 @@
+{
+  "format": "pedaleira-amp",
+  "version": 1,
+  "metadata": {
+    "name": "Modern Three",
+    "author": "Pedaleira",
+    "licence": "MIT",
+    "summary": "A modern lead channel (a 12AX7 input stage, a gain pot with a steep law, three cascaded gain stages, a treble-middle-bass tone stack) into a push-pull 6L6 power amp with heavy global feedback, so it stays clean at low gain and clips hard once driven. The topology and the starting values are those of the High Gain description; the gain law, the levels, the clipping points, the tone stack and the feedback network were then fitted to measurements of a reference amp (its GAIN sweep, its responses at GAIN 2 and 5 and its tone knob sweeps). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "references": [
+      "D. T. Yeh and J. O. Smith, Discretization of the '59 Fender Bassman Tone Stack, DAFx-06, 2006",
+      "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
+      "Pedaleira measurements of a reference amp played through a modelling unit's USB input: GAIN sweeps with a 1 kHz staircase, THD at -54 dBFS, the test signal's sweeps at -18 dBFS (2026)"
+    ]
+  },
+  "model": {"stage_solver": "classic"},
+  "input": {
+    "coupling_capacitor_f": {"value": 2.19e-09, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low end of the response"},
+    "grid_leak_ohm": 1000000,
+    "grid_stopper_ohm": 68000,
+    "miller_f": 1.6e-10,
+    "source_ohm": {"value": 10000, "provenance": "fitted", "note": "assumed pickup impedance for the grid charge path"}
+  },
+  "stages": [
+    {
+      "name": "V1 input stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {"value": 2.95e-10, "provenance": "fitted", "note": "wiring plus the next Miller capacitance; sets the stage's high-frequency roll-off"},
+      "cathode": {"resistor_ohm": 1500, "bias_current_a": 0.001, "bypass_capacitor_f": 6.8e-07},
+      "grid": {"cutoff_v": 3.5, "contact_potential_v": 0.3, "conduction_ohm": 2000, "max_bias_shift_v": 10},
+      "coupling": {"capacitance_f": {"value": 1.28e-08, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low end of the response"}, "series_ohm": 0, "grid_leak_ohm": 470000},
+      "gain_pot": {"resistance_ohm": 1000000, "floor_ohm": {"value": 21.4, "provenance": "fitted", "note": "fitted to the Modern Three measurements: Gs at GAIN 2, 5, 8 and 10"}, "source_ohm": 100000, "load_ohm": 470000, "taper": {"value": 3.28, "provenance": "fitted", "note": "fitted to the Modern Three measurements: Gs at GAIN 2, 5, 8 and 10"}, "bright_capacitor_f": 1e-10}
+    },
+    {
+      "name": "V2 gain stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {"value": 3.45e-10, "provenance": "fitted", "note": "wiring plus the next Miller capacitance"},
+      "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00225, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
+      "coupling": {"capacitance_f": {"value": 3.22e-09, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low end of the response"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 35200, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}}
+    },
+    {
+      "name": "V3 gain stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {"value": 4.13e-10, "provenance": "fitted", "note": "wiring plus the next Miller capacitance"},
+      "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00198, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
+      "coupling": {"capacitance_f": {"value": 1.24e-08, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low end of the response"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 13200, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}}
+    },
+    {
+      "name": "V4 gain stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {"value": 1e-11, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the high and low ends of the response"},
+      "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.0019, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"}
+    }
+  ],
+  "voicings": [
+    {
+      "name": "Modern",
+      "supply": {"source_ohm": {"value": 250, "provenance": "fitted", "note": "tube rectifier and transformer resistance"}, "rectifier": "tube"}
+    }
+  ],
+  "default_voicing": 0,
+  "tone_stack": {
+    "type": "tmb",
+    "treble_pot_ohm": {"value": 50000, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"},
+    "bass_pot_ohm": 1000000,
+    "middle_pot_ohm": {"value": 43500, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"},
+    "slope_ohm": {"value": 158000, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"},
+    "treble_cap_f": {"value": 9.76e-10, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"},
+    "bass_cap_f": {"value": 1.71e-08, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"},
+    "middle_cap_f": {"value": 2.45e-08, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"}
+  },
+  "effects_loop": {"present": false, "note": "placeholder: the signal does not pass through a loop"},
+  "power_amp": {
+    "tube": "6L6",
+    "topology": "push_pull_ab",
+    "open_loop_gain": {"value": 144, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the presence range and the master step"},
+    "feedback": {
+      "series_ohm": {"value": 57100, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the presence range and the master step"},
+      "shunt_ohm": 1000
+    },
+    "presence": {
+      "pot_ohm": {"value": 500, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the presence responses"},
+      "min_ohm": {"value": 20.7, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the presence responses"},
+      "capacitor_f": {"value": 1.69e-08, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the presence responses"}
+    },
+    "depth": {
+      "inductance_h": {"value": 0.106, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low-end and resonance responses"},
+      "capacitance_f": 2.1e-05,
+      "resistance_ohm": {"value": 161, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low-end and resonance responses"},
+      "max_cut": {"value": 1, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low-end and resonance responses"}
+    },
+    "transformer": {
+      "high_corner_hz": {"value": 40000, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the high and low ends of the response"},
+      "low_corner_hz": {"value": 11.9, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the high and low ends of the response"}
+    },
+    "knee_mix": 0,
+    "crossover": {"ratio": {"value": 0.555, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the knee of the static curve"}, "width": 0.3},
+    "supply": {"b_plus_v": 450, "source_ohm": 250, "full_load_a": 0.3, "reservoir_f": 0.00022, "attack_s": 0.008, "rectifier": "tube"}
+  },
+  "calibration": {
+    "input_full_scale_v": {"value": 38, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the small-signal gain (Gs)"},
+    "power_drive_v": {"value": 126, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the master step and the knee of the static curve"},
+    "coupling_gain_rise": 1.8,
+    "output_trim": {"value": 0.0901, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the ceiling"},
+    "control_smoothing_s": 0.02
+  },
+  "panel": {
+    "gain": {"label": "Gain", "target": "stages[0].gain_pot", "taper": 1.3, "range": [0, 0.862]},
+    "bass": {"label": "Bass", "target": "tone_stack.bass_pot_ohm", "taper": 2.0},
+    "middle": {"label": "Middle", "target": "tone_stack.middle_pot_ohm"},
+    "treble": {"label": "Treble", "target": "tone_stack.treble_pot_ohm"},
+    "presence": {"label": "Presence", "target": "power_amp.presence"},
+    "depth": {"label": "Depth", "target": "power_amp.depth"},
+    "master": {"label": "Master", "target": "master", "taper": 2.0},
+    "bright": {"label": "Bright", "target": "stages[0].gain_pot.bright_capacitor_f"}
+  }
+}

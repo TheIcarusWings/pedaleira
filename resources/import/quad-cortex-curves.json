@@ -34,6 +34,62 @@
         "exponent": 1.6666667,
         "measured": "RATE 2, 5, 8 Hz sent linearly played 0.58, 2.43, 5.28 Hz; 5/3 predicts 0.581, 2.435, 5.275 (fitted exponents 1.665 to 1.668)"
       }
+    },
+    "Simple Delay": {
+      "DELAY TIME": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3)"
+      }
+    },
+    "Tape Delay": {
+      "DELAY TIME": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3)"
+      }
+    },
+    "Analog Delay": {
+      "DELAY TIME": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3)"
+      }
+    },
+    "Slapback Delay": {
+      "DELAY TIME": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3) (Slapback range 40 to 200 ms)"
+      }
+    },
+    "Simple Ping Pong Delay": {
+      "DELAY TIME": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3), the right side repeating at twice the time"
+      }
+    },
+    "Dual Delay": {
+      "DELAY TIME L": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3)"
+      },
+      "DELAY TIME R": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3)"
+      }
+    },
+    "Reverse Delay": {
+      "DELAY TIME": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3)"
+      }
+    },
+    "Dual Reverse Delay": {
+      "DELAY TIME L": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3)"
+      },
+      "DELAY TIME R": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3)"
+      }
     }
   }
 }

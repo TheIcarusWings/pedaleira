@@ -46,7 +46,7 @@ given as `null`.
 | [`approvals.list`](#approvalslist) | no | local | Lists the requests waiting for the user's approval (a client asked to change the rig being played while that is switched off), each with its id, client, command and arguments; with all true also the recently resolved ones. A request to apply a sandbox carries applies: the sandbox, the revision it was captured at, when, and sandboxChanged (the sandbox is no longer the rig the request would apply, so a preview rendered through it would show something else). |
 | [`approvals.resolve`](#approvalsresolve) | yes | local | Approves or denies a waiting request. Approving runs the command exactly as it was asked for and keeps its result for the client, which reads it with approvals.status. A request to apply a sandbox (sandbox.applyToLive) applies the rig the sandbox was when the request was made (applies: its sandbox, revision and capture time), whatever has been done to the sandbox since. |
 | [`approvals.status`](#approvalsstatus) | no | read | Returns one approval request: state (pending, approved, denied or expired) and, once approved, result, the envelope the command answered with. A client sees only its own requests. |
-| [`assets.list`](#assetslist) | no | read | Lists the amp captures (.nam) and impulse responses (.wav) an agent can load with chain.addToneFromFiles: the files under the library folder and the folders the user added (source library, tags from the folder names), the library's asset store (source assets: the model files of the saved presets, under content-hash names) and the local model stash (source stash: files added before, also under content-hash names). A capture carries what its file says about itself as nam_name, nam_gear_type, nam_gear_make, nam_gear_model, nam_tone_type, nam_gain and nam_loudness when present; an IR its sampleRate, channels and seconds. inRig lists the tones the rig already holds, with their titles and gear tags. There is no searchable catalogue beyond this: tones from the online catalogue are only known once they are in a rig. |
+| [`assets.list`](#assetslist) | no | read | Lists the amp captures (.nam) and impulse responses (.wav) an agent can load with chain.addToneFromFiles: the files under the library folder and the folders the user added (source library, tags from the folder names), the library's asset store (source assets: the model files of the saved presets, under content-hash names) and the local model stash (source stash: files added before, also under content-hash names), and the folders the TONE3000 app keeps its downloads in when they exist (source tone3000, captures only; see nam.tone3000Folders). origin says where a file came from: library, folder (one the user added), tone3000, or loaded (a copy kept for a file the user loaded). A copy kept under a hash name is listed by the name the file was loaded under (name, with loadedFrom and loadedAt), else by its metadata name, and query finds it by that name. A capture carries what its file says about itself as nam_name, nam_gear_type, nam_gear_make, nam_gear_model, nam_tone_type, nam_gain and nam_loudness when present, and its architecture, architectureLabel and supported (false when Pedaleira can not load it, with unsupportedReason in a sentence); an IR its sampleRate, channels and seconds. inRig lists the tones the rig already holds, with their titles and gear tags. There is no searchable catalogue beyond this: tones from the online catalogue are only known once they are in a rig. |
 | [`assets.tag`](#assetstag) | yes | edit | Adds tags to a capture (.nam) or IR (.wav) and removes others, in the user's own index (asset-tags.json in the library folder). Tags are kept by the file's content, so they follow it through a move or a rename. A tag is lowercased, trimmed and at most 32 characters; a file carries at most 32. Returns the file's tags after the change. See assets.tagSummary for the tags in use and a suggested vocabulary. |
 | [`assets.tagSummary`](#assetstagsummary) | no | read | How far the user's captures and IRs are tagged (captures and irs: total and tagged, over the same files assets.list finds), every tag in use with how many files carry it, and a suggested vocabulary to keep tags consistent (gain, character, gear, speaker, use). Agents choose tones by these tags. |
 | [`block.listParams`](#blocklistparams) | no | read | Lists everything block.setParam can set on a block, with current values: the five common settings (scope common, knob positions from 0 to 1) and then the parameters of the block's kind (scope kind, real units), each with its range, unit, default and flags. A hosted plugin block lists the plugin's own automatable parameters (the first 256) as normalised 0 to 1 values under the plugin's parameter ids, with the plugin's display text for the current value in text. |
@@ -140,6 +140,10 @@ given as `null`.
 | [`midi.remove`](#midiremove) | yes | edit | Removes the mapping of one target. |
 | [`midi.setCc`](#midisetcc) | yes | edit | Maps a MIDI CC number to a target, replacing any mapping that target already had. |
 | [`midi.setChannelFilter`](#midisetchannelfilter) | yes | edit | Limits MIDI control (mappings and program changes) to one channel, or to all of them. |
+| [`nam.clearRecent`](#namclearrecent) | yes | local | Empties the list nam.recent returns. The files stay findable by name with assets.list. |
+| [`nam.inspect`](#naminspect) | no | read | Tells whether Pedaleira can load a NAM capture, without loading it: its architecture (architecture as the file says it, architectureLabel as a player knows it, such as WaveNet A2 or LSTM), supported (only A2 captures are loaded) and, when it is not supported or not a capture at all, unsupportedReason in a sentence that can be shown as it is. modelName is the name in the file's metadata, empty when it has none. |
+| [`nam.recent`](#namrecent) | no | read | Lists the captures (or IRs) the player loaded from a file, newest first: name (the file name without its extension), path (the file to load again: the original when it is still there, else the copy the model stash kept), fromStash (true for that copy), loadedAt (milliseconds since 1970) and, for a capture, what nam.inspect says. A file that is gone from both places is left out. The stash drops copies that were not used for a week, so an old entry whose original moved away can disappear. |
+| [`nam.tone3000Folders`](#namtone3000folders) | no | read | Lists the folders where the TONE3000 app's downloaded models are looked for on this computer (its data folder, and its folders in Documents and Downloads) with whether each exists. The ones that exist are scanned by assets.list (source tone3000). A folder anywhere else is added with roots.add. |
 | [`param.get`](#paramget) | no | read | Returns one global parameter in the same shape as param.list. |
 | [`param.list`](#paramlist) | no | read | Returns every global (faceplate and settings) parameter by id with its value in real units, normalized value, range, default, name, type and unit. |
 | [`param.set`](#paramset) | yes | edit | Sets one global parameter to a value in real units (dB, Hz, a choice index, 0 or 1 for a switch), clamped to the parameter's range, and returns the parameter as it now is. |
@@ -292,7 +296,7 @@ Mutates state: no. Permission: read.
 
 ## assets.list
 
-Lists the amp captures (.nam) and impulse responses (.wav) an agent can load with chain.addToneFromFiles: the files under the library folder and the folders the user added (source library, tags from the folder names), the library's asset store (source assets: the model files of the saved presets, under content-hash names) and the local model stash (source stash: files added before, also under content-hash names). A capture carries what its file says about itself as nam_name, nam_gear_type, nam_gear_make, nam_gear_model, nam_tone_type, nam_gain and nam_loudness when present; an IR its sampleRate, channels and seconds. inRig lists the tones the rig already holds, with their titles and gear tags. There is no searchable catalogue beyond this: tones from the online catalogue are only known once they are in a rig.
+Lists the amp captures (.nam) and impulse responses (.wav) an agent can load with chain.addToneFromFiles: the files under the library folder and the folders the user added (source library, tags from the folder names), the library's asset store (source assets: the model files of the saved presets, under content-hash names) and the local model stash (source stash: files added before, also under content-hash names), and the folders the TONE3000 app keeps its downloads in when they exist (source tone3000, captures only; see nam.tone3000Folders). origin says where a file came from: library, folder (one the user added), tone3000, or loaded (a copy kept for a file the user loaded). A copy kept under a hash name is listed by the name the file was loaded under (name, with loadedFrom and loadedAt), else by its metadata name, and query finds it by that name. A capture carries what its file says about itself as nam_name, nam_gear_type, nam_gear_make, nam_gear_model, nam_tone_type, nam_gain and nam_loudness when present, and its architecture, architectureLabel and supported (false when Pedaleira can not load it, with unsupportedReason in a sentence); an IR its sampleRate, channels and seconds. inRig lists the tones the rig already holds, with their titles and gear tags. There is no searchable catalogue beyond this: tones from the online catalogue are only known once they are in a rig.
 
 Mutates state: no. Permission: read.
 
@@ -1281,6 +1285,43 @@ Mutates state: yes. Permission: edit.
 | Parameter | Type | Required | Allowed | Description |
 |---|---|---|---|---|
 | `channel` | integer | yes | 0 to 16 | 1 to 16 for one channel, 0 for omni. |
+
+## nam.clearRecent
+
+Empties the list nam.recent returns. The files stay findable by name with assets.list.
+
+Mutates state: yes. Permission: local.
+
+No parameters.
+
+## nam.inspect
+
+Tells whether Pedaleira can load a NAM capture, without loading it: its architecture (architecture as the file says it, architectureLabel as a player knows it, such as WaveNet A2 or LSTM), supported (only A2 captures are loaded) and, when it is not supported or not a capture at all, unsupportedReason in a sentence that can be shown as it is. modelName is the name in the file's metadata, empty when it has none.
+
+Mutates state: no. Permission: read.
+
+| Parameter | Type | Required | Allowed | Description |
+|---|---|---|---|---|
+| `path` | string (path) | yes |  | A .nam file, as an absolute path. |
+
+## nam.recent
+
+Lists the captures (or IRs) the player loaded from a file, newest first: name (the file name without its extension), path (the file to load again: the original when it is still there, else the copy the model stash kept), fromStash (true for that copy), loadedAt (milliseconds since 1970) and, for a capture, what nam.inspect says. A file that is gone from both places is left out. The stash drops copies that were not used for a week, so an old entry whose original moved away can disappear.
+
+Mutates state: no. Permission: read.
+
+| Parameter | Type | Required | Allowed | Description |
+|---|---|---|---|---|
+| `kind` | string | no | one of `all`, `capture`, `ir`; default `"capture"` | Captures, IRs or both. |
+| `limit` | integer | no | 1 to 200; default `30` | The most entries to return. |
+
+## nam.tone3000Folders
+
+Lists the folders where the TONE3000 app's downloaded models are looked for on this computer (its data folder, and its folders in Documents and Downloads) with whether each exists. The ones that exist are scanned by assets.list (source tone3000). A folder anywhere else is added with roots.add.
+
+Mutates state: no. Permission: read.
+
+No parameters.
 
 ## param.get
 

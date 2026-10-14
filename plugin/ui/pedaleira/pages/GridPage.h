@@ -285,6 +285,8 @@ public:
   // The block library over the page, adding to that slot.
   void openPicker(int row, int slot);
   BlockPicker& picker() { return library; }
+  // Where the library's TONE3000 chip gets its tones (the feed outlives the page).
+  void setTone3000Feed(Tone3000Feed* feed) { library.setTone3000Feed(feed); }
   const GridModel& currentModel() const { return model; }
   // The editor of a block over the page (NAM capture, IR or built-in
   // effect), with "Back to grid" to return.

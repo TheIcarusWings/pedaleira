@@ -106,3 +106,31 @@ Its lifecycle is self-maintaining:
   owns the folder; otherwise it renames the folder aside to an `.unwritable`
   sibling (the parent belongs to the user even when the folder doesn't) and
   recreates it fresh. Nothing is deleted, and the log names what it did.
+
+## Names, recents and the architecture check
+
+The stash names are hashes, so the loader also tells `NamLibrary`
+(`plugin/src/NamLibrary.cpp`) the name a file was loaded under and where it came
+from. That record lives in `<app-data>/NamRecents.json`, not in the stash, whose
+files are collected after a week. It feeds three things:
+
+- `assets.list` lists a stash or asset-store copy by that name, so the block
+  library's search finds a loaded capture by its file name.
+- `nam.recent` is the recent list (newest first; the original file when it is
+  still there, else the stash copy).
+- Loading a copy again from the stash keeps its name (`touchLoaded`).
+
+The A2 gate in `stashLocalBytes` is `NamLibrary::inspectBytes`, which parses the
+file with the weight arrays skipped. A file that fails it is refused with a
+sentence that names the architecture (an LSTM, an older WaveNet, a slimmable
+container with models that are not A2) and says where to find an A2 version.
+The same check backs the `architecture`, `supported` and `unsupportedReason`
+fields of `assets.list` and `nam.inspect`, so the library can say so before a
+click.
+
+Nothing in the repo knew where a TONE3000 app keeps downloads (the plugin streams
+models into memory and stashes only local files). `NamLibrary::tone3000Candidates`
+lists the places to look, by platform: the `TONE3000` folder of the user's app data
+(`~/Library/Application Support`, `%APPDATA%` and `%LOCALAPPDATA%`, `~/.config`),
+and `TONE3000` in Documents and Downloads. They are guesses from the data-folder
+convention, not read from any app; a folder elsewhere is added in Settings.

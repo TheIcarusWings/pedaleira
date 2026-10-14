@@ -159,13 +159,13 @@ per class:
 
 | Class | Switch | Default | Commands | What it covers |
 |---|---|---|---|---|
-| `read` | read library, presets and rig state | on | 38 | `state.get`, `preset.list`, `setlist.get`, `library.get`, `guitar.list`, `assets.list`, `capture.get`, `capture.list`, `kinds.list`, meters |
+| `read` | read library, presets and rig state | on | 43 | `state.get`, `preset.list`, `setlist.get`, `library.get`, `guitar.list`, `assets.list`, `nam.inspect`, `nam.recent`, `capture.get`, `capture.list`, `kinds.list`, meters |
 | `edit` | create and edit presets and rigs | on | 86 | `chain.*`, `block.*`, `scene.*`, `param.set`, `preset.save`, `preset.moveSlot`, `preset.importJson`, `preset.exportJson`, `setlist.create`, `favourite.set`, `library.rescan`, `sandbox.create`, `guitar.create` |
 | `render` | render audio clips to measure a tone | on | 3 | `render.clip`, `render.compare`, `render.probe` |
 | `live` | change the rig being played | off | 2 | `sandbox.applyToLive`, `guitar.record.start`, and any `edit` command aimed at the live rig |
 | `delete` | delete presets, setlists and guitar profiles | off | 4 | `preset.delete`, `preset.deleteSlot`, `setlist.delete`, `guitar.delete` |
 | `settings` | audio, device and machine-wide settings | off | 6 | `footswitch.setMode`, `footswitch.setHybridRows`, `plugins.scan` and its folders |
-| `local` | never available to clients | n/a | 37 | `approvals.list/resolve`, `agents.*`, `permissions.set`, `server.*`, `roots.add/remove`, the user's side of `toneRequest.*`, the rest of `capture.*` (audio hardware and a long child process, `docs/capture.md`) |
+| `local` | never available to clients | n/a | 38 | `approvals.list/resolve`, `agents.*`, `permissions.set`, `server.*`, `roots.add/remove`, `nam.clearRecent`, the user's side of `toneRequest.*`, the rest of `capture.*` (audio hardware and a long child process, `docs/capture.md`) |
 
 What "edit" means while "live" is off: an agent builds and edits in a sandbox rig. A rig
 command that would change the rig being played is not refused but queued for approval
@@ -455,6 +455,29 @@ the user plays, so for a client it is a `live` command.
   `nam_tone_type`, `nam_gain`, `nam_loudness`) and an IR's rate, channels and length;
   plus `inRig`, the tones the rig already holds with their titles and gear tags, and the
   user's own tags (below).
+
+### Finding captures by name
+
+The model stash and the asset store keep a loaded file under a content-hash name, so the
+engine remembers the name a file was loaded under (`NamLibrary`, kept in
+`<app data>/NamRecents.json`, outside the stash because the stash drops what a week
+has not used).
+
+- `assets.list` lists such a copy by that name (`name`, `loadedFrom`, `loadedAt`), falls back to the
+  name in the file's metadata, and a `query` finds it by either. `origin` says where a
+  file came from: `library`, `folder` (added with `roots.add`), `tone3000` or `loaded`.
+- `nam.recent` lists the captures loaded from a file, newest first, each with the path to load
+  again (the original, else the stash copy); `nam.clearRecent` (local) empties it.
+- `nam.tone3000Folders` lists where the TONE3000 app's downloaded models are looked for
+  (its data folder, and its `TONE3000` folders in Documents and Downloads; the paths of
+  each platform are `NamLibrary::tone3000Candidates`). The ones that exist are scanned by
+  `assets.list` (source `tone3000`, captures only). The paths are the ones the app's
+  data folder convention gives; they are not read from the app, so a folder elsewhere is
+  added with `roots.add`.
+- The architecture check: `assets.list` gives each capture `architecture`,
+  `architectureLabel` and `supported` (only A2 captures load), with `unsupportedReason`
+  in a sentence when not; `nam.inspect {path}` answers for one file; loading an
+  unsupported file (`chain.addToneFromFiles`) fails with the same sentence.
 
 ### Captures and IR index
 

@@ -1,0 +1,99 @@
+#pragma once
+
+#include <juce_core/juce_core.h>
+
+#include "json.hpp"
+
+#include <vector>
+
+// What the engine knows about NAM capture files beyond their bytes: whether
+// Pedaleira can load one (the architecture check), what a file the user loaded
+// was called (the stash keeps only content-hash names), the list of recently
+// loaded captures, and where the TONE3000 app keeps the models it downloaded.
+// Any thread; one mutex guards the recents file.
+namespace NamLibrary {
+
+// What a .nam file says about itself, read without its weights.
+struct Info {
+  // The file parsed as a NAM model at all.
+  bool readable = false;
+  // Pedaleira can load it (an A2 WaveNet, or a container of them).
+  bool supported = false;
+  // The "architecture" field as written ("WaveNet", "LSTM", ...).
+  juce::String architecture;
+  // A short name for the architecture a player recognises: "WaveNet A2",
+  // "WaveNet A1", "LSTM", "ConvNet", "Linear", "Slimmable A2".
+  juce::String label;
+  // A sentence for the player when the file cannot be loaded (also when it
+  // cannot be read); empty for a supported file.
+  juce::String reason;
+  // metadata.name, empty when the file has none.
+  juce::String name;
+};
+
+// The check on a parsed model. The weights need not be in it.
+Info inspectJson(const nlohmann::json& model);
+// The same on the bytes of a file: parsed with the weight arrays skipped, so a
+// large capture costs time but not memory.
+Info inspectBytes(const void* data, size_t size);
+// The same on a file on disk; unreadable or oversize files come back not
+// readable, with a reason.
+Info inspectFile(const juce::File& file);
+
+// ---- Names of loaded files and the recent list ----
+
+struct Loaded {
+  // The file name without its extension, as the player knew it.
+  juce::String name;
+  // The file it was loaded from (empty when only its name is known).
+  juce::String sourcePath;
+  // The copy in the model stash (a content-hash name).
+  juce::String stashFile;
+  // "capture" (.nam) or "ir" (.wav).
+  juce::String kind;
+  // When it was last loaded, in milliseconds since 1970.
+  juce::int64 loadedAt = 0;
+  // Shown in the recent list; false after nam.clearRecent.
+  bool recent = true;
+};
+
+// Remembers that `name` was loaded from `sourcePath` and kept as `stashFile`
+// (a file name in the stash). Called by the model loader for every local file
+// it stashes. Keeps the newest kMaxRemembered; the file is
+// <app data>/NamRecents.json, outside the stash, whose files age out.
+void noteLoaded(const juce::String& name, const juce::String& sourcePath,
+                const juce::String& stashFile);
+// A file that is already in the stash was loaded again by its hash name:
+// brings its record to the front of the recent list and keeps the name it has.
+void touchLoaded(const juce::String& stashFile);
+// The record for a stash file name, or an empty name when none.
+Loaded loadedFor(const juce::String& stashFileName);
+// The loaded files, newest first. `onlyRecent` leaves out the ones cleared
+// from the recent list.
+std::vector<Loaded> loaded(bool onlyRecent);
+// Takes everything off the recent list; the names stay, so search still finds
+// the files.
+void clearRecent();
+// Tests: forget everything held in memory (the file is read again on use).
+void resetForTesting();
+
+constexpr int kMaxRemembered = 1000;
+
+// ---- The TONE3000 app's folders ----
+
+enum class Platform { mac, windows, other };
+// The folders the TONE3000 app may keep downloaded models in, for a platform:
+// its data folder (<Application Support|%APPDATA%|~/.config>/TONE3000) first,
+// then the TONE3000 folders in Documents and Downloads. Pure: the callers
+// give the folders of the user, so tests can ask for every platform.
+std::vector<juce::File> tone3000Candidates(Platform platform, const juce::File& appData,
+                                           const juce::File& documents, const juce::File& home);
+// The candidates of this machine, whether they exist or not (for a settings
+// page that says where it looked).
+std::vector<juce::File> tone3000Searched();
+// The candidates of this machine that exist as folders. A test can replace
+// the candidates with a list of its own (nullptr restores the default).
+std::vector<juce::File> tone3000Folders();
+void setTone3000FoldersForTesting(const std::vector<juce::File>* folders);
+
+}  // namespace NamLibrary

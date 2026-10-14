@@ -204,7 +204,10 @@ TEST(LocalLoadTest, RejectsBadFilesAndSkipsThemInFolders) {
   const juce::String lstm = R"({"version":"0.5.4","architecture":"LSTM","config":{}})";
   const juce::String lstm64 = juce::Base64::toBase64(lstm.toRawUTF8(), lstm.getNumBytesAsUTF8());
   juce::var res = proc.loadLocalTone("model", filesOf({fileEntry("model.nam", lstm64)}));
-  EXPECT_EQ(res["error"].toString(), juce::String("Only A2 NAM files are supported"));
+  // The message names the architecture and what to do about it.
+  EXPECT_TRUE(res["error"].toString().startsWith("This capture uses the LSTM architecture."))
+      << res["error"].toString().toStdString();
+  EXPECT_TRUE(res["error"].toString().contains("A2"));
 
   res = proc.loadLocalTone("bad", filesOf({fileEntry("bad.wav", juce::Base64::toBase64("x", 1))}));
   EXPECT_EQ(res["error"].toString(), juce::String("Not a valid WAV file"));

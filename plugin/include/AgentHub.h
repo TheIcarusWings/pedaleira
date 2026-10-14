@@ -261,6 +261,8 @@ private:
   void registerListenCommands();
   // GuitarCommands.cpp: guitar.* and assets.*.
   void registerGuitarCommands();
+  // NamCommands.cpp: nam.*.
+  void registerNamCommands();
   // ToneRequestCommands.cpp: toneRequest.*.
   void registerToneRequestCommands();
   // CaptureCommands.cpp: capture.*.

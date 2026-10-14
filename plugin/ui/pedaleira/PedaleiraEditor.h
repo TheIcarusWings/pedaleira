@@ -57,6 +57,8 @@ private:
   // The audio device of the standalone application; null when there is none.
   std::unique_ptr<DeviceSettings> device;
   std::unique_ptr<AppShell> shell;
+  // Declared before the grid: the block library holds a pointer to it.
+  std::unique_ptr<Tone3000Feed> tone3000Feed;
   std::unique_ptr<GridPage> grid;
   std::unique_ptr<LibraryPage> library;
   std::unique_ptr<ImportPage> importer;

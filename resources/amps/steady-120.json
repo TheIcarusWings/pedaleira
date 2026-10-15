@@ -89,6 +89,7 @@
     "power_drive_v": {"value": 2.33, "provenance": "fitted", "note": "fitted to the Steady 120 measurements: the bend and the THD of the gain sweep"},
     "coupling_gain_rise": 0,
     "output_trim": {"value": 0.216, "provenance": "fitted", "note": "fitted to the Steady 120 measurements: the ceiling of the gain sweep"},
+    "invert_output": true,
     "control_smoothing_s": 0.02
   },
   "default_cab": {"speaker": "Brass", "size": "2x12", "back": "open", "mic": "condenser", "position_percent": 40, "distance_cm": 10},

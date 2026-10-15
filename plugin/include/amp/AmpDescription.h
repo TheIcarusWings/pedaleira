@@ -195,6 +195,9 @@ struct CalibrationDescription {
   float couplingGainRise{1.8f};
   /** Scale from the power stage's swing to digital. */
   float outputTrim{0.2f};
+  /** Flip the output's polarity, for an amp whose real counterpart comes out
+      inverted against its input (an odd number of inverting stages). */
+  bool invertOutput{false};
   float controlSmoothSeconds{0.02f};
 };
 

@@ -105,6 +105,7 @@
     "power_drive_v": {"value": 0.211, "provenance": "fitted", "note": "fitted to the Bronze Twenty measurements: the bend and the THD of the gain sweep"},
     "coupling_gain_rise": 0,
     "output_trim": {"value": 0.0956, "provenance": "fitted", "note": "fitted to the Bronze Twenty measurements: the ceiling of the gain sweep"},
+    "invert_output": true,
     "control_smoothing_s": 0.02
   },
   "default_cab": {"speaker": "Ember", "size": "1x12", "back": "open", "mic": "dynamic", "position_percent": 30, "distance_cm": 2.5},

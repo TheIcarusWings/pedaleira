@@ -282,6 +282,7 @@ Values with no component behind them; they tie the model to levels.
 | `power_drive_v` | number | V | 0.01 to 10000 | 40 |  | Volts at the tone stack output (after the master) that drive the power stage to full swing; stands for the recovery stage and phase inverter. (default provenance: fitted) |
 | `coupling_gain_rise` | number |  | 0 to 20 | 1.8 |  | How much the interstage corners rise with gain (factor 1 + rise at full gain): the gain-dependent tightening of the low end. (default provenance: fitted) |
 | `output_trim` | number |  | 0.0001 to 100 | 0.2 |  | Scale from the power stage's swing to digital. (default provenance: fitted) |
+| `invert_output` | boolean |  |  | false |  | Flip the output's polarity, for an amp whose real counterpart comes out inverted against its input (measured against the unit with a DI). |
 | `control_smoothing_s` | number | s | 0.0001 to 5 | 0.02 |  | How fast the knobs glide. (default provenance: fitted) |
 
 

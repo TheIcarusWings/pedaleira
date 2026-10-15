@@ -2598,6 +2598,11 @@
           ],
           "default": 1.8
         },
+        "invert_output": {
+          "description": "Flip the output's polarity, for an amp whose real counterpart comes out inverted against its input.",
+          "type": "boolean",
+          "default": false
+        },
         "output_trim": {
           "description": "Scale from the power stage's swing to digital.",
           "oneOf": [

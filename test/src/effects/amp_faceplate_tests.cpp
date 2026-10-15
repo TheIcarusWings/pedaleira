@@ -607,6 +607,38 @@ TEST(AmpKinds, EveryShippedAmpPlaysAndIsSoundIfItsOwn) {
       EXPECT_GT(maxDiff(outputs[a], outputs[b]), 1.0e-5) << a << " and " << b;
 }
 
+TEST(AmpKinds, InvertOutputFlipsThePolarityAndNothingElse) {
+  // lead-100.json carries "invert_output": true; the same file without it is
+  // the same amp with its output the other way up, sample for sample.
+  const std::string text = shipped("lead-100.json");
+  const std::string flag = "\"invert_output\": true,";
+  ASSERT_NE(text.find(flag), std::string::npos);
+  std::string upright = text;
+  upright.erase(upright.find(flag), flag.size());
+  const Parsed inverted = parse(text), plain = parse(upright);
+  ASSERT_TRUE(inverted.ok && plain.ok);
+  EXPECT_TRUE(inverted.description.calibration.invertOutput);
+  EXPECT_FALSE(plain.description.calibration.invertOutput);
+
+  const std::vector<float> input = guitar();
+  Rig shippedRig;
+  shippedRig.addAmp(ampfx::builtinAmpKindId("lead-100.json").c_str());
+  const std::vector<float> flipped = shippedRig.render(input);
+
+  const DescriptionFile file(upright);
+  Rig customRig;
+  const juce::String blockId = customRig.addAmp("amp.custom");
+  customRig.must("block.loadDescription",
+                 "{\"blockId\":" + quoted(blockId) + ",\"file\":" + quoted(file.file.getFullPathName()) + "}");
+  const std::vector<float> straight = customRig.render(input);
+  ASSERT_EQ(flipped.size(), straight.size());
+  ASSERT_GT(peak(straight), 0.001);
+  float worst = 0.0f;
+  for (size_t i = 0; i < flipped.size(); ++i)
+    worst = std::max(worst, std::abs(flipped[i] + straight[i]));
+  EXPECT_LT(worst, 1.0e-6f) << "the inverted amp must be the plain one times -1";
+}
+
 TEST(AmpKinds, TheSoundOfHighGainIsTheSameWithOrWithoutItsPanelStyle) {
   // amp.highgain is the shipped high-gain.json, panel style and all; the same
   // file with the faceplate and the family cut out is the amp as it was. Only

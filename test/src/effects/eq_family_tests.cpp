@@ -301,7 +301,7 @@ TEST(Parametric8EffectTest, Conforms) {
                     {"levelDb", 1}};
   options.stateParams = {{"b1Type", 2},  {"b1Freq", 70},   {"b3Gain", 10}, {"b5Q", 4},
                          {"b6Bypass", 1}, {"b8Type", 1},   {"b8Gain", -9}, {"levelDb", -2}};
-  options.sweepBound = 150.0f;
+  options.sweepBound = 1000.0f;  // any band can be a resonant pass filter (the shape control)
   options.cpuAverageBudgetNs = 20000.0;
   options.cpuWorstBudgetNs = 200000.0;
   expectKindConforms("eq.parametric8", options);
@@ -320,7 +320,7 @@ TEST(Parametric8EffectTest, ParametersAreAsDocumented) {
   const BlockKindInfo* info = BlockKindRegistry::instance().find(kP8);
   ASSERT_NE(info, nullptr);
   EXPECT_EQ(info->category, BlockCategory::Eq);
-  EXPECT_EQ(info->params.size(), 5u * 2u + 4u * 6u + 1u);
+  EXPECT_EQ(info->params.size(), 5u * 2u + 4u * 6u + 1u + 8u) << "plus the eight shape controls";
   const auto find = [&](const juce::String& id) -> const BlockParamSpec* {
     for (const auto& spec : info->params)
       if (spec.id == id)
@@ -688,4 +688,68 @@ TEST(ConsoleEqEffectTest, MovingTheControlsDoesNotStepTheSound) {
       });
   expectCleanSignal(out, 3.0f, "console moves");
   EXPECT_LT(maxStep(out, 0, out.size()), naturalStep(0.2f, 3.98f * 3.98f) * 1.1f);
+}
+
+// ---- The options the Quad Cortex import selects ----------------------------
+// Each is off (or Default) in a fresh block, which is the older behaviour; the
+// existing tests above pin that. These check what they do once chosen.
+
+TEST(Parametric3EffectTest, TheShapeControlMakesAnyBandAnyFilter) {
+  // High-pass on the middle band (it had no type before): 12 dB/oct, Q at the corner.
+  const Params highPass = {{"b2Shape", 2}, {"b2Freq", 1000}, {"b2Q", 0.7071}};
+  EXPECT_LT(responseAt(kP3, highPass, 125.0), -15.0);
+  EXPECT_NEAR(responseAt(kP3, highPass, 8000.0), 0.0, 0.5);
+  const Params lowPass = {{"b2Shape", 3}, {"b2Freq", 1000}, {"b2Q", 0.7071}};
+  EXPECT_LT(responseAt(kP3, lowPass, 8000.0), -15.0);
+  EXPECT_NEAR(responseAt(kP3, lowPass, 125.0), 0.0, 0.5);
+  // A high shelf on band 1 (which was a low shelf at most) and a low shelf on band 3.
+  EXPECT_NEAR(responseAt(kP3, {{"b1Shape", 4}, {"b1Freq", 500}, {"b1Gain", 9}}, 16000.0), 9.0, 0.5);
+  EXPECT_NEAR(responseAt(kP3, {{"b3Shape", 5}, {"b3Freq", 500}, {"b3Gain", 9}}, 40.0), 9.0, 0.5);
+  // Peak forces a bell on a band whose type control says shelf.
+  EXPECT_NEAR(responseAt(kP3, {{"b1Type", 1}, {"b1Shape", 1}, {"b1Freq", 1000}, {"b1Gain", 9}}, 16000.0),
+              0.0, 0.5);
+}
+
+TEST(Parametric8EffectTest, TheShapeControlMakesAnyBandAnyFilter) {
+  const Params lowPass = {{"b4Shape", 3}, {"b4Freq", 2000}, {"b4Q", 0.7071}};
+  EXPECT_LT(responseAt(kP8, lowPass, 16000.0), -25.0);
+  EXPECT_NEAR(responseAt(kP8, lowPass, 250.0), 0.0, 0.5);
+  EXPECT_NEAR(responseAt(kP8, {{"b5Shape", 5}, {"b5Freq", 300}, {"b5Gain", -6}}, 40.0), -6.0, 0.5);
+}
+
+TEST(ConsoleEqEffectTest, PeakingStyleHasFourBellsOfFixedQ) {
+  // Fixed Q 0.58 on the high band: a bell, not a shelf, so two octaves above
+  // the centre the boost is mostly gone; the default style keeps the shelf.
+  const Params shelf = {{"highFreq", 3000}, {"highGain", 12}};
+  Params bell = shelf;
+  bell.push_back({"bandStyle", 1});
+  EXPECT_NEAR(responseAt(kConsole, bell, 3000.0), 12.0, 0.3);
+  EXPECT_GT(responseAt(kConsole, shelf, 12000.0), 10.5);
+  EXPECT_LT(responseAt(kConsole, bell, 12000.0), 7.0);
+  // The low band is a bell too: no boost far below its centre.
+  EXPECT_NEAR(responseAt(kConsole, {{"bandStyle", 1}, {"lowFreq", 200}, {"lowGain", 12}}, 200.0), 12.0, 0.3);
+  EXPECT_LT(responseAt(kConsole, {{"bandStyle", 1}, {"lowFreq", 200}, {"lowGain", 12}}, 20.0), 3.0);
+  // Bit-exact when flat in either style.
+  expectBitExactPassThrough(kConsole, {{"bandStyle", 1}}, "peaking style, flat");
+}
+
+TEST(GraphicEq10EffectTest, ShelvedEndsQAndFiltersAreOptIn) {
+  const char* kGraphic = "eq.graphic10";
+  // Octave style: the 63 Hz band is a bell. Shelved: a low shelf, full gain far below.
+  EXPECT_LT(responseAt(kGraphic, {{"band63", 12}}, 20.0), 6.0);
+  EXPECT_NEAR(responseAt(kGraphic, {{"band63", 12}, {"bandStyle", 1}}, 20.0), 12.0, 1.0);
+  EXPECT_NEAR(responseAt(kGraphic, {{"band16k", 12}, {"bandStyle", 1}}, 21000.0), 12.0, 2.0);
+  // Q is the control of the shelved style, and narrows the bells.
+  const double wide = responseAt(kGraphic, {{"band1k", 12}, {"bandStyle", 1}, {"bandQ", 0.5}}, 1500.0);
+  const double narrow = responseAt(kGraphic, {{"band1k", 12}, {"bandStyle", 1}, {"bandQ", 8.0}}, 1500.0);
+  EXPECT_GT(wide, narrow + 3.0);
+  EXPECT_NEAR(responseAt(kGraphic, {{"band1k", 12}, {"bandStyle", 1}, {"bandQ", 8.0}}, 1000.0), 12.0, 0.3);
+  // The filters: off until switched on, second order.
+  EXPECT_NEAR(responseAt(kGraphic, {{"hpFreq", 400}}, 50.0), 0.0, 0.05);
+  EXPECT_LT(responseAt(kGraphic, {{"hpOn", 1}, {"hpFreq", 400}}, 50.0), -30.0);
+  EXPECT_NEAR(responseAt(kGraphic, {{"hpOn", 1}, {"hpFreq", 400}}, 400.0), 0.0, 0.5)
+      << "Q 1.0 is unity gain at the corner of a second-order high-pass";
+  EXPECT_LT(responseAt(kGraphic, {{"lpOn", 1}, {"lpFreq", 2000}}, 16000.0), -30.0);
+  EXPECT_NEAR(responseAt(kGraphic, {{"lpOn", 1}, {"lpFreq", 2000}}, 200.0), 0.0, 0.3);
+  expectBitExactPassThrough(kGraphic, {{"bandStyle", 1}, {"bandQ", 3.0}}, "shelved style, flat");
 }

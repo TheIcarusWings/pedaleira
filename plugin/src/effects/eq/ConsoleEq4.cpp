@@ -39,12 +39,18 @@ public:
     kHighFreq,
     kLpOn,
     kLpFreq,
-    kLevelDb
+    kLevelDb,
+    kBandStyle
   };
 
   static constexpr float kShelfQ = 0.7071f;
   static constexpr float kBellQ = 0.9f;
   static constexpr float kFilterQ = 0.7071f;
+
+  // The "Peaking" style: all four bands are bells with a fixed Q each (low
+  // 0.46, low-mid 0.50, high-mid 0.54, high 0.58), as the Quad Cortex
+  // Parametric-4 has them. The default "Console" style is the layout above.
+  static constexpr float kPeakingQ[4] = {0.46f, 0.50f, 0.54f, 0.58f};
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -66,6 +72,9 @@ public:
       t.push_back(BlockParamSpec::boolParam("lpOn", "Low-pass", false).withAffectsTail());
       t.push_back(fx::eq::frequencyParam("lpFreq", "Low-pass frequency", 1000.0f, 20000.0f, 12000.0f));
       t.push_back(BlockParamSpec::floatParam("levelDb", "Output", "dB", -20.0f, 20.0f, 0.0f));
+      t.push_back(BlockParamSpec::choiceParam("bandStyle", "Band style",
+                                              juce::StringArray{"Console", "Peaking"}, 0)
+                      .withAffectsTail());
       return t;
     }();
     return table;
@@ -103,10 +112,17 @@ private:
 
   void readTargets(BandTarget* t) const noexcept {
     set(t[0], BandType::HighPass2, param(kHpFreq), 0.0f, kFilterQ, param(kHpOn) >= 0.5f);
-    set(t[1], BandType::LowShelf, param(kLowFreq), param(kLowGain), kShelfQ, true);
-    set(t[2], BandType::Peak, param(kLowMidFreq), param(kLowMidGain), kBellQ, true);
-    set(t[3], BandType::Peak, param(kHighMidFreq), param(kHighMidGain), kBellQ, true);
-    set(t[4], BandType::HighShelf, param(kHighFreq), param(kHighGain), kShelfQ, true);
+    if (param(kBandStyle) >= 0.5f) {
+      set(t[1], BandType::Peak, param(kLowFreq), param(kLowGain), kPeakingQ[0], true);
+      set(t[2], BandType::Peak, param(kLowMidFreq), param(kLowMidGain), kPeakingQ[1], true);
+      set(t[3], BandType::Peak, param(kHighMidFreq), param(kHighMidGain), kPeakingQ[2], true);
+      set(t[4], BandType::Peak, param(kHighFreq), param(kHighGain), kPeakingQ[3], true);
+    } else {
+      set(t[1], BandType::LowShelf, param(kLowFreq), param(kLowGain), kShelfQ, true);
+      set(t[2], BandType::Peak, param(kLowMidFreq), param(kLowMidGain), kBellQ, true);
+      set(t[3], BandType::Peak, param(kHighMidFreq), param(kHighMidGain), kBellQ, true);
+      set(t[4], BandType::HighShelf, param(kHighFreq), param(kHighGain), kShelfQ, true);
+    }
     set(t[5], BandType::LowPass2, param(kLpFreq), 0.0f, kFilterQ, param(kLpOn) >= 0.5f);
   }
 

@@ -307,12 +307,37 @@ Resolved resolveValue(const juce::var& entry, const juce::var& sourceValue,
     const double scale = transform["scale"].isVoid() ? 1.0 : numberOf(transform["scale"]);
     const double offset = transform["offset"].isVoid() ? 0.0 : numberOf(transform["offset"]);
     if (!transform["exponent"].isVoid()) {
-      // A curve: scale * (value / inputMax) ^ exponent + offset, for a
-      // parameter whose law is not a straight line of the unit's knob
-      // (inputMax is the knob's own range, 100 unless the table says).
+      // A curve: scale * ((value - inputMin) / (inputMax - inputMin)) ^
+      // exponent + offset, for a parameter whose law is not a straight line
+      // of the unit's knob (inputMin and inputMax are the knob's own range,
+      // 0 and 100 unless the table says).
+      const double inputMin = transform["inputMin"].isVoid() ? 0.0 : numberOf(transform["inputMin"]);
       const double inputMax = transform["inputMax"].isVoid() ? 100.0 : numberOf(transform["inputMax"]);
-      const double unit = inputMax > 0.0 ? juce::jmax(0.0, result / inputMax) : 0.0;
+      const double unit =
+          inputMax > inputMin ? juce::jmax(0.0, (result - inputMin) / (inputMax - inputMin)) : 0.0;
       result = scale * std::pow(unit, numberOf(transform["exponent"])) + offset;
+    } else if (transform["table"].isObject()) {
+      // A lookup: the knob's position 0..1 on its own range (inputMin to
+      // inputMax) goes through a list of [position, value] points, joined
+      // in the logarithm of the value (the points are frequencies).
+      const juce::var lookup = transform["table"];
+      const double inputMin = lookup["inputMin"].isVoid() ? 0.0 : numberOf(lookup["inputMin"]);
+      const double inputMax = lookup["inputMax"].isVoid() ? 1.0 : numberOf(lookup["inputMax"]);
+      const auto* points = lookup["points"].getArray();
+      if (points == nullptr || points->size() < 2 || !(inputMax > inputMin)) {
+        out.why = "the table transform in the mapping table is incomplete";
+        return out;
+      }
+      const double position = juce::jlimit(0.0, 1.0, (result - inputMin) / (inputMax - inputMin));
+      int upper = 1;
+      while (upper < points->size() - 1 && position > numberOf((*points)[upper][0]))
+        ++upper;
+      const double x0 = numberOf((*points)[upper - 1][0]);
+      const double x1 = numberOf((*points)[upper][0]);
+      const double y0 = std::log(numberOf((*points)[upper - 1][1]));
+      const double y1 = std::log(numberOf((*points)[upper][1]));
+      const double across = x1 > x0 ? juce::jlimit(0.0, 1.0, (position - x0) / (x1 - x0)) : 0.0;
+      result = std::exp(y0 + (y1 - y0) * across) * scale + offset;
     } else {
       result = result * scale + offset;
     }

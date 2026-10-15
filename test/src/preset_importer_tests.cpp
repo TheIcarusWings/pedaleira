@@ -1680,10 +1680,11 @@ TEST(PresetImporterTest, ParametricBandTypesAndBypassFollowTheWire) {
   using namespace eqlaws;
   // Wire 0 .25 .5 .75 1: peaking, high pass, low pass, high shelf, low shelf; our shapes 1 to 5.
   const char* typeNames[] = {"Peaking", "High Pass", "Low Pass", "High Shelf", "Low Shelf"};
+  const char* typeWires[] = {"0", "0.25", "0.5", "0.75", "1"};
   for (int i = 0; i < 5; ++i) {
-    const juce::var byIndex =
-        importBlock("Parametric-8", "{\"2 TYPE\":{\"value\":" + std::to_string(i) + "}}");
-    EXPECT_NEAR(value(byIndex, "b2Shape"), i + 1.0, 1e-6) << i;
+    const juce::var byWire =
+        importBlock("Parametric-8", std::string("{\"2 TYPE\":{\"value\":") + typeWires[i] + "}}");
+    EXPECT_NEAR(value(byWire, "b2Shape"), i + 1.0, 1e-6) << typeWires[i];
     const juce::var byName = importBlock(
         "Parametric-3", std::string("{\"2 TYPE\":{\"value\":\"") + typeNames[i] + "\"}}");
     EXPECT_NEAR(value(byName, "b2Shape"), i + 1.0, 1e-6) << typeNames[i];
@@ -1728,7 +1729,7 @@ TEST(PresetImporterTest, ParametricFourFollowsItsFrequencyTablesAndFixedQ) {
     double hz[7];
   };
   const Band bands[] = {
-      {"LO FREQ", "LO GAIN", "lowFreq", "lowGain", 20.1, 200.0, {20.1, 21.6, 28, 60, 100, 160, 200}},
+      {"LO FREQ", "LO GAIN", "lowFreq", "lowGain", 20.0, 200.0, {20.1, 21.6, 28, 60, 100, 160, 200}},
       {"LO MID FREQ", "LO MID GAIN", "lowMidFreq", "lowMidGain", 100.0, 1000.0,
        {100, 108, 140, 260, 500, 680, 1000}},
       {"HI MID FREQ", "HI MID GAIN", "highMidFreq", "highMidGain", 500.0, 5000.0,

@@ -40,8 +40,13 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      # Submodules after checkout, with eigen from its GitHub mirror: gitlab.com
+      # refusing under load must not fail the build (same pinned commit).
+      - name: Submodules
+        shell: bash
+        run: |
+          git config --global url."https://github.com/eigen-mirror/eigen".insteadOf "https://gitlab.com/libeigen/eigen"
+          git submodule update --init --recursive
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -69,8 +74,13 @@ jobs:
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      # Submodules after checkout, with eigen from its GitHub mirror: gitlab.com
+      # refusing under load must not fail the build (same pinned commit).
+      - name: Submodules
+        shell: bash
+        run: |
+          git config --global url."https://github.com/eigen-mirror/eigen".insteadOf "https://gitlab.com/libeigen/eigen"
+          git submodule update --init --recursive
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
@@ -92,8 +102,13 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      # Submodules after checkout, with eigen from its GitHub mirror: gitlab.com
+      # refusing under load must not fail the build (same pinned commit).
+      - name: Submodules
+        shell: bash
+        run: |
+          git config --global url."https://github.com/eigen-mirror/eigen".insteadOf "https://gitlab.com/libeigen/eigen"
+          git submodule update --init --recursive
       - name: Install Ninja
         run: brew install ninja
       - name: Configure

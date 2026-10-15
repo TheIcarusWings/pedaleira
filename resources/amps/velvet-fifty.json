@@ -120,6 +120,7 @@
     "power_drive_v": {"value": 6.8, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the bend and the THD of the gain sweep"},
     "coupling_gain_rise": 0,
     "output_trim": {"value": 0.105, "provenance": "fitted", "note": "fitted to the Velvet Fifty measurements: the ceiling of the gain sweep"},
+    "invert_output": true,
     "control_smoothing_s": 0.02
   },
   "default_cab": {"speaker": "Velvet", "size": "1x12", "back": "open", "mic": "ribbon", "position_percent": 40, "distance_cm": 5},

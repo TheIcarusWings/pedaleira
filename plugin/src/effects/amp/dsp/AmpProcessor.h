@@ -150,7 +150,8 @@ protected:
     const int numLanes = juce::jmin(buffer.getNumChannels(), kMaxLanes);
 
     readTargets(d);
-    level.setTarget(fx::dbToGain(param(kLevelDb)) * d.calibration.outputTrim);
+    level.setTarget(fx::dbToGain(param(kLevelDb)) * d.calibration.outputTrim *
+                    (d.calibration.invertOutput ? -1.0f : 1.0f));
 
     // A stereo block that carries the same audio on both channels (what the
     // processor hands a block after it folds its input to mono) runs one

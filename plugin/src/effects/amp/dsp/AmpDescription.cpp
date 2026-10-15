@@ -578,13 +578,14 @@ public:
   }
 
   void readCalibration(const json& obj) {
-    allowOnly(obj, "calibration", {"input_full_scale_v", "power_drive_v", "coupling_gain_rise", "output_trim", "control_smoothing_s"});
+    allowOnly(obj, "calibration", {"input_full_scale_v", "power_drive_v", "coupling_gain_rise", "output_trim", "invert_output", "control_smoothing_s"});
     CalibrationDescription& c = out.calibration;
     const Provenance f = Provenance::Fitted;
     readFloat(obj, "calibration", "input_full_scale_v", c.inputFullScaleVolts, f, 0.001, 1000.0);
     readFloat(obj, "calibration", "power_drive_v", c.powerDriveVolts, f, 0.01, 10000.0);
     readFloat(obj, "calibration", "coupling_gain_rise", c.couplingGainRise, f, 0.0, 20.0);
     readFloat(obj, "calibration", "output_trim", c.outputTrim, f, 1.0e-4, 100.0);
+    readBool(obj, "calibration", "invert_output", c.invertOutput);
     readFloat(obj, "calibration", "control_smoothing_s", c.controlSmoothSeconds, f, 1.0e-4, 5.0);
   }
 

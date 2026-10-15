@@ -430,15 +430,19 @@
       "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 20 to 4000 ms (ours is 100 to 2000, so a value outside is clamped and reported), FEEDBACK and MIX in percent, HIGH PASS and LOW PASS in Hz. LOW PASS becomes our tone; HIGH PASS has no counterpart here and is dropped. DELAY TIME follows the same law. Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds."
     },
     "Dual Reverse Delay": {
-      "kind": "delay.reverse",
+      "kind": "delay.dualreverse",
       "verified": false,
       "params": {
-        "DELAY TIME L": { "param": "timeMs", "unit": "ms", "transform": "linear" },
-        "FEEDBACK L": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "DELAY TIME L": { "param": "leftTimeMs", "unit": "ms", "transform": "linear" },
+        "DELAY TIME R": { "param": "rightTimeMs", "unit": "ms", "transform": "linear" },
+        "FEEDBACK L": { "param": "leftFeedback", "unit": "%", "transform": "linear" },
+        "FEEDBACK R": { "param": "rightFeedback", "unit": "%", "transform": "linear" },
+        "X-FEEDBACK": { "param": "crossFeedback", "unit": "%", "transform": "linear" },
+        "HIGH PASS": { "param": "lowCutHz", "unit": "Hz", "transform": "linear" },
         "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
       },
-      "notes": "Placed on our reverse delay, which has one side: only the left time and feedback are taken and the right ones are dropped (the L and R names are the catalogue's wording, not yet seen in a dump). LOW PASS becomes our tone; HIGH PASS is dropped. DELAY TIME L follows the same law. Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds."
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME L and R, FEEDBACK L and R and X-FEEDBACK in percent, HIGH PASS and LOW PASS in Hz (the L and R names are the catalogue's wording, not yet seen in a dump). Placed on our dual reverse delay: a reverse line per side, each with its own time and feedback, and X-FEEDBACK as the share of each line's repeats that crosses to the other. HIGH PASS is our low cut and LOW PASS our tone. DELAY TIME L and R follow the same law. Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds."
     },
     "Circular Delay": {
       "kind": "delay.multitap",

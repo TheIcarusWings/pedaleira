@@ -2,7 +2,8 @@
 // Helpers private to the drive family (plugin/src/effects/drive). Shared DSP
 // stays in effects/dsp; what is here only makes sense for a clipping stage:
 // the waveshapers, a 4x oversampling wrapper for the clipping core, a DC
-// blocker and the little scheduling helpers the kinds share.
+// blocker and the little scheduling helpers the kinds share. The synth filter
+// (filter/SynthFilterEffect.cpp) borrows the oversampler for its tanh ladder.
 //
 // How every drive kind is laid out:
 //

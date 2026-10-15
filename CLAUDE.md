@@ -21,6 +21,11 @@ decision files to the repository (they are in .gitignore).
 - Never regenerate anything under `test/files`.
 - The UI talks to the engine only through the command layer (`docs/commands.md`); the
   design canvas is the spec for every screen.
+- Agents and models: cheaper models are fine for well-specified, low-risk work (plumbing,
+  import tables, tests, docs). Use the strongest model for work judged by expertise or ear
+  (amp, cab and other sound-defining DSP, fitting, design). Never trade quality for cost:
+  review every agent's output, verify it with tests or measurements, and redo it with the
+  stronger model if it is not clean.
 
 ## Build and test (Linux)
 

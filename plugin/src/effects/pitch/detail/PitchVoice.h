@@ -1,5 +1,6 @@
 #pragma once
-// Private to the pitch family (plugin/src/effects/pitch): the plumbing the
+// Private to the pitch family (plugin/src/effects/pitch), and borrowed by
+// delay.crystal for the shifters in its feedback loop: the plumbing the
 // three kinds share around the polyphonic engine in PitchShift.h. There is no
 // kind in here, only the engine's lifecycle made safe for a block:
 //

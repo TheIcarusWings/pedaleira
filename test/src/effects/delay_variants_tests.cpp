@@ -3,7 +3,7 @@
 // gets the conformance test and then what it is for: an exact time, left and
 // right times and a cross-feedback that moves the repeats across, a reverse
 // that really plays backwards with no click at the chunk joins, taps where the
-// pattern puts them. The ducking is tested across all ten delays at once:
+// pattern puts them. The ducking is tested across all eleven delays at once:
 // it lowers the wet by the set depth while the input is loud, lets go within
 // the release, leaves the loop alone, and at 0 dB changes nothing.
 #include "effects/delay_test_support.h"
@@ -986,6 +986,7 @@ std::vector<DelayCase> allDelays() {
       {"delay.dualreverse",
        {{"leftTimeMs", 200.0}, {"rightTimeMs", 250.0}, {"leftFeedback", 80.0}, {"rightFeedback", 80.0}}},
       {"delay.multitap", {{"timeMs", 150.0}, {"feedback", 80.0}}},
+      {"delay.crystal", {{"timeMs", 120.0}, {"feedback", 80.0}, {"pitch", -5.0}, {"lowCutHz", 20.0}, {"modDepth", 0.0}}},
   };
 }
 

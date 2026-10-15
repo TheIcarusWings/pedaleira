@@ -450,6 +450,10 @@ class Take:
     notes: str = ""
     # dB below nominal the test signal is played and rendered at (0 or less).
     signal_gain_db: float = 0.0
+    # A second block in column 2 after the first (a cab after an amp, say): catalogue name or id, and its
+    # params. For listening takes; the render of ours never includes it.
+    after_model: Any = None
+    after_params: Dict[str, Any] = field(default_factory=dict)
 
 
 MIN_SIGNAL_GAIN_DB = -60.0
@@ -464,6 +468,28 @@ def parse_signal_gain(value: Any, where: str, problems: List[str]) -> Optional[f
         problems.append(f"{where}: signalGainDb must be a number from {MIN_SIGNAL_GAIN_DB:g} to 0 (dB below the nominal signal)")
         return None
     return float(value) + 0.0  # no negative zero
+
+
+def parse_params(raw_params: Any, where: str, problems: List[str]) -> Dict[str, Any]:
+    """A block's `params` of the plan: name -> number in the parameter's units, or {"wire": 0..1}."""
+    params: Dict[str, Any] = {}
+    if not isinstance(raw_params, dict):
+        problems.append(f"{where}: params must be an object of name: value")
+        return params
+    for key, value in raw_params.items():
+        if isinstance(value, bool):
+            value = 1 if value else 0
+        if isinstance(value, (int, float)) and math.isfinite(float(value)):
+            params[key] = value
+        elif isinstance(value, dict) and set(value) == {"wire"} and isinstance(value["wire"], (int, float)) \
+                and 0.0 <= float(value["wire"]) <= 1.0:
+            params[key] = {"wire": float(value["wire"])}
+        else:
+            problems.append(
+                f"{where}: parameter {key!r} must be a number in the parameter's own units "
+                '(a list parameter: its option index) or {"wire": 0..1}'
+            )
+    return params
 
 
 def parse_plan(document: Any) -> List[Take]:
@@ -506,26 +532,24 @@ def parse_plan(document: Any) -> List[Take]:
         elif isinstance(model, bool) or not isinstance(model, (str, int)) or model == "":
             problems.append(f"{where}: model must be a catalogue name or an id")
 
-        params: Dict[str, Any] = {}
-        raw_params = raw.get("params", {})
-        if not isinstance(raw_params, dict):
-            problems.append(f"{where}: params must be an object of name: value")
-            raw_params = {}
-        for key, value in raw_params.items():
-            if isinstance(value, bool):
-                value = 1 if value else 0
-            if isinstance(value, (int, float)) and math.isfinite(float(value)):
-                params[key] = value
-            elif isinstance(value, dict) and set(value) == {"wire"} and isinstance(value["wire"], (int, float)) \
-                    and 0.0 <= float(value["wire"]) <= 1.0:
-                params[key] = {"wire": float(value["wire"])}
-            else:
-                problems.append(
-                    f"{where}: parameter {key!r} must be a number in the parameter's own units "
-                    '(a list parameter: its option index) or {"wire": 0..1}'
-                )
+        params = parse_params(raw.get("params", {}), where, problems)
         if bypass and params:
             problems.append(f"{where}: a bypass take has no params")
+
+        after_model = None
+        after_params: Dict[str, Any] = {}
+        after = raw.get("after")
+        if after is not None:
+            if bypass:
+                problems.append(f"{where}: a bypass take has no second block")
+            elif not isinstance(after, dict):
+                problems.append(f"{where}: after must be an object with a model and its params")
+            else:
+                after_model = after.get("model")
+                if isinstance(after_model, bool) or not isinstance(after_model, (str, int)) or after_model == "":
+                    problems.append(f"{where}: after.model must be a catalogue name or an id")
+                    after_model = None
+                after_params = parse_params(after.get("params", {}), f"{where}, after", problems)
 
         ours_kind = None
         ours_params: Dict[str, float] = {}
@@ -560,6 +584,8 @@ def parse_plan(document: Any) -> List[Take]:
                 ours_params=ours_params,
                 notes=str(raw.get("notes", "")),
                 signal_gain_db=default_gain if take_gain is None else take_gain,
+                after_model=after_model,
+                after_params=after_params,
             )
         )
     if problems:
@@ -1144,6 +1170,12 @@ class PreparedTake:
     ours: OursPlan = field(default_factory=OursPlan)
     unit_notes: List[str] = field(default_factory=list)
     error: str = ""
+    after_model: Any = None  # the catalogue model of the second block, when the take has one
+    after_settings: List[UnitSetting] = field(default_factory=list)
+
+    def columns(self) -> int:
+        """How many blocks this take puts on its row."""
+        return 0 if self.take.bypass else (2 if self.take.after_model is not None else 1)
 
 
 def prepare_take(take: Take, catalog: Any, mapping: Dict[str, Any]) -> PreparedTake:
@@ -1168,6 +1200,11 @@ def prepare_take(take: Take, catalog: Any, mapping: Dict[str, Any]) -> PreparedT
                 )
             if setting.note:
                 prepared.unit_notes.append(f"{setting.name}: {setting.note}")
+        if take.after_model is not None:
+            prepared.after_model = resolve_model(catalog, take.after_model)
+            for name, shown in take.after_params.items():
+                exponent = curve_exponent(CURVES, prepared.after_model.name, name)
+                prepared.after_settings.append(plan_setting(find_parameter(prepared.after_model, name), shown, exponent))
     except PlanError as error:
         prepared.error = str(error)
     return prepared
@@ -1180,21 +1217,29 @@ def setup_take(
     row: int,
     in_port: Any,
     out_port: Any,
-    occupied: bool,
+    occupied: int,
     sleep: Callable[[float], None],
 ) -> None:
-    """The grid edits of one take, all on `row`, column 0. Nothing here stores anything."""
-    if occupied:
-        qc.remove_block(row=row, column=0)
+    """The grid edits of one take, all on `row`: its block in column 0 and, when the take has one, its
+    second block in column 1. `occupied` is how many blocks the previous take left there. Nothing here
+    stores anything."""
+    for column in reversed(range(occupied)):
+        qc.remove_block(row=row, column=column)
         sleep(0.4)
     if not prepared.take.bypass:
         qc.set_block(row=row, column=0, model=int(prepared.model.id))
+        if prepared.after_model is not None:
+            qc.set_block(row=row, column=1, model=int(prepared.after_model.id))
     qc.set_chain_input(row=row, in_portid=in_port)
     qc.set_chain_output(row=row, out_portid=out_port)
     if not prepared.take.bypass:
         qc.set_bypass(row=row, column=0, bypassed=False)
         for setting in prepared.settings:
             qc.set_param(row=row, column=0, param=setting.name, model=prepared.model, **setting.kwargs)
+        if prepared.after_model is not None:
+            qc.set_bypass(row=row, column=1, bypassed=False)
+            for setting in prepared.after_settings:
+                qc.set_param(row=row, column=1, param=setting.name, model=prepared.after_model, **setting.kwargs)
 
 
 def confirm_setup(qc: GuardedClient, kit: Toolkit, prepared: PreparedTake, row: int, in_port: Any, out_port: Any) -> Any:
@@ -1207,7 +1252,9 @@ def confirm_setup(qc: GuardedClient, kit: Toolkit, prepared: PreparedTake, row: 
             raise UnitRefused(f"row {row + 1} still holds {len(found)} block(s) after the setup")
     elif (row, 0, int(prepared.model.id)) not in found:
         raise UnitRefused(f"{prepared.model.name!r} is not at row {row + 1}, column 1 after the setup")
-    if len(found) > (0 if prepared.take.bypass else 1):
+    if prepared.after_model is not None and (row, 1, int(prepared.after_model.id)) not in found:
+        raise UnitRefused(f"{prepared.after_model.name!r} is not at row {row + 1}, column 2 after the setup")
+    if len(found) > prepared.columns():
         raise UnitRefused(f"row {row + 1} holds more blocks than this take put there")
     read_in, read_out = chain_ports(live, row)
     if read_in is not None and read_in != int(in_port):
@@ -1411,6 +1458,11 @@ def plan_lines(opts: Options, prepared: List[PreparedTake], dirs: SessionDirs, c
             label = item.model.name if item.model is not None else str(take.model)
             lines.append("  grid edits (unsaved, on the grid only):")
             lines.append(f"    set_block   row {opts.row or 'free'} column 1  {label}")
+            if item.after_model is not None:
+                lines.append(f"    set_block   row {opts.row or 'free'} column 2  {item.after_model.name}")
+                for setting in item.after_settings:
+                    unit = f" {setting.unit}" if setting.unit else ""
+                    lines.append(f"    set_param   (column 2) {setting.name} = {fmt(setting.shown)}{unit}")
             lines.append(f"    set_chain_input {opts.qc_input}   set_chain_output {opts.qc_output}   set_bypass off")
             if item.settings:
                 for setting in item.settings:
@@ -1604,7 +1656,7 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
         run_tool("signals", signals_cmd(opts.match_tool, str(dirs.signal), opts.rate))
         signal = find_signal(dirs)
 
-        occupied = False
+        occupied = 0
         for number, item in enumerate(prepared, 1):
             files = TakeFiles.for_take(dirs, item.take.name)
             result = TakeResult(prepared=item, files=files)
@@ -1616,7 +1668,7 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
                 continue
             try:
                 setup_take(qc, kit, item, row, in_port, out_port, occupied, deps.sleep)
-                occupied = not item.take.bypass
+                occupied = item.columns()
                 live = confirm_setup(qc, kit, item, row, in_port, out_port)
                 if opts.readback and not item.take.bypass and item.settings:
                     result.readback, result.readback_note = read_back(kit, live, item, row)
@@ -1628,7 +1680,7 @@ def run_session(opts: Options, takes: List[Take], mapping: Dict[str, Any], deps:
                     result.message += (" (hint: play the test signal lower with signalGainDb in the plan, "
                                        "for instance -6; ours is then rendered at the same level)")
             except kit.refused_errors as refused:
-                occupied = False
+                occupied = 0
                 result.status, result.stage, result.message = "failed", "unit", f"the unit refused the block: {refused}"
             except kit.lost_errors:
                 raise

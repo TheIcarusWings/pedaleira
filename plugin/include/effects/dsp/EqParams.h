@@ -43,4 +43,33 @@ inline void addParametricBand(BlockParamTable& t, int number, const juce::String
       BlockParamSpec::boolParam("b" + n + "Bypass", label + "bypass", false).withAffectsTail());
 }
 
+/** The per-band "shape" control of eq.parametric3 and eq.parametric8, appended
+    after the older parameters. "Default" (0) leaves the band as its type
+    control makes it, which is how every band behaved before this control
+    existed; the others pick the band's filter outright, as a unit does that
+    lets every band be any of the five. The two second-order filters take no
+    gain (their Q is the resonance at the corner). */
+inline juce::StringArray shapeChoices() {
+  return juce::StringArray{"Default", "Peak", "High-pass", "Low-pass", "High shelf", "Low shelf"};
+}
+
+inline void addShapeParams(BlockParamTable& t, int bands) {
+  for (int b = 1; b <= bands; ++b)
+    t.push_back(BlockParamSpec::choiceParam("b" + juce::String(b) + "Shape",
+                                            "Band " + juce::String(b) + " shape", shapeChoices(), 0)
+                    .withAffectsTail());
+}
+
+/** Applies a shape choice to a band; returns false (type untouched) for Default. */
+inline bool applyShape(int choice, BandType& type) noexcept {
+  switch (choice) {
+    case 1: type = BandType::Peak; return true;
+    case 2: type = BandType::HighPass2; return true;
+    case 3: type = BandType::LowPass2; return true;
+    case 4: type = BandType::HighShelf; return true;
+    case 5: type = BandType::LowShelf; return true;
+    default: return false;
+  }
+}
+
 }  // namespace fx::eq

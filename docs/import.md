@@ -176,7 +176,7 @@ see `cmake/ImportData.cmake`); `preset.importForeign` takes another one with
 | `models.*.kind` | Our kind id (`kinds.list`): `delay.digital`, `reverb.hall`... A kind this build does not have makes the block unmapped, not an error. |
 | `models.*.verified` | `true` only when someone has checked this entry against a dump from a real unit. Shown in the report. Every entry of the built-in table is `false` today. |
 | `models.*.params` | By the source's parameter name. `param` is one of our parameter ids for that kind, or a common setting: `mix`, `inputGain`, `outputGain` (knob positions, 0 to 1) or `enabled`. `unit` (optional) is the unit the entry was written for: a dump that says another unit is not converted by it, it is reported. |
-| `...transform` | `"linear"` (the number as it is), `{ "scale": a, "offset": b }` (`value x a + b`), `{ "scale": a, "offset": b, "exponent": e, "inputMax": m }` (a curve: `a x (value / m) ^ e + b`, `m` defaulting to 100), or `{ "map": { "<their value>": <our value> } }` (a list option, bool or number to our number; the key is compared like a name). A string that is the label of one of a choice parameter's options becomes its index. |
+| `...transform` | `"linear"` (the number as it is), `{ "scale": a, "offset": b }` (`value x a + b`), `{ "scale": a, "offset": b, "exponent": e, "inputMin": n, "inputMax": m }` (a curve: `a x ((value - n) / (m - n)) ^ e + b`, `n` defaulting to 0 and `m` to 100), `{ "table": { "inputMin": n, "inputMax": m, "points": [[position, value], ...] } }` (the knob's position 0 to 1 on its range `n` to `m` looked up in the points, joined in the logarithm of the value), or `{ "map": { "<their value>": <our value> } }` (a list option, bool or number to our number; the key is compared like a name). A string that is the label of one of a choice parameter's options becomes its index. |
 | `models.*.defaults` | Our parameter ids and the values they start at, before the mapped ones. |
 | `models.*.role` | `"amp"`, `"cab"` or `"capture"` instead of a `kind`: never mapped, the report says to pick a capture or IR. |
 | `models.*.notes` | A sentence for the report's `mapped` entry. |
@@ -298,9 +298,52 @@ kind, not from a dump: their knobs are assumed to read 0 to 10 and to carry
 the names the entries list (a name that does not match is reported as a
 dropped parameter), so each one is a starting point to set by ear. The
 `Guitar Overdrive` category falls back to `drive.overdrive` and `Bass
-Overdrive` to `drive.bass`. Categories we have no block for (parametric EQ,
-fixed filters, synths, loopers) are unmapped, and amps, cabs, IR loaders and
+Overdrive` to `drive.bass`. Categories we have no block for (fixed filters, synths, loopers) are unmapped, and amps, cabs, IR loaders and
 captures are never mapped.
+
+## The equaliser blocks: measured laws
+
+The four equalisers carry laws measured on a unit, not a straight line from the
+screen's range. The dump gives each knob on its linear screen range (the wire
+position 0 to 1 spread over the range); the table undoes that and applies the
+unit's real law. Wire below means that position.
+
+- **Graphic 9.** Band gains are the dB shown, 1:1. The 65 Hz band is a low
+  shelf, 125 Hz to 8 kHz are peaking at those centres, 16 kHz is a high shelf;
+  the Q control (0 to 10, value = Q, default 1) is the Q of every band. The
+  high-pass (19 to 500 Hz) and low-pass (1000 to 20001 Hz) are second order
+  with Q 1.0 and their corner is `lo + span x n ^ (5/3)`. It lands on the
+  graphic EQ block with its **Band style** set to Shelved ends (the 63 Hz band
+  becomes the 65 Hz low shelf, the 16 kHz band a high shelf, **Band Q** sets
+  every band's Q), and its high-pass and low-pass switched on. Our 31.5 Hz band
+  stays flat. In the default Octave style the block is exactly what it was.
+- **Parametric-3 and Parametric-8**, every band the same: gain is
+  `-12 + 24 x wire` dB (0.5 is flat), Q is `0.1 + 9.9 x wire`, frequency is
+  `20 + 19980 x wire ^ (10/3)` Hz, type is peaking, high-pass, low-pass, high
+  shelf, low shelf for wire 0, .25, .5, .75, 1 (the pass types second order),
+  and BYPASS 0 is a band that is off. Every band can be any of the five, so
+  each band of our blocks has a **Shape** control (Default keeps the older
+  Peak/Shelf type control, so existing presets are unchanged) and the import
+  sets it. The blocks are given the unit's loaded state first: the
+  Parametric-3 is low shelf 125 Hz, peak 1000 Hz, high shelf 4000 Hz; the
+  Parametric-8 has a low shelf at 50 Hz, peaks at 100 Hz and 3 kHz, a high
+  shelf at 1 kHz, all Q 0.71, bands 5 and 8 bypassed, and band 8 is a
+  second-order low-pass with a fixed Q of 0.707 (its Q control does nothing,
+  so it is not read).
+- **Parametric-4** (our Console EQ). Gains are the dB shown. All four bands
+  are peaking with a fixed Q: LO 0.46, LO MID 0.50, HI MID 0.54, HI 0.58; the
+  import sets the Console EQ's **Band style** to Peaking, which holds those
+  Qs (the default Console style keeps the shelves). Frequency follows a table
+  of the knob position (0, .1, .25, .5, .75, .9, 1), joined in the logarithm
+  of the frequency: LO 20.1, 21.6, 28, 60, 100, 160, 200 Hz; LO MID 100, 108,
+  140, 260, 500, 680, 1000; HI MID 500, 540, 700, 1200, 3000, 4200, 5000;
+  HI 2000, 2160, 2800, 6000, 12000, 16818, 20000. The high-pass (20 to 500 Hz)
+  and low-pass (1000 to 20000 Hz) are Butterworth and linear in the wire.
+
+What is assumed, not measured: that the screen ranges are the ones above (a
+dump with other ranges needs the table's `inputMin` and `inputMax` changed),
+and the names of the type and bypass options (the numbers 0 to 4 and the usual
+names are read).
 
 ## What still needs a real unit
 

@@ -23,6 +23,9 @@ public:
   static constexpr int kBandStart[kNumBands] = {0, 5, 9};
   static constexpr bool kHasType[kNumBands] = {true, false, true};
   static constexpr int kLevelIndex = 14;
+  // The shape controls follow the level: Default keeps the type control's
+  // meaning, the rest set the filter outright.
+  static constexpr int kShapeStart = 15;
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -31,6 +34,7 @@ public:
       fx::eq::addParametricBand(t, 2, juce::StringArray(), 1000.0f);
       fx::eq::addParametricBand(t, 3, juce::StringArray{"Peak", "Shelf"}, 6000.0f);
       t.push_back(BlockParamSpec::floatParam("levelDb", "Output", "dB", -20.0f, 20.0f, 0.0f));
+      fx::eq::addShapeParams(t, kNumBands);
       return t;
     }();
     return table;
@@ -63,6 +67,7 @@ private:
       BandType type = BandType::Peak;
       if (kHasType[b] && param(at++) >= 0.5f)
         type = b == 0 ? BandType::LowShelf : BandType::HighShelf;
+      fx::eq::applyShape(static_cast<int>(param(kShapeStart + b) + 0.5f), type);
       targets[b].type = type;
       targets[b].hz = param(at);
       targets[b].gainDb = param(at + 1);

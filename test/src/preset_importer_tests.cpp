@@ -29,6 +29,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -1497,7 +1499,7 @@ TEST(PresetImporterTest, EqualiserModelsGetTheirKinds) {
        "params":{"2 FREQ":{"value":800,"unit":"Hz"},"2 GAIN":{"value":24,"unit":"dB"},"2 Q":{"value":2},
                  "OUTPUT":{"value":-3,"unit":"dB"}}},
       {"position":1,"model":"Parametric-8","category":"Equalizer","enabled":true,
-       "params":{"8 FREQ":{"value":9000,"unit":"Hz"},"8 TYPE":{"value":1}}},
+       "params":{"8 FREQ":{"value":9000,"unit":"Hz"},"8 TYPE":{"value":0.25}}},
       {"position":2,"model":"Low-High Cut","category":"Equalizer","enabled":true,
        "params":{"HPF FREQ":{"value":90,"unit":"Hz"},"LPF FREQ":{"value":7000,"unit":"Hz"}}},
       {"position":3,"model":"Plugin Parametric-4","category":"Equalizer","enabled":true,
@@ -1510,14 +1512,15 @@ TEST(PresetImporterTest, EqualiserModelsGetTheirKinds) {
   };
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 0)), "eq.parametric3");
-  EXPECT_NEAR(number(0, "b2Freq"), 800.0, 1e-3);
+  // 800 Hz on the screen is wire 0.039, which the unit plays at 20 + 19980 x wire ^ (10/3).
+  EXPECT_NEAR(number(0, "b2Freq"), 20.0 + 19980.0 * std::pow(780.0 / 19980.0, 10.0 / 3.0), 0.05);
   EXPECT_NEAR(number(0, "b2Gain"), 18.0, 1e-3) << "clamped to our range";
   EXPECT_NEAR(number(0, "b2Q"), 2.0, 1e-3);
   EXPECT_NEAR(number(0, "levelDb"), -3.0, 1e-3);
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "eq.parametric8");
-  EXPECT_NEAR(number(1, "b8Freq"), 9000.0, 1e-3);
-  EXPECT_NEAR(number(1, "b8Type"), 1.0, 1e-6);
+  EXPECT_NEAR(number(1, "b8Freq"), 20.0 + 19980.0 * std::pow(8980.0 / 19980.0, 10.0 / 3.0), 0.5);
+  EXPECT_NEAR(number(1, "b8Shape"), 2.0, 1e-6) << "type wire 0.25 is the high-pass";
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "eq.cut");
   EXPECT_NEAR(number(2, "hpFreq"), 90.0, 1e-3);
@@ -1525,7 +1528,10 @@ TEST(PresetImporterTest, EqualiserModelsGetTheirKinds) {
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "eq.console4");
   EXPECT_NEAR(number(3, "lowMidGain"), -4.0, 1e-3);
-  EXPECT_NEAR(number(3, "lowMidFreq"), 350.0, 1e-3);
+  // 350 Hz on the 100 to 1000 Hz screen is wire 0.278, between the table's 140 Hz and 260 Hz.
+  EXPECT_NEAR(number(3, "lowMidFreq"),
+              std::exp(std::log(140.0) + (std::log(260.0) - std::log(140.0)) * (0.2778 - 0.25) / 0.25),
+              0.2);
   EXPECT_NEAR(number(3, "hpOn"), 1.0, 1e-6) << "the unit's filters are always in";
 }
 
@@ -1565,4 +1571,197 @@ TEST(PresetImporterTest, ModulationModelsSelectTheVoicingsMeasuredOnTheUnit) {
   EXPECT_NEAR(number(4, "cabinet"), 1.0, 1e-6) << "the dark cabinet";
   EXPECT_NEAR(number(4, "rateHz"), 4.85, 1e-3);
   EXPECT_NEAR(number(4, "slowPercent"), 17.1, 1e-3);
+}
+
+// ####################
+// THE EQ BLOCKS: MEASURED LAWS
+// ####################
+//
+// The importer is given the screen's value of a knob (its wire position 0..1
+// on the catalogue's linear range); the table turns it into the unit's real
+// law. These tests send values at the measured points and read the block's
+// parameters back.
+
+namespace eqlaws {
+
+// One block of `model` with `params` (a JSON object text) imported through the
+// built-in Quad Cortex table; the slot it lands in.
+juce::var importBlock(const char* model, const std::string& params) {
+  const juce::var table = importer::builtInMapping("quad-cortex");
+  const std::string text =
+      std::string(R"({"format":"pedaleira-foreign-preset","version":1,"source":"quad-cortex",
+        "name":"Eq","rows":[{"index":0,"blocks":[{"position":0,"model":")") +
+      model + R"(","category":"Equalizer","enabled":true,"params":)" + params + "}]}]}";
+  const importer::ImportResult result =
+      importer::convertForeignPreset(parseJson(text.c_str()), table);
+  EXPECT_TRUE(result.ok) << result.error;
+  return slotNode(result.preset, 0, 0);
+}
+
+double value(const juce::var& slot, const std::string& id) {
+  return static_cast<double>(kindParam(slot, id.c_str()));
+}
+
+std::string num(double x) {
+  char buffer[64];
+  std::snprintf(buffer, sizeof buffer, "%.9g", x);
+  return buffer;
+}
+
+// A knob whose screen range is lo..hi, at wire position w.
+double shown(double lo, double hi, double w) { return lo + (hi - lo) * w; }
+
+void expectNearRel(double actual, double expected, double relative, const std::string& what) {
+  EXPECT_NEAR(actual, expected, expected * relative) << what;
+}
+
+}  // namespace eqlaws
+
+TEST(PresetImporterTest, Graphic9GainsAreOneToOneAndItsFiltersFollowTheFiveThirdsLaw) {
+  using namespace eqlaws;
+  std::string params = "{";
+  const char* names[] = {"65Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"};
+  const char* ids[] = {"band63", "band125", "band250", "band500", "band1k",
+                       "band2k", "band4k",   "band8k",  "band16k"};
+  const double gains[] = {-9.0, -4.5, 0.0, 2.25, 6.0, 12.0, -12.0, 3.1, 7.7};
+  for (int i = 0; i < 9; ++i)
+    params += std::string("\"") + names[i] + "\":{\"value\":" + num(gains[i]) + ",\"unit\":\"dB\"},";
+  const double n = 0.62;
+  const double m = 0.35;
+  params += "\"Q\":{\"value\":4.5},\"HPF\":{\"value\":" + num(shown(19.0, 500.0, n)) +
+            "},\"LPF\":{\"value\":" + num(shown(1000.0, 20001.0, m)) + "}}";
+  const juce::var slot = importBlock("Graphic 9", params);
+
+  EXPECT_EQ(kindOf(slot), "eq.graphic10");
+  for (int i = 0; i < 9; ++i)
+    EXPECT_NEAR(value(slot, ids[i]), gains[i], 0.05) << ids[i];
+  EXPECT_NEAR(value(slot, "band31"), 0.0, 0.05) << "the 31.5 Hz band has no counterpart";
+  EXPECT_NEAR(value(slot, "bandStyle"), 1.0, 1e-6) << "shelves at the ends";
+  EXPECT_NEAR(value(slot, "bandQ"), 4.5, 1e-3) << "Q control 0..10, value = Q";
+  expectNearRel(value(slot, "hpFreq"), 19.0 + 481.0 * std::pow(n, 5.0 / 3.0), 0.01, "HPF");
+  expectNearRel(value(slot, "lpFreq"), 1000.0 + 19001.0 * std::pow(m, 5.0 / 3.0), 0.01, "LPF");
+  EXPECT_NEAR(value(slot, "hpOn"), 1.0, 1e-6);
+  EXPECT_NEAR(value(slot, "lpOn"), 1.0, 1e-6);
+
+  // The ends of the knobs, and the defaults without any parameter.
+  const juce::var ends =
+      importBlock("Graphic 9", R"({"HPF":{"value":19},"LPF":{"value":20001}})");
+  EXPECT_NEAR(value(ends, "hpFreq"), 19.0, 0.2);
+  EXPECT_NEAR(value(ends, "lpFreq"), 20001.0, 1.0);
+  const juce::var bare = importBlock("Graphic 9", "{}");
+  EXPECT_NEAR(value(bare, "bandQ"), 1.0, 1e-6) << "the unit's Q default";
+}
+
+TEST(PresetImporterTest, ParametricThreeAndEightFollowTheWireLawsOnEveryBand) {
+  using namespace eqlaws;
+  const double wires[] = {0.0, 0.1, 0.25, 0.5, 0.75, 1.0};
+  for (const char* model : {"Parametric-3", "Parametric-8"}) {
+    for (int band = 1; band <= 3; ++band) {
+      const std::string b = std::to_string(band);
+      for (double w : wires) {
+        const std::string what = std::string(model) + " band " + b + " wire " + num(w);
+        const std::string params = "{\"" + b + " GAIN\":{\"value\":" + num(shown(-12.0, 12.0, w)) +
+                                   "},\"" + b + " Q\":{\"value\":" + num(shown(0.1, 10.0, w)) +
+                                   "},\"" + b + " FREQ\":{\"value\":" +
+                                   num(shown(20.0, 20000.0, w)) + "}}";
+        const juce::var slot = importBlock(model, params);
+        EXPECT_NEAR(value(slot, "b" + b + "Gain"), -12.0 + 24.0 * w, 0.05) << what;
+        expectNearRel(value(slot, "b" + b + "Q"), 0.1 + 9.9 * w, 0.01, what);
+        expectNearRel(value(slot, "b" + b + "Freq"), 20.0 + 19980.0 * std::pow(w, 10.0 / 3.0),
+                      0.01, what);
+      }
+    }
+    // Wire 0.5 is flat.
+    EXPECT_NEAR(value(importBlock(model, R"({"1 GAIN":{"value":0}})"), "b1Gain"), 0.0, 0.05);
+  }
+}
+
+TEST(PresetImporterTest, ParametricBandTypesAndBypassFollowTheWire) {
+  using namespace eqlaws;
+  // Wire 0 .25 .5 .75 1: peaking, high pass, low pass, high shelf, low shelf; our shapes 1 to 5.
+  const char* typeNames[] = {"Peaking", "High Pass", "Low Pass", "High Shelf", "Low Shelf"};
+  const char* typeWires[] = {"0", "0.25", "0.5", "0.75", "1"};
+  for (int i = 0; i < 5; ++i) {
+    const juce::var byWire =
+        importBlock("Parametric-8", std::string("{\"2 TYPE\":{\"value\":") + typeWires[i] + "}}");
+    EXPECT_NEAR(value(byWire, "b2Shape"), i + 1.0, 1e-6) << typeWires[i];
+    const juce::var byName = importBlock(
+        "Parametric-3", std::string("{\"2 TYPE\":{\"value\":\"") + typeNames[i] + "\"}}");
+    EXPECT_NEAR(value(byName, "b2Shape"), i + 1.0, 1e-6) << typeNames[i];
+  }
+  const juce::var bypass =
+      importBlock("Parametric-3", R"({"1 BYPASS":{"value":0},"3 BYPASS":{"value":1}})");
+  EXPECT_NEAR(value(bypass, "b1Bypass"), 1.0, 1e-6) << "BYPASS 0 is a band that is off";
+  EXPECT_NEAR(value(bypass, "b3Bypass"), 0.0, 1e-6);
+
+  // Parametric-3 as loaded: shelf, peak, shelf at 125, 1000 and 4000 Hz.
+  const juce::var p3 = importBlock("Parametric-3", "{}");
+  EXPECT_NEAR(value(p3, "b1Shape"), 5.0, 1e-6);
+  EXPECT_NEAR(value(p3, "b2Shape"), 1.0, 1e-6);
+  EXPECT_NEAR(value(p3, "b3Shape"), 4.0, 1e-6);
+  expectNearRel(value(p3, "b1Freq"), 125.0, 0.01, "b1");
+  expectNearRel(value(p3, "b2Freq"), 1000.0, 0.01, "b2");
+  expectNearRel(value(p3, "b3Freq"), 4000.0, 0.01, "b3");
+
+  // Parametric-8 as loaded, and the fixed Q of its band 8 (its Q control is not read).
+  const juce::var p8 = importBlock("Parametric-8", R"({"8 Q":{"value":9.0}})");
+  EXPECT_NEAR(value(p8, "b1Shape"), 5.0, 1e-6);
+  expectNearRel(value(p8, "b1Freq"), 50.0, 0.01, "b1");
+  expectNearRel(value(p8, "b2Freq"), 100.0, 0.01, "b2");
+  EXPECT_NEAR(value(p8, "b4Shape"), 4.0, 1e-6);
+  expectNearRel(value(p8, "b4Freq"), 1000.0, 0.01, "b4");
+  expectNearRel(value(p8, "b5Freq"), 3000.0, 0.01, "b5");
+  EXPECT_NEAR(value(p8, "b5Bypass"), 1.0, 1e-6);
+  EXPECT_NEAR(value(p8, "b8Shape"), 3.0, 1e-6) << "a 2nd order low pass";
+  EXPECT_NEAR(value(p8, "b8Bypass"), 1.0, 1e-6);
+  EXPECT_NEAR(value(p8, "b8Q"), 0.7071, 1e-4) << "fixed Q 0.707, whatever the control says";
+  EXPECT_NEAR(value(p8, "b3Q"), 0.71, 1e-4);
+}
+
+TEST(PresetImporterTest, ParametricFourFollowsItsFrequencyTablesAndFixedQ) {
+  using namespace eqlaws;
+  struct Band {
+    const char* freq;
+    const char* gain;
+    const char* freqId;
+    const char* gainId;
+    double lo, hi;
+    double hz[7];
+  };
+  const Band bands[] = {
+      {"LO FREQ", "LO GAIN", "lowFreq", "lowGain", 20.0, 200.0, {20.1, 21.6, 28, 60, 100, 160, 200}},
+      {"LO MID FREQ", "LO MID GAIN", "lowMidFreq", "lowMidGain", 100.0, 1000.0,
+       {100, 108, 140, 260, 500, 680, 1000}},
+      {"HI MID FREQ", "HI MID GAIN", "highMidFreq", "highMidGain", 500.0, 5000.0,
+       {500, 540, 700, 1200, 3000, 4200, 5000}},
+      {"HI FREQ", "HI GAIN", "highFreq", "highGain", 2000.0, 20000.0,
+       {2000, 2160, 2800, 6000, 12000, 16818, 20000}},
+  };
+  const double wires[7] = {0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0};
+  for (const Band& band : bands) {
+    for (int i = 0; i < 7; ++i) {
+      const std::string params = std::string("{\"") + band.freq + "\":{\"value\":" +
+                                 num(shown(band.lo, band.hi, wires[i])) + "},\"" + band.gain +
+                                 "\":{\"value\":" + num(-7.3 + 2.0 * i) + "}}";
+      const juce::var slot = importBlock("Plugin Parametric-4", params);
+      expectNearRel(value(slot, band.freqId), band.hz[i], 0.01,
+                    std::string(band.freq) + " " + std::to_string(i));
+      EXPECT_NEAR(value(slot, band.gainId), -7.3 + 2.0 * i, 0.05) << band.gain;
+    }
+    // Between two points the table is joined in log frequency.
+    const double mid = 0.5 * (wires[2] + wires[3]);
+    const juce::var between =
+        importBlock("Plugin Parametric-4", std::string("{\"") + band.freq + "\":{\"value\":" +
+                                               num(shown(band.lo, band.hi, mid)) + "}}");
+    expectNearRel(value(between, band.freqId), std::sqrt(band.hz[2] * band.hz[3]), 0.01, band.freq);
+  }
+  // The filters are linear in the wire; every band is a bell (the style that holds the fixed Qs).
+  const juce::var filters = importBlock(
+      "Plugin Parametric-4", "{\"HPF\":{\"value\":" + num(shown(20.0, 500.0, 0.4)) +
+                                 "},\"LPF\":{\"value\":" + num(shown(1000.0, 20000.0, 0.8)) + "}}");
+  expectNearRel(value(filters, "hpFreq"), 20.0 + 480.0 * 0.4, 0.01, "HPF");
+  expectNearRel(value(filters, "lpFreq"), 1000.0 + 19000.0 * 0.8, 0.01, "LPF");
+  EXPECT_NEAR(value(filters, "bandStyle"), 1.0, 1e-6);
+  EXPECT_NEAR(value(filters, "hpOn"), 1.0, 1e-6);
+  EXPECT_NEAR(value(filters, "lpOn"), 1.0, 1e-6);
 }

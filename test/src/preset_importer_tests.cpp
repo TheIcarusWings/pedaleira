@@ -1499,7 +1499,7 @@ TEST(PresetImporterTest, EqualiserModelsGetTheirKinds) {
        "params":{"2 FREQ":{"value":800,"unit":"Hz"},"2 GAIN":{"value":24,"unit":"dB"},"2 Q":{"value":2},
                  "OUTPUT":{"value":-3,"unit":"dB"}}},
       {"position":1,"model":"Parametric-8","category":"Equalizer","enabled":true,
-       "params":{"8 FREQ":{"value":9000,"unit":"Hz"},"8 TYPE":{"value":1}}},
+       "params":{"8 FREQ":{"value":9000,"unit":"Hz"},"8 TYPE":{"value":0.25}}},
       {"position":2,"model":"Low-High Cut","category":"Equalizer","enabled":true,
        "params":{"HPF FREQ":{"value":90,"unit":"Hz"},"LPF FREQ":{"value":7000,"unit":"Hz"}}},
       {"position":3,"model":"Plugin Parametric-4","category":"Equalizer","enabled":true,
@@ -1520,7 +1520,7 @@ TEST(PresetImporterTest, EqualiserModelsGetTheirKinds) {
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 1)), "eq.parametric8");
   EXPECT_NEAR(number(1, "b8Freq"), 20.0 + 19980.0 * std::pow(8980.0 / 19980.0, 10.0 / 3.0), 0.5);
-  EXPECT_NEAR(number(1, "b8Shape"), 2.0, 1e-6) << "type 1 is the high-pass";
+  EXPECT_NEAR(number(1, "b8Shape"), 2.0, 1e-6) << "type wire 0.25 is the high-pass";
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 2)), "eq.cut");
   EXPECT_NEAR(number(2, "hpFreq"), 90.0, 1e-3);

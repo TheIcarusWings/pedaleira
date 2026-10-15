@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cmath>
 #include "DelayCommon.h"
+#include "ReverseWindow.h"
 #include "effects/EffectDsp.h"
 
 namespace {
@@ -37,12 +38,9 @@ public:
     kSpillover
   };
 
-  // The free time stops at 2 s; a synced chunk that would be longer is held
-  // at this length, and one shorter than the minimum is held there.
-  static constexpr double kMaxChunkSeconds = 2.0;
-  static constexpr double kMinChunkSeconds = 0.03;
-  // The crossfade at the chunk joins: a quarter of the chunk, at most this.
-  static constexpr double kMaxFadeSeconds = 0.06;
+  static constexpr double kMaxChunkSeconds = kReverseMaxChunkSeconds;
+  static constexpr double kMinChunkSeconds = kReverseMinChunkSeconds;
+  static constexpr double kMaxFadeSeconds = kReverseMaxFadeSeconds;
 
   static const BlockParamTable& parameterSpecs() {
     static const BlockParamTable table = [] {
@@ -75,7 +73,7 @@ public:
   // hence the longer of the two.
   double tailSeconds() const noexcept override {
     const double feedback = static_cast<double>(param(kFeedback)) * 0.01;
-    const double current = voiceSeconds(chunkSeconds(lastBpm.load(std::memory_order_relaxed)));
+    const double current = reverseVoiceSeconds(chunkSeconds(lastBpm.load(std::memory_order_relaxed)));
     const double playing = static_cast<double>(longestVoice.load(std::memory_order_relaxed));
     return feedbackTailSeconds(2.0 * std::max(current, playing), feedback,
                                lowpassDelaySeconds(static_cast<double>(param(kToneHz)), 2), 0.05);
@@ -103,10 +101,7 @@ protected:
     }
     feedbackGain.snapOnNextTarget();
     tone.snapOnNextTarget();
-    for (auto& voice : voices)
-      voice.active = false;
-    nextVoice = 0;
-    untilNext = 0;
+    window.reset();
     grid.reset();
     longestVoice.store(0.0f, std::memory_order_relaxed);
   }
@@ -118,7 +113,7 @@ protected:
 
     const double chunk = chunkSeconds(ctx.transport.bpm);
     const int chunkSamples = std::max(1, static_cast<int>(std::lround(chunk * sampleRate)));
-    const int fadeSamples = std::max(1, static_cast<int>(std::lround(fadeSeconds(chunk) * sampleRate)));
+    const int fadeSamples = std::max(1, static_cast<int>(std::lround(reverseFadeSeconds(chunk) * sampleRate)));
     feedbackGain.setTarget(param(kFeedback) * 0.01f);
     tone.setTarget(param(kToneHz));
     for (auto& duck : ducker)
@@ -136,38 +131,13 @@ protected:
         }
       }
 
-      // A new voice every chunk, at the chunk and fade of the moment.
-      if (untilNext == 0) {
-        Voice& voice = voices[nextVoice];
-        voice.active = true;
-        voice.position = 0;
-        voice.fade = fadeSamples;
-        voice.length = chunkSamples + fadeSamples;
-        nextVoice ^= 1;
-        untilNext = chunkSamples;
-      }
-      --untilNext;
-
-      // The weight of each playing voice, and the delay it reads at: the
-      // voice that started at time s reads, at s + n, the sample from
-      // s - 1 - n, which is 2n + 1 samples back.
-      float weight[kVoices] = {0.0f, 0.0f};
-      int delay[kVoices] = {1, 1};
-      for (int v = 0; v < kVoices; ++v) {
-        Voice& voice = voices[v];
-        if (!voice.active)
-          continue;
-        weight[v] = voice.weightAt();
-        delay[v] = 2 * voice.position + 1;
-        if (++voice.position >= voice.length)
-          voice.active = false;
-      }
+      window.advance(chunkSamples, fadeSamples);
 
       for (int ch = 0; ch < numChannels; ++ch) {
         float raw = 0.0f;
-        for (int v = 0; v < kVoices; ++v)
-          if (weight[v] != 0.0f)
-            raw += weight[v] * line.read(ch, delay[v]);
+        for (int v = 0; v < ReverseWindow::kVoices; ++v)
+          if (window.weight[v] != 0.0f)
+            raw += window.weight[v] * line.read(ch, window.delay[v]);
         const float echo = toneFilter[ch][1].lowpass(toneFilter[ch][0].lowpass(raw));
         const float input = channels[ch][i];
         line.write(ch, softLimit(input + feedback * echo));
@@ -177,51 +147,12 @@ protected:
       }
     }
 
-    // The longest voice that is playing or about to start, for the tail.
-    int longest = chunkSamples + fadeSamples;
-    for (const Voice& voice : voices)
-      if (voice.active)
-        longest = std::max(longest, voice.length);
+    const int longest = window.longestSamples(chunkSamples, fadeSamples);
     longestVoice.store(static_cast<float>(static_cast<double>(longest) / sampleRate),
                        std::memory_order_relaxed);
   }
 
 private:
-  static constexpr int kVoices = 2;
-
-  // One chunk being read backwards. The weight rises over `fade` samples,
-  // stays at 1, and falls over the last `fade` samples. The rise and the fall
-  // are an equal-power pair (their squares sum to 1) on a raised-cosine
-  // path, so the join of two chunks, which are not correlated, keeps its
-  // level and has no corner at either end.
-  struct Voice {
-    bool active{false};
-    int position{0};
-    int length{0};
-    int fade{1};
-
-    float weightAt() const noexcept {
-      constexpr float kPi = 3.14159265358979f;
-      if (position < fade) {
-        const float path = 0.5f - 0.5f * std::cos(kPi * static_cast<float>(position) /
-                                                   static_cast<float>(fade));
-        return std::sin(0.5f * kPi * path);
-      }
-      const int intoFall = position - (length - fade);
-      if (intoFall >= 0) {
-        const float path = 0.5f - 0.5f * std::cos(kPi * static_cast<float>(intoFall) /
-                                                   static_cast<float>(fade));
-        return std::cos(0.5f * kPi * path);
-      }
-      return 1.0f;
-    }
-  };
-
-  static double fadeSeconds(double chunk) noexcept {
-    return std::min(kMaxFadeSeconds, 0.25 * chunk);
-  }
-  static double voiceSeconds(double chunk) noexcept { return chunk + fadeSeconds(chunk); }
-
   double chunkSeconds(double bpm) const noexcept {
     BlockTransport transport;
     transport.bpm = bpm;
@@ -235,9 +166,7 @@ private:
   fx::SmoothedParam feedbackGain;
   fx::SmoothedParam tone;
   Ducker ducker[kMaxChannels];
-  Voice voices[kVoices];
-  int nextVoice{0};
-  int untilNext{0};
+  ReverseWindow window;
   ControlTick grid;
   double sampleRate{48000.0};
   std::atomic<double> lastBpm{120.0};

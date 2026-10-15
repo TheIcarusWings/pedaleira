@@ -1340,7 +1340,7 @@ TEST(PresetImporterTest, TheBuiltInTableMapsTheFactoryDelayModels) {
       {"Digital Delay", "delay.digital"},       {"Analog Delay", "delay.analog"},
       {"Tape Delay", "delay.tape"},             {"Simple Delay", "delay.simple"},
       {"Slapback Delay", "delay.slapback"},     {"Dual Delay", "delay.dual"},
-      {"Reverse Delay", "delay.reverse"},       {"Dual Reverse Delay", "delay.reverse"},
+      {"Reverse Delay", "delay.reverse"},       {"Dual Reverse Delay", "delay.dualreverse"},
       {"Circular Delay", "delay.multitap"},
   };
   for (const Expected& item : expected) {
@@ -1381,7 +1381,9 @@ TEST(PresetImporterTest, DelayModelsGetTheirKindsAndValuesOnOurScales) {
                  "LOW PASS":{"value":6000,"unit":"Hz"},"MIX":{"value":50,"unit":"%"}}},
       {"position":3,"model":"Dual Reverse Delay (ST)","category":"Delay","enabled":true,
        "params":{"DELAY TIME L":{"value":800,"unit":"ms"},"DELAY TIME R":{"value":900,"unit":"ms"},
-                 "FEEDBACK L":{"value":25,"unit":"%"}}},
+                 "FEEDBACK L":{"value":25,"unit":"%"},"FEEDBACK R":{"value":35,"unit":"%"},
+                 "X-FEEDBACK":{"value":70,"unit":"%"},"HIGH PASS":{"value":90,"unit":"Hz"},
+                 "LOW PASS":{"value":7000,"unit":"Hz"},"MIX":{"value":45,"unit":"%"}}},
       {"position":4,"model":"Circular Delay (M)","category":"Delay","enabled":true,
        "params":{"DELAY TIME":{"value":700,"unit":"ms"},"FEEDBACK":{"value":55,"unit":"%"},
                  "DIFFUSION":{"value":65,"unit":"%"},"HIGH PASS":{"value":150,"unit":"Hz"},
@@ -1418,9 +1420,15 @@ TEST(PresetImporterTest, DelayModelsGetTheirKindsAndValuesOnOurScales) {
   EXPECT_NEAR(number(2, "feedback"), 50.0, 1e-3);
   EXPECT_NEAR(number(2, "toneHz"), 6000.0, 1e-2);
 
-  EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "delay.reverse");
-  EXPECT_NEAR(number(3, "timeMs"), 800.0, 1e-3) << "the left time only";
-  EXPECT_NEAR(number(3, "feedback"), 25.0, 1e-3);
+  EXPECT_EQ(kindOf(slotNode(preset, 0, 3)), "delay.dualreverse");
+  EXPECT_NEAR(number(3, "leftTimeMs"), 800.0, 1e-3);
+  EXPECT_NEAR(number(3, "rightTimeMs"), 900.0, 1e-3);
+  EXPECT_NEAR(number(3, "leftFeedback"), 25.0, 1e-3);
+  EXPECT_NEAR(number(3, "rightFeedback"), 35.0, 1e-3);
+  EXPECT_NEAR(number(3, "crossFeedback"), 70.0, 1e-3);
+  EXPECT_NEAR(number(3, "lowCutHz"), 90.0, 1e-2);
+  EXPECT_NEAR(number(3, "toneHz"), 7000.0, 1e-2);
+  EXPECT_NEAR(static_cast<double>(slotNode(preset, 0, 3)["mix"]), 0.45, 1e-6);
 
   EXPECT_EQ(kindOf(slotNode(preset, 0, 4)), "delay.multitap");
   EXPECT_NEAR(number(4, "timeMs"), 700.0, 1e-3);
@@ -1438,7 +1446,7 @@ TEST(PresetImporterTest, DelayModelsGetTheirKindsAndValuesOnOurScales) {
   EXPECT_EQ(countIn(report["unmapped"]), 0);
   // What our kinds have no place for is named, not guessed.
   EXPECT_TRUE(entryAt(report["droppedParams"], 0, 0, "param", "HIGH PASS").isObject());
-  EXPECT_TRUE(entryAt(report["droppedParams"], 0, 3, "param", "DELAY TIME R").isObject());
+  EXPECT_FALSE(entryAt(report["droppedParams"], 0, 3, "param", "DELAY TIME R").isObject());
   // The ducking depth was out of our range and is reported as clamped.
   EXPECT_TRUE(entryAt(report["approximated"], 0, 1, "param", "DYN DEPTH").isObject());
 }

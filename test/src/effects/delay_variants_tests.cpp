@@ -1,9 +1,9 @@
-// The delay variants (plugin/src/effects/delay): slapback, dual, reverse and
-// multi-tap, and the ducking every delay shares (DelayCommon.h). Each new kind
+// The delay variants (plugin/src/effects/delay): slapback, dual, reverse, dual
+// reverse and multi-tap, and the ducking every delay shares (DelayCommon.h). Each new kind
 // gets the conformance test and then what it is for: an exact time, left and
 // right times and a cross-feedback that moves the repeats across, a reverse
 // that really plays backwards with no click at the chunk joins, taps where the
-// pattern puts them. The ducking is tested across all nine delays at once:
+// pattern puts them. The ducking is tested across all ten delays at once:
 // it lowers the wet by the set depth while the input is loud, lets go within
 // the release, leaves the loop alone, and at 0 dB changes nothing.
 #include "effects/delay_test_support.h"
@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <numeric>
 #include <tuple>
 
@@ -490,6 +491,256 @@ TEST(ReverseDelayTest, SpilloverRingsOutAfterBypassAndStopsAtTheReportedTail) {
 }
 
 // ---------------------------------------------------------------------------
+// Reverse delay: the engine shared with the dual reverse
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// FNV-1a over the bits of every sample, so the check is on the exact output.
+uint64_t hashOf(const Stereo& s) {
+  uint64_t h = 1469598103934665603ull;
+  for (const std::vector<float>* channel : {&s.left, &s.right})
+    for (const float v : *channel) {
+      uint32_t bits;
+      std::memcpy(&bits, &v, sizeof(bits));
+      h = (h ^ bits) * 1099511628211ull;
+    }
+  return h;
+}
+
+}  // namespace
+
+TEST(ReverseDelayTest, OutputIsBitIdenticalToTheVersionBeforeTheEngineWasShared) {
+  // Hashes taken from the delay.reverse that had the voices inline (before
+  // ReverseWindow.h): any change to the shared engine that moves one bit of
+  // the reverse delay's output fails here. Ducking, tone, feedback, a synced
+  // time and every layout are covered.
+  const std::vector<float> in = noise(4.0, 33u, 0.4f, kRate);
+  const std::vector<float> other = noise(4.0, 34u, 0.4f, kRate);
+  const std::vector<std::pair<Params, Layout>> cases = {
+      {{{"timeMs", 230.0}, {"feedback", 55.0}, {"toneHz", 5000.0}}, Layout::Mono},
+      {{{"timeMs", 100.0}, {"feedback", 90.0}, {"duckDb", 9.0}}, Layout::Stereo},
+      {{{"sync", 1.0}, {"division", fx::kDivEighthDotted}, {"feedback", 40.0}}, Layout::DualMono},
+      {{{"timeMs", 2000.0}, {"feedback", 20.0}, {"toneHz", 800.0}}, Layout::Stereo},
+  };
+  const uint64_t golden[] = {17033785850139335071ull, 5427004574353486415ull,
+                              4982159417271987979ull, 6777288674567911168ull};
+  for (size_t n = 0; n < cases.size(); ++n) {
+    SCOPED_TRACE(n);
+    const uint64_t hash = hashOf(wetOf("delay.reverse", cases[n].first, Stereo{in, other}, cases[n].second));
+    EXPECT_EQ(hash, golden[n]) << "hash " << hash << "ull";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dual reverse delay
+// ---------------------------------------------------------------------------
+
+namespace {
+
+const Params kDualReverseClean = {{"leftTimeMs", 200.0}, {"rightTimeMs", 300.0},
+                                  {"leftFeedback", 0.0}, {"rightFeedback", 0.0},
+                                  {"crossFeedback", 0.0}, {"toneHz", 20000.0},
+                                  {"lowCutHz", 20.0}};
+
+// A 300 Hz tone that grows over `chunkMs`, then silence up to `totalMs`: a
+// shape that is not symmetrical, so its reversal is told from a copy.
+std::vector<float> growingTone(double chunkMs, double totalMs) {
+  std::vector<float> x(static_cast<size_t>(ms(totalMs)), 0.0f);
+  const int chunk = ms(chunkMs);
+  for (int n = 0; n < chunk; ++n)
+    x[static_cast<size_t>(n)] = 0.6f * (static_cast<float>(n) / static_cast<float>(chunk)) *
+                                std::sin(2.0f * 3.14159265f * 300.0f * static_cast<float>(n) / 48000.0f);
+  return x;
+}
+
+// How well `out`, in the chunk after the first `chunk` samples, follows `in`
+// played backwards from its sample `chunk - 1` (correlation coefficient, past
+// the fade at the start of the voice).
+double reversedMatch(const std::vector<float>& out, const std::vector<float>& in, int chunk, int length) {
+  double xy = 0.0, xx = 0.0, yy = 0.0;
+  const int fade = std::min(ms(60.0), length / 4);
+  for (int n = fade + 10; n < length - 10; ++n) {
+    const double a = out[static_cast<size_t>(chunk + n)];
+    const double b = in[static_cast<size_t>(chunk - 1 - n)];
+    xy += a * b;
+    xx += a * a;
+    yy += b * b;
+  }
+  return xy / std::sqrt(xx * yy + 1.0e-30);
+}
+
+}  // namespace
+
+TEST(DualReverseDelayTest, Conforms) {
+  ConformanceOptions options;
+  options.params = {{"leftTimeMs", 150.0},   {"rightTimeMs", 210.0}, {"leftFeedback", 40.0},
+                    {"rightFeedback", 30.0}, {"crossFeedback", 50.0}, {"toneHz", 6000.0}};
+  options.stateParams = {{"leftSync", 1.0},        {"leftDivision", fx::kDivEighth},
+                         {"leftTimeMs", 333.0},    {"rightSync", 1.0},
+                         {"rightDivision", fx::kDivQuarterDotted}, {"rightTimeMs", 456.0},
+                         {"leftFeedback", 55.0},   {"rightFeedback", 45.0},
+                         {"crossFeedback", 35.0},  {"toneHz", 3000.0},
+                         {"lowCutHz", 150.0},      {"duckDb", 6.0},
+                         {"duckReleaseMs", 300.0}, {"spillover", 0.0}};
+  options.latency = LatencyCheck::AtMostOnset;
+  // See ReverseDelayTest.Conforms: the reversed echo of a steady tone is a
+  // phase-locked copy of it, so the sum's level depends on resampling phase.
+  options.rateToleranceDb = 8.0;
+  options.cpuAverageBudgetNs = 20000.0;
+  options.cpuWorstBudgetNs = 120000.0;
+  expectKindConforms("delay.dualreverse", options);
+}
+
+TEST(DualReverseDelayTest, ParametersAreTheDocumentedRanges) {
+  for (const char* side : {"left", "right"}) {
+    const std::string prefix = side;
+    const BlockParamSpec* time = specOf("delay.dualreverse", (prefix + "TimeMs").c_str());
+    ASSERT_NE(time, nullptr) << side;
+    EXPECT_FLOAT_EQ(time->min, 100.0f) << "the range of delay.reverse";
+    EXPECT_FLOAT_EQ(time->max, 2000.0f);
+    EXPECT_TRUE(time->tempoSync);
+    EXPECT_NE(specOf("delay.dualreverse", (prefix + "Sync").c_str()), nullptr) << side;
+    EXPECT_NE(specOf("delay.dualreverse", (prefix + "Division").c_str()), nullptr) << side;
+    EXPECT_NE(specOf("delay.dualreverse", (prefix + "Feedback").c_str()), nullptr) << side;
+  }
+  const BlockParamSpec* cross = specOf("delay.dualreverse", "crossFeedback");
+  ASSERT_NE(cross, nullptr);
+  EXPECT_FLOAT_EQ(cross->min, 0.0f);
+  EXPECT_FLOAT_EQ(cross->max, 100.0f);
+  EXPECT_NE(specOf("delay.dualreverse", "toneHz"), nullptr);
+  EXPECT_NE(specOf("delay.dualreverse", "lowCutHz"), nullptr);
+}
+
+TEST(DualReverseDelayTest, EachSideReversesItsOwnWindowAtItsOwnTime) {
+  // Left hears a tone that grows over 200 ms, right one that grows over 300
+  // ms. Each comes back reversed (shrinking) right after its own chunk.
+  const std::vector<float> left = growingTone(200.0, 1500.0);
+  const std::vector<float> right = growingTone(300.0, 1500.0);
+  const Stereo out = wetOf("delay.dualreverse", kDualReverseClean, Stereo{left, right}, Layout::Stereo);
+  EXPECT_GT(reversedMatch(out.left, left, ms(200.0), ms(200.0)), 0.95);
+  EXPECT_GT(reversedMatch(out.right, right, ms(300.0), ms(300.0)), 0.95);
+  // The left line is not on the right's schedule: read at the other chunk
+  // length the match falls apart.
+  EXPECT_LT(std::abs(reversedMatch(out.left, left, ms(300.0), ms(200.0))), 0.5);
+  // And nothing of either input is heard before its chunk is over.
+  EXPECT_LT(windowRms(out.right, 0.0, 0.25), 1.0e-4);
+}
+
+TEST(DualReverseDelayTest, EachSideTakesItsOwnInput) {
+  const std::vector<float> tone = growingTone(200.0, 1000.0);
+  const Stereo out = wetOf("delay.dualreverse", kDualReverseClean,
+                           Stereo{tone, std::vector<float>(tone.size(), 0.0f)}, Layout::Stereo);
+  EXPECT_GT(windowRms(out.left, 0.2, 0.2), 0.05);
+  EXPECT_EQ(peakOf(out.right), 0.0f) << "the right line heard nothing";
+}
+
+TEST(DualReverseDelayTest, AMonoInputFeedsBothLinesAndAMonoRowHearsTheirSum) {
+  const std::vector<float> in = growingTone(300.0, 1500.0);
+  // The one input goes to both sides: the same chunk length on both gives
+  // two equal outputs.
+  const Params same = withParams(kDualReverseClean, {{"leftTimeMs", 300.0}, {"rightTimeMs", 300.0}});
+  const Stereo image = wetOf("delay.dualreverse", same, Stereo{in, in}, Layout::Stereo);
+  EXPECT_EQ(image.left, image.right);
+  // One channel: the sum of the two lines (different times and feedback, so
+  // the check is not about equal lines), sample for sample.
+  const Params mixed = withParams(kDualReverseClean, {{"leftTimeMs", 200.0}, {"rightTimeMs", 350.0},
+                                                      {"leftFeedback", 50.0}, {"rightFeedback", 40.0},
+                                                      {"crossFeedback", 40.0}});
+  const Stereo pair = wetOf("delay.dualreverse", mixed, Stereo{in, in}, Layout::Stereo);
+  const std::vector<float> mono = wetOf("delay.dualreverse", mixed, in, Layout::Mono);
+  ASSERT_EQ(mono.size(), pair.left.size());
+  float worst = 0.0f;
+  for (size_t i = 0; i < mono.size(); ++i)
+    worst = std::max(worst, std::abs(mono[i] - (pair.left[i] + pair.right[i])));
+  EXPECT_LT(worst, 1.0e-5f);
+  EXPECT_GT(peakOf(mono), 0.05f);
+}
+
+TEST(DualReverseDelayTest, SyncedTimesFollowTheTempo) {
+  // A quarter note at 120 BPM is 500 ms on the left, a dotted eighth 375 ms on
+  // the right: each reversed chunk starts at its own time.
+  const Params params = withParams(kDualReverseClean, {{"leftSync", 1.0},
+                                                       {"leftDivision", fx::kDivQuarter},
+                                                       {"rightSync", 1.0},
+                                                       {"rightDivision", fx::kDivEighthDotted}});
+  const std::vector<float> left = growingTone(500.0, 2000.0);
+  const std::vector<float> right = growingTone(375.0, 2000.0);
+  const Stereo out = wetOf("delay.dualreverse", params, Stereo{left, right}, Layout::Stereo, 120.0);
+  EXPECT_GT(reversedMatch(out.left, left, ms(500.0), ms(500.0)), 0.95);
+  EXPECT_GT(reversedMatch(out.right, right, ms(375.0), ms(375.0)), 0.95);
+}
+
+TEST(DualReverseDelayTest, CrossFeedbackMovesEnergyToTheOtherSide) {
+  // Noise on the left only, equal times. Apart, the right stays silent. With
+  // all the feedback crossing, the left's reversed chunk is recorded into the
+  // right line and comes out of the right, and the left line no longer
+  // repeats itself.
+  const std::vector<float> burst = noise(0.2, 8u, 0.4f, kRate);
+  std::vector<float> in(static_cast<size_t>(ms(3000.0)), 0.0f);
+  std::copy(burst.begin(), burst.end(), in.begin());
+  const Stereo input{in, std::vector<float>(in.size(), 0.0f)};
+  const Params base = withParams(kDualReverseClean, {{"leftTimeMs", 200.0}, {"rightTimeMs", 200.0},
+                                                     {"leftFeedback", 70.0}, {"rightFeedback", 70.0}});
+
+  const Stereo apart = wetOf("delay.dualreverse", withParams(base, {{"crossFeedback", 0.0}}), input, Layout::Stereo);
+  EXPECT_EQ(peakOf(apart.right), 0.0f);
+  const double firstEcho = windowRms(apart.left, 0.2, 0.2);
+  ASSERT_GT(firstEcho, 0.02);
+  const double ownRepeat = windowRms(apart.left, 0.4, 0.2);
+
+  const Stereo crossed = wetOf("delay.dualreverse", withParams(base, {{"crossFeedback", 100.0}}), input, Layout::Stereo);
+  EXPECT_NEAR(windowRms(crossed.left, 0.2, 0.2), firstEcho, firstEcho * 0.01) << "the first echo is the same";
+  EXPECT_GT(windowRms(crossed.right, 0.4, 0.2), firstEcho * 0.3) << "the repeat arrives on the right";
+  EXPECT_LT(windowRms(crossed.left, 0.4, 0.2), ownRepeat * 0.2) << "and the left no longer repeats itself";
+}
+
+TEST(DualReverseDelayTest, TheTailCoversTheDecayOfBothSides) {
+  // A burst, then silence, with feedback on both sides and half of it
+  // crossing: the level falls to -60 dB inside the reported tail, which is
+  // not a blanket maximum.
+  const Params params = withParams(kDualReverseClean, {{"leftTimeMs", 300.0}, {"rightTimeMs", 450.0},
+                                                       {"leftFeedback", 60.0}, {"rightFeedback", 60.0},
+                                                       {"crossFeedback", 50.0}});
+  const std::vector<float> burst = noise(0.3, 12u, 0.4f, kRate);
+  std::vector<float> in(static_cast<size_t>(ms(20000.0)), 0.0f);
+  std::copy(burst.begin(), burst.end(), in.begin());
+  DirectKind direct("delay.dualreverse", params, Layout::Stereo);
+  const Stereo out = direct.render(Stereo{in, in});
+  const float peak = std::max(peakOf(out.left), peakOf(out.right));
+  const double decay = std::max(decayTimeSeconds(out.left, burst.size(), peak, kRate),
+                                decayTimeSeconds(out.right, burst.size(), peak, kRate));
+  EXPECT_GT(decay, 2.0) << "the feedback does ring";
+  EXPECT_LE(decay, direct.tailSeconds() + 0.1);
+  expectCleanSignal(out.left, 1.5f, "dual reverse tail");
+
+  // No feedback, a short tail; a longer line or more feedback, a longer one.
+  const double dry = DirectKind("delay.dualreverse", withParams(params, {{"leftFeedback", 0.0}, {"rightFeedback", 0.0}}))
+                         .tailSeconds();
+  EXPECT_LT(dry, 3.0);
+  EXPECT_GT(direct.tailSeconds(), dry);
+  EXPECT_GT(DirectKind("delay.dualreverse", withParams(params, {{"rightTimeMs", 1500.0}})).tailSeconds(),
+            direct.tailSeconds());
+}
+
+TEST(DualReverseDelayTest, FeedbackAtItsMaximumStaysBoundedAndFreeOfDenormals) {
+  const Params params = withParams(kDualReverseClean, {{"leftFeedback", 90.0}, {"rightFeedback", 90.0},
+                                                       {"crossFeedback", 100.0}});
+  const std::vector<float> in = noise(2.0, 3u, 1.0f, kRate);
+  const Stereo out = wetOf("delay.dualreverse", params, Stereo{in, in}, Layout::Stereo);
+  expectCleanSignal(out.left, 1.5f, "dual reverse at full feedback");
+  expectCleanSignal(out.right, 1.5f, "dual reverse at full feedback");
+}
+
+TEST(DualReverseDelayTest, SpilloverRingsOutAfterBypassAndStopsAtTheReportedTail) {
+  expectSpilloverBehaviour("delay.dualreverse",
+                           {{"leftTimeMs", 200.0}, {"rightTimeMs", 300.0}, {"leftFeedback", 35.0},
+                            {"rightFeedback", 35.0}, {"crossFeedback", 40.0}, {"toneHz", 20000.0},
+                            {"lowCutHz", 20.0}},
+                           100.0, 400.0, 1.2e-2f);
+}
+
+// ---------------------------------------------------------------------------
 // Multi-tap delay
 // ---------------------------------------------------------------------------
 
@@ -685,6 +936,8 @@ TEST(DelayVariantsTest, ResetClearsEveryRepeatAndRestoresTheFirstRender) {
       {"delay.dual", {{"leftTimeMs", 150.0}, {"rightTimeMs", 210.0}, {"leftFeedback", 50.0},
                       {"rightFeedback", 50.0}, {"crossFeedback", 50.0}, {"duckDb", 6.0}}},
       {"delay.reverse", {{"timeMs", 150.0}, {"feedback", 50.0}, {"duckDb", 6.0}}},
+      {"delay.dualreverse", {{"leftTimeMs", 150.0}, {"rightTimeMs", 210.0}, {"leftFeedback", 50.0},
+                             {"rightFeedback", 50.0}, {"crossFeedback", 50.0}, {"duckDb", 6.0}}},
       {"delay.multitap", {{"timeMs", 150.0}, {"feedback", 50.0}, {"diffusion", 50.0}, {"duckDb", 6.0}}},
   };
   for (const auto& [kind, params] : kinds) {
@@ -730,6 +983,8 @@ std::vector<DelayCase> allDelays() {
       {"delay.dual",
        {{"leftTimeMs", 120.0}, {"rightTimeMs", 160.0}, {"leftFeedback", 80.0}, {"rightFeedback", 80.0}}},
       {"delay.reverse", {{"timeMs", 200.0}, {"feedback", 80.0}}},
+      {"delay.dualreverse",
+       {{"leftTimeMs", 200.0}, {"rightTimeMs", 250.0}, {"leftFeedback", 80.0}, {"rightFeedback", 80.0}}},
       {"delay.multitap", {{"timeMs", 150.0}, {"feedback", 80.0}}},
   };
 }

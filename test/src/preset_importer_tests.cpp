@@ -1836,3 +1836,35 @@ TEST(PresetImporterTest, DelaySyncNoteFollowsTheNoteListMeasuredOnTheUnit) {
     if (option == 9) EXPECT_NEAR(ms, 993.0, 7.5);
   }
 }
+
+TEST(PresetImporterTest, CrystalDelayTakesTheOctaveTapWithTheShifterOffset) {
+  // A unit's default Crystal Delay as the dump script writes it, with the
+  // 5/3 curves applied: DELAY TIME L 500 ms, R 1000 ms, HIGH PASS 50 Hz.
+  const juce::var foreign = parseJson(R"j({"format":"pedaleira-foreign-preset","version":1,
+    "source":"quad-cortex","name":"Crystal","rows":[{"index":0,"blocks":[
+      {"position":0,"model":"Crystal Delay","category":"Delay","enabled":true,
+       "params":{"MIX":{"value":50.0,"unit":"%"},"SYNC":{"value":1},
+                 "DELAY TIME L":{"value":500.0,"unit":"ms"},"DELAY TIME R":{"value":1000.0,"unit":"ms"},
+                 "SYNC NOTE L":{"value":10},"SYNC NOTE R":{"value":13},
+                 "CRYSTAL 1 PAN":{"value":2.5},"CRYSTAL 2 PAN":{"value":7.5},
+                 "CRYSTAL 1 GAIN":{"value":0.0,"unit":"dB"},"CRYSTAL 2 GAIN":{"value":0.0,"unit":"dB"},
+                 "MODE":{"value":1},"FEEDBACK":{"value":20.0,"unit":"%"},
+                 "LOW PASS":{"value":16000.0,"unit":"Hz"},"HIGH PASS":{"value":50.0,"unit":"Hz"},
+                 "TRAILS":{"value":1}}}]}]})j");
+  const importer::ImportResult result =
+      importer::convertForeignPreset(foreign, importer::builtInMapping("quad-cortex"));
+  ASSERT_TRUE(result.ok) << result.error;
+  const juce::var slot = slotNode(result.preset, 0, 0);
+  ASSERT_EQ(kindOf(slot), "delay.crystal");
+  const auto number = [&](const char* id) { return static_cast<double>(kindParam(slot, id)); };
+  EXPECT_NEAR(number("timeMs"), 1103.6, 1e-3) << "tap 1 is heard 603.6 ms after DELAY TIME L";
+  EXPECT_NEAR(number("sync"), 0.0, 1e-6) << "the unit's echoes did not follow its notes";
+  EXPECT_NEAR(number("pitch"), 12.0, 1e-6);
+  EXPECT_NEAR(number("voice2"), 0.0, 1e-6);
+  EXPECT_NEAR(number("feedback"), 20.0, 1e-3);
+  EXPECT_NEAR(number("lowCutHz"), 50.0, 1e-3);
+  EXPECT_NEAR(number("toneHz"), 16000.0, 1e-2);
+  EXPECT_NEAR(static_cast<double>(slot["mix"]), 0.5, 1e-6);
+  for (const char* param : {"DELAY TIME R", "CRYSTAL 2 GAIN", "CRYSTAL 2 PAN", "MODE", "SYNC", "SYNC NOTE L"})
+    EXPECT_TRUE(entryAt(result.report["droppedParams"], 0, 0, "param", param).isObject()) << param;
+}

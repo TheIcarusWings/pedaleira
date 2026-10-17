@@ -1690,6 +1690,11 @@
                 }
               ],
               "default": 1000
+            },
+            "delay_free": {
+              "description": "Solve the feedback loop within the sample (Newton's method on the stage's curve) instead of feeding back the previous output. Keeps a strong loop stable; without it a large loop gain can oscillate above the audio band.",
+              "type": "boolean",
+              "default": false
             }
           },
           "description": "The global negative feedback network."

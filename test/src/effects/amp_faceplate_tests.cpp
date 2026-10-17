@@ -732,14 +732,14 @@ TEST(AmpKinds, TheReportedTailIsDerivedFromTheDescriptionAndHoldsForEveryShipped
 // conformance below leaves out, and SustainedAmpsStillSustain tells whoever
 // fixes one to take it off the list.
 const std::set<std::string>& ampsWithALimitCycle() {
-  static const std::set<std::string> files = {"heavy-hot.json", "red-forty.json"};
+  static const std::set<std::string> files = {};
   return files;
 }
 
 // The same at extreme settings (gain and every tone control up with the master
 // at 40 %): cell-four's power stage does not settle there either.
 const std::set<std::string>& ampsWithALimitCycleWhenDrivenHard() {
-  static const std::set<std::string> files = {"heavy-hot.json", "red-forty.json", "cell-four.json"};
+  static const std::set<std::string> files = {};
   return files;
 }
 

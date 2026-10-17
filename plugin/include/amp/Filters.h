@@ -38,6 +38,10 @@ public:
   /** The complement of the low-pass; one state, so use either lowpass or
       highpass on an instance, not both. */
   float highpass(float x) noexcept { return x - lowpass(x); }
+  /** The smoothing coefficient and the state: the next low-pass output is
+      state + coefficient * (x - state). */
+  float coefficient() const noexcept { return coeff; }
+  float value() const noexcept { return state; }
 
 private:
   float coeff{1.0f};
@@ -61,6 +65,9 @@ public:
     a3 = static_cast<float>(g) * a2;
   }
   void reset() noexcept { ic1 = ic2 = 0.0f; }
+  /** The next band output is bandOffset() + bandSlope() * x. */
+  float bandOffset() const noexcept { return a1 * ic1 - a2 * ic2; }
+  float bandSlope() const noexcept { return a2; }
 
   Outputs process(float x) noexcept {
     const float v3 = x - ic2;

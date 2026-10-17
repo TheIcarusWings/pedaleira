@@ -531,9 +531,10 @@ public:
 
     const json none = json::object();
     const json& feedback = objectField(obj, path, "feedback", false, none);
-    allowOnly(feedback, child(path, "feedback"), {"series_ohm", "shunt_ohm"});
+    allowOnly(feedback, child(path, "feedback"), {"series_ohm", "shunt_ohm", "delay_free"});
     readFloat(feedback, child(path, "feedback"), "series_ohm", p.feedbackResistor, Provenance::Schematic, 1.0, 1.0e7);
     readFloat(feedback, child(path, "feedback"), "shunt_ohm", p.shuntResistor, Provenance::Schematic, 1.0, 1.0e7);
+    readBool(feedback, child(path, "feedback"), "delay_free", p.delayFreeFeedback);
 
     const json& presence = objectField(obj, path, "presence", false, none);
     allowOnly(presence, child(path, "presence"), {"pot_ohm", "min_ohm", "capacitor_f"});

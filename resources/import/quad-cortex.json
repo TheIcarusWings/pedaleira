@@ -358,12 +358,14 @@
       "verified": false,
       "params": {
         "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "SYNC": { "param": "sync", "transform": "linear" },
+        "SYNC NOTE": { "param": "division", "transform": { "map": { "0": 12, "1": 11, "2": 13, "3": 9, "4": 8, "5": 10, "6": 6, "7": 5, "8": 7, "9": 3, "10": 2, "11": 4, "12": 0 } } },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
         "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
         "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Time, feedback and mix; the time is DELAY TIME in milliseconds (name assumed from the Digital Delay). Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
+      "notes": "Time, feedback and mix; the time is DELAY TIME in milliseconds (name assumed from the Digital Delay). Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours. SYNC NOTE is the Digital Delay's note list cut to entries 7 to 19 (1/16 to 1/1), and a dump gives the option index 0 to 12 (option = entry - 7), measured on a unit (CorOS d14e) at 120 BPM. The unit then clamps the time to 200 to 1100 ms, so its 1/16 plays 200 ms and its 1/1T and 1/1 play 1100 ms where ours plays the full note."
     },
     "Tape Delay": {
       "kind": "delay.tape",

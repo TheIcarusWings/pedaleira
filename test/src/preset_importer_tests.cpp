@@ -1807,4 +1807,32 @@ TEST(PresetImporterTest, DelaySyncNoteFollowsTheNoteListMeasuredOnTheUnit) {
           << model << " " << index;
     }
   }
+
+  // Analog Delay: a dump gives the option index 0..12 into entries 7..19 of
+  // the same list. Measured where the unit's 200 to 1100 ms clamp does not
+  // bite: option 3 (1/8) 252.5 ms, 6 (1/4) 495.2 ms, 9 (1/2) 993.0 ms.
+  const int expectedDivision[] = {fx::kDivSixteenth,       fx::kDivEighthTriplet,
+                                  fx::kDivSixteenthDotted, fx::kDivEighth,
+                                  fx::kDivQuarterTriplet,  fx::kDivEighthDotted,
+                                  fx::kDivQuarter,         fx::kDivHalfTriplet,
+                                  fx::kDivQuarterDotted,   fx::kDivHalf,
+                                  fx::kDivWholeTriplet,    fx::kDivHalfDotted,
+                                  fx::kDivWhole};
+  for (int option = 0; option <= 12; ++option) {
+    const std::string text =
+        std::string(R"j({"format":"pedaleira-foreign-preset","version":1,"source":"quad-cortex",
+          "name":"Sync","rows":[{"index":0,"blocks":[{"position":0,"model":"Analog Delay (M)",
+          "category":"Delay","enabled":true,"params":{"SYNC":{"value":1},"SYNC NOTE":{"value":)j") +
+        std::to_string(option) + "}}}]}]}";
+    const importer::ImportResult result = importer::convertForeignPreset(
+        parseJson(text.c_str()), importer::builtInMapping("quad-cortex"));
+    ASSERT_TRUE(result.ok) << result.error;
+    const juce::var slot = slotNode(result.preset, 0, 0);
+    const int division = static_cast<int>(std::lround(static_cast<double>(kindParam(slot, "division"))));
+    EXPECT_EQ(division, expectedDivision[option]) << "Analog option " << option;
+    const double ms = fx::noteDivisionSeconds(division, 120.0) * 1000.0;
+    if (option == 3) EXPECT_NEAR(ms, 252.5, 7.5);
+    if (option == 6) EXPECT_NEAR(ms, 495.2, 7.5);
+    if (option == 9) EXPECT_NEAR(ms, 993.0, 7.5);
+  }
 }

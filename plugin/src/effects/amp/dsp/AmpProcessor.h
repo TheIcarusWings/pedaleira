@@ -197,7 +197,10 @@ protected:
       const float g = level.next();
       for (int ch = 0; ch < runLanes; ++ch) {
         float* data = buffer.getWritePointer(ch);
-        data[i] = lanes[ch].dcBlock.process(data[i]) * g;
+        float y = lanes[ch].dcBlock.process(data[i]);
+        if (d.power.hasOutputResonance)
+          y = lanes[ch].resonance.process(y);
+        data[i] = y * g;
       }
       if (mirrored)
         buffer.getWritePointer(1)[i] = buffer.getReadPointer(0)[i];
@@ -233,14 +236,17 @@ private:
   struct Lane {
     amp::AmpCircuit circuit;
     DcBlocker dcBlock;
+    fx::Biquad resonance;
 
     void reset() noexcept {
       circuit.reset();
       dcBlock.reset();
+      resonance.reset();
     }
     void copyStateFrom(const Lane& other) noexcept {
       circuit.copyStateFrom(other.circuit);
       dcBlock = other.dcBlock;
+      resonance = other.resonance;
     }
   };
 
@@ -251,6 +257,9 @@ private:
     for (Lane& lane : lanes) {
       lane.circuit.prepare(osRate, d);
       lane.dcBlock.setCutoff(d.power.transformerLowCornerHz, sampleRate);
+      if (d.power.hasOutputResonance)
+        lane.resonance.setCoeffs(fx::BiquadCoeffs::peak(d.power.outputResonanceHz, d.power.outputResonanceQ,
+                                                         d.power.outputResonanceDb, sampleRate));
     }
     resetEffect();
   }

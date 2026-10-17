@@ -242,6 +242,27 @@ TEST(AmpDescriptionLoader, AMeasuredValueCanBeMarkedWithItsNote) {
   EXPECT_TRUE(found);
 }
 
+TEST(AmpDescriptionLoader, TheOutputResonanceIsOptionalAndOffByDefault) {
+  const Parsed plain = parse(shipped());
+  ASSERT_TRUE(plain.ok) << plain.error;
+  EXPECT_FALSE(plain.description.power.hasOutputResonance);
+
+  const std::string peak = "\"output_resonance\": {\"frequency_hz\": 65, \"q\": 1.5, \"gain_db\": 9}, ";
+  const Parsed parsed = parse(edited(shipped(), "\"topology\": \"push_pull_ab\"", peak + "\"topology\": \"push_pull_ab\""));
+  ASSERT_TRUE(parsed.ok) << parsed.error;
+  EXPECT_TRUE(parsed.description.power.hasOutputResonance);
+  EXPECT_FLOAT_EQ(parsed.description.power.outputResonanceHz, 65.0f);
+  EXPECT_FLOAT_EQ(parsed.description.power.outputResonanceQ, 1.5f);
+  EXPECT_FLOAT_EQ(parsed.description.power.outputResonanceDb, 9.0f);
+
+  expectRejected(edited(shipped(), "\"topology\": \"push_pull_ab\"",
+                        "\"output_resonance\": {\"frequency_hz\": 65, \"q\": 1.5, \"gain_db\": 40}, \"topology\": \"push_pull_ab\""),
+                 "power_amp.output_resonance.gain_db: must be between");
+  expectRejected(edited(shipped(), "\"topology\": \"push_pull_ab\"",
+                        "\"output_resonance\": {\"frequency_hz\": 65, \"q\": 1.5}, \"topology\": \"push_pull_ab\""),
+                 "power_amp.output_resonance.gain_db");
+}
+
 TEST(AmpDescriptionLoader, RefusesWhatIsWrongAndSaysWhere) {
   const std::string good = shipped();
   expectRejected("{", "not valid JSON");

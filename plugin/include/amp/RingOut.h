@@ -98,6 +98,8 @@ inline double slowestTimeConstant(const AmpDescription& d) noexcept {
 
   if (d.power.transformerLowCornerHz > 0.0f)
     consider(1.0 / (2.0 * kPi * d.power.transformerLowCornerHz));
+  if (d.power.hasOutputResonance)
+    consider(static_cast<double>(d.power.outputResonanceQ) / (kPi * d.power.outputResonanceHz));
   const PowerAmpParams& p = d.power.params;
   const double depthHz = p.depthHz();
   if (depthHz > 0.0)

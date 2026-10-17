@@ -516,7 +516,7 @@ public:
   void readPower(const json& obj) {
     const std::string path = "power_amp";
     allowOnly(obj, path, {"tube", "topology", "open_loop_gain", "feedback", "presence", "depth", "tone_cut", "transformer",
-                          "knee_mix", "crossover", "supply"});
+                          "knee_mix", "crossover", "supply", "output_resonance"});
     PowerDescription& power = out.power;
     readString(obj, path, "tube", power.tube, false);
     static const char* const tubes[] = {"EL34", "6L6", "EL84", "6V6", "KT88", "6550", "custom"};
@@ -565,6 +565,16 @@ public:
     allowOnly(transformer, child(path, "transformer"), {"high_corner_hz", "low_corner_hz"});
     readFloat(transformer, child(path, "transformer"), "high_corner_hz", p.transformerLowpassHz, Provenance::Fitted, 500.0, 100000.0);
     readFloat(transformer, child(path, "transformer"), "low_corner_hz", power.transformerLowCornerHz, Provenance::Fitted, 1.0, 500.0);
+
+    if (find(obj, "output_resonance") != nullptr) {
+      const std::string resPath = child(path, "output_resonance");
+      const json& res = objectField(obj, path, "output_resonance", true, none);
+      allowOnly(res, resPath, {"frequency_hz", "q", "gain_db"});
+      readFloat(res, resPath, "frequency_hz", power.outputResonanceHz, Provenance::Fitted, 20.0, 500.0, true);
+      readFloat(res, resPath, "q", power.outputResonanceQ, Provenance::Fitted, 0.2, 10.0, true);
+      readFloat(res, resPath, "gain_db", power.outputResonanceDb, Provenance::Fitted, 0.0, 24.0, true);
+      power.hasOutputResonance = true;
+    }
 
     const json& crossover = objectField(obj, path, "crossover", false, none);
     allowOnly(crossover, child(path, "crossover"), {"ratio", "width"});

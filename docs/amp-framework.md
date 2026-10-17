@@ -261,6 +261,10 @@ The output stage.
 | `transformer` | object |  |  |  |  | Output transformer corners. |
 | `transformer.high_corner_hz` | number | Hz | 500 to 100000 | 9000 |  | Output transformer high corner (two poles in the feedback path). (default provenance: fitted) |
 | `transformer.low_corner_hz` | number | Hz | 1 to 500 | 12 |  | Output transformer low corner (the output DC blocker). (default provenance: fitted) |
+| `output_resonance` | object |  |  |  |  | The speaker's impedance peak seen at the output of an amp with little or no global feedback (its high output impedance follows the speaker's impedance): a peak after the output transformer. Left out: none. |
+| `output_resonance.frequency_hz` | number | Hz | 20 to 500 |  | required | Centre of the peak. (default provenance: fitted) |
+| `output_resonance.q` | number |  | 0.2 to 10 |  | required | Width of the peak. (default provenance: fitted) |
+| `output_resonance.gain_db` | number | dB | 0 to 24 |  | required | Height of the peak. (default provenance: fitted) |
 | `knee_mix` | number |  | 0 to 1 | 0 |  | 0 is a soft knee, 1 a sharp one. (default provenance: fitted) |
 | `crossover` | object |  |  |  |  | Class AB crossover character; ignored (ratio 1) for push_pull_a. |
 | `crossover.ratio` | number |  | 0 to 1 | 0.9 |  | Small-signal gain at idle relative to full gain (class AB crossover). (default provenance: fitted) |

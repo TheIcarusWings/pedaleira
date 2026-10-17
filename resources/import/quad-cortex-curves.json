@@ -90,6 +90,20 @@
         "exponent": 1.6666667,
         "measured": "CorOS d14e, plan v13: with SYNC off the unit plays min + span * wire^(5/3)"
       }
+    },
+    "Crystal Delay": {
+      "DELAY TIME L": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, 2026-10-17: the default dumps as 1345.95 ms linear, 500.00 ms on the 5/3 law; the echoes move 1.00 ms per ms of the 5/3 time"
+      },
+      "DELAY TIME R": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, 2026-10-17: the default dumps as 2045.11 ms linear, 1000.00 ms on the 5/3 law; the echoes follow the 5/3 time"
+      },
+      "HIGH PASS": {
+        "exponent": 1.6666667,
+        "measured": "CorOS d14e, 2026-10-17: the default dumps as 130.436 Hz linear, exactly the catalogue's 50 Hz on the 5/3 law"
+      }
     }
   }
 }

@@ -345,12 +345,13 @@
       "params": {
         "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": { "scale": 1, "offset": -0.6 } },
         "SYNC": { "param": "sync", "transform": "linear" },
+        "SYNC NOTE": { "param": "division", "transform": { "map": { "2": 17, "4": 15, "5": 14, "6": 16, "7": 12, "8": 11, "9": 13, "10": 9, "11": 8, "12": 10, "13": 6, "14": 5, "15": 7, "16": 3, "17": 2, "18": 4, "19": 0, "20": 1 } } },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
         "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
         "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "Names and units from a unit's catalogue (CorOS d14e), as Digital Delay (M) and (ST): DELAY TIME 7 to 6000 ms, SYNC on by default (then the time follows SYNC NOTE), FEEDBACK and MIX in percent. Measured on a unit (CorOS d14e): its delay is 0.6 ms shorter than the time it shows, the same at 100, 500 and 1000 ms, hence the offset. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours."
+      "notes": "Names and units from a unit's catalogue (CorOS d14e), as Digital Delay (M) and (ST): DELAY TIME 7 to 6000 ms, SYNC on by default (then the time follows SYNC NOTE), FEEDBACK and MIX in percent. Measured on a unit (CorOS d14e): its delay is 0.6 ms shorter than the time it shows, the same at 100, 500 and 1000 ms, hence the offset. DYN DEPTH (0 to 60 dB on the unit, clamped to our 24) and RELEASE become the ducking of the repeats; the unit's ducking is not measured against ours. SYNC NOTE arrives as an index into the unit's note list, measured on a unit (CorOS d14e) at 120 BPM, every note within 2.3 ms of its nominal time: 0 1/64T, 1 1/64, 2 1/32T, 3 1/64 dotted, 4 1/32, 5 1/16T, 6 1/32 dotted, 7 1/16, 8 1/8T, 9 1/16 dotted, 10 1/8, 11 1/4T, 12 1/8 dotted, 13 1/4, 14 1/2T, 15 1/4 dotted, 16 1/2, 17 1/1T, 18 1/2 dotted, 19 1/1, 20 1/1 dotted. Ours has no 1/64 notes, so 0, 1 and 3 are not in the map and are reported as dropped."
     },
     "Analog Delay": {
       "kind": "delay.analog",
@@ -393,13 +394,15 @@
       "verified": false,
       "params": {
         "DELAY TIME": { "param": "timeMs", "unit": "ms", "transform": "linear" },
+        "SYNC": { "param": "sync", "transform": "linear" },
+        "SYNC NOTE": { "param": "division", "transform": { "map": { "2": 17, "4": 15, "5": 14, "6": 16, "7": 12, "8": 11, "9": 13, "10": 9 } } },
         "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
         "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
         "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } },
         "DYN DEPTH": { "param": "duckDb", "unit": "dB", "transform": "linear" },
         "RELEASE": { "param": "duckReleaseMs", "unit": "ms", "transform": "linear" }
       },
-      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 40 to 200 ms, FEEDBACK and MIX in percent, LOW PASS and HIGH PASS in Hz. LOW PASS becomes our tone sweep; HIGH PASS has no counterpart here and is dropped, and the saturation and wobble are ours and stay at their defaults. A FEEDBACK above our 60% is clamped and reported. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. DELAY TIME is 40 to 200 ms. Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds."
+      "notes": "From a unit's catalogue (CorOS d14e): DELAY TIME 40 to 200 ms, FEEDBACK and MIX in percent, LOW PASS and HIGH PASS in Hz. LOW PASS becomes our tone sweep; HIGH PASS has no counterpart here and is dropped, and the saturation and wobble are ours and stay at their defaults. A FEEDBACK above our 60% is clamped and reported. DYN DEPTH (0 to 60 dB, clamped to our 24) and RELEASE become the ducking. DELAY TIME is 40 to 200 ms. Measured on a unit (CorOS d14e, plan v13): with SYNC off it plays min + span * wire^(5/3) of the knob range (see quad-cortex-curves.json), so the dump script converts the wire value on that curve and the shown time arrives here in milliseconds. SYNC NOTE is the Digital Delay's note list cut to indices 0 to 10 (1/64T to 1/8), measured on a unit (CorOS d14e); the unit then clamps the time to its 40 to 200 ms, so at 120 BPM its 1/8 plays 200 ms where ours plays the full 250 ms. Ours has no 1/64 notes, so 0, 1 and 3 are reported as dropped."
     },
     "Dual Delay": {
       "kind": "delay.dual",

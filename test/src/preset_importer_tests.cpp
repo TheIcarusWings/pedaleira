@@ -26,6 +26,7 @@
 #include "Processor.h"
 #include "agent_test_helpers.h"
 #include "chain_test_helpers.h"
+#include "effects/dsp/TempoSync.h"
 
 #include <gtest/gtest.h>
 
@@ -1772,4 +1773,38 @@ TEST(PresetImporterTest, ParametricFourFollowsItsFrequencyTablesAndFixedQ) {
   EXPECT_NEAR(value(filters, "bandStyle"), 1.0, 1e-6);
   EXPECT_NEAR(value(filters, "hpOn"), 1.0, 1e-6);
   EXPECT_NEAR(value(filters, "lpOn"), 1.0, 1e-6);
+}
+
+TEST(PresetImporterTest, DelaySyncNoteFollowsTheNoteListMeasuredOnTheUnit) {
+  // First echo in ms at 120 BPM for each SYNC NOTE index, as measured on a
+  // unit (Digital Delay, CorOS d14e); -1 for the 1/64 notes we do not have.
+  const double measured[] = {-1,    -1,    39.6,  -1,     60.4,   81.2,   91.6,
+                             125.9, 167.5, 188.5, 251.0,  334.4,  375.9,  500.9,
+                             667.7, 751.1, 1001.5, 1334.5, 1497.8, 1997.9, 3001.5};
+  for (const char* model : {"Digital Delay (M)", "Slapback Delay (M)"}) {
+    const int last = juce::String(model).startsWith("Slapback") ? 10 : 20;
+    for (int index = 0; index <= last; ++index) {
+      const std::string params = R"({"SYNC":{"value":1},"SYNC NOTE":{"value":)" +
+                                 std::to_string(index) + "}}";
+      const std::string text =
+          std::string(R"({"format":"pedaleira-foreign-preset","version":1,"source":"quad-cortex",
+            "name":"Sync","rows":[{"index":0,"blocks":[{"position":0,"model":")") +
+          model + R"(","category":"Delay","enabled":true,"params":)" + params + "}]}]}";
+      const importer::ImportResult result = importer::convertForeignPreset(
+          parseJson(text.c_str()), importer::builtInMapping("quad-cortex"));
+      ASSERT_TRUE(result.ok) << result.error;
+      const juce::var slot = slotNode(result.preset, 0, 0);
+      EXPECT_NEAR(static_cast<double>(kindParam(slot, "sync")), 1.0, 1e-6) << model;
+      const juce::var dropped =
+          entryAt(result.report["droppedParams"], 0, 0, "param", "SYNC NOTE");
+      if (measured[index] < 0.0) {
+        EXPECT_TRUE(dropped.isObject()) << model << " " << index << " has no note of ours";
+        continue;
+      }
+      EXPECT_FALSE(dropped.isObject()) << model << " " << index;
+      const int division = static_cast<int>(std::lround(static_cast<double>(kindParam(slot, "division"))));
+      EXPECT_NEAR(fx::noteDivisionSeconds(division, 120.0) * 1000.0, measured[index], 2.5)
+          << model << " " << index;
+    }
+  }
 }

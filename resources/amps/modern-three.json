@@ -15,9 +15,9 @@
   },
   "model": {"stage_solver": "classic"},
   "input": {
-    "coupling_capacitor_f": {"value": 2.19e-09, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low end of the response"},
+    "coupling_capacitor_f": {"value": 1.435e-08, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"},
     "grid_leak_ohm": 1000000,
-    "grid_stopper_ohm": 68000,
+    "grid_stopper_ohm": {"value": 29920, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
     "miller_f": 1.6e-10,
     "source_ohm": {"value": 10000, "provenance": "fitted", "note": "assumed pickup impedance for the grid charge path"}
   },
@@ -26,27 +26,27 @@
       "name": "V1 input stage",
       "tube": "12AX7",
       "plate_load_ohm": 100000,
-      "plate_capacitance_f": {"value": 2.95e-10, "provenance": "fitted", "note": "wiring plus the next Miller capacitance; sets the stage's high-frequency roll-off"},
+      "plate_capacitance_f": {"value": 1.15e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": 0.001, "bypass_capacitor_f": 6.8e-07},
       "grid": {"cutoff_v": 3.5, "contact_potential_v": 0.3, "conduction_ohm": 2000, "max_bias_shift_v": 10},
-      "coupling": {"capacitance_f": {"value": 1.28e-08, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low end of the response"}, "series_ohm": 0, "grid_leak_ohm": 470000},
+      "coupling": {"capacitance_f": {"value": 3.28e-08, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"}, "series_ohm": 0, "grid_leak_ohm": 470000},
       "gain_pot": {"resistance_ohm": 1000000, "floor_ohm": {"value": 21.4, "provenance": "fitted", "note": "fitted to the Modern Three measurements: Gs at GAIN 2, 5, 8 and 10"}, "source_ohm": 100000, "load_ohm": 470000, "taper": {"value": 3.28, "provenance": "fitted", "note": "fitted to the Modern Three measurements: Gs at GAIN 2, 5, 8 and 10"}, "bright_capacitor_f": 1e-10}
     },
     {
       "name": "V2 gain stage",
       "tube": "12AX7",
       "plate_load_ohm": 100000,
-      "plate_capacitance_f": {"value": 3.45e-10, "provenance": "fitted", "note": "wiring plus the next Miller capacitance"},
+      "plate_capacitance_f": {"value": 1.35e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00225, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
-      "coupling": {"capacitance_f": {"value": 3.22e-09, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low end of the response"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 35200, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}}
+      "coupling": {"capacitance_f": {"value": 2.112e-08, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 35200, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}}
     },
     {
       "name": "V3 gain stage",
       "tube": "12AX7",
       "plate_load_ohm": 100000,
-      "plate_capacitance_f": {"value": 4.13e-10, "provenance": "fitted", "note": "wiring plus the next Miller capacitance"},
+      "plate_capacitance_f": {"value": 1.01e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00198, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
-      "coupling": {"capacitance_f": {"value": 1.24e-08, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the low end of the response"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 13200, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}}
+      "coupling": {"capacitance_f": {"value": 5.08e-08, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 13200, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the bend and the THD at -54 dBFS"}}
     },
     {
       "name": "V4 gain stage",
@@ -69,8 +69,8 @@
     "bass_pot_ohm": 1000000,
     "middle_pot_ohm": {"value": 43500, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"},
     "slope_ohm": {"value": 158000, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"},
-    "treble_cap_f": {"value": 9.76e-10, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"},
-    "bass_cap_f": {"value": 1.71e-08, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"},
+    "treble_cap_f": {"value": 9.104e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
+    "bass_cap_f": {"value": 1.375e-08, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"},
     "middle_cap_f": {"value": 2.45e-08, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the tone knob responses"}
   },
   "effects_loop": {"present": false, "note": "placeholder: the signal does not pass through a loop"},
@@ -95,14 +95,14 @@
     },
     "transformer": {
       "high_corner_hz": {"value": 40000, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the high and low ends of the response"},
-      "low_corner_hz": {"value": 11.9, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the high and low ends of the response"}
+      "low_corner_hz": {"value": 26, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum (and the line-level sweep below 63 Hz)"}
     },
     "knee_mix": 0,
     "crossover": {"ratio": {"value": 0.555, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the knee of the static curve"}, "width": 0.3},
     "supply": {"b_plus_v": 450, "source_ohm": 250, "full_load_a": 0.3, "reservoir_f": 0.00022, "attack_s": 0.008, "rectifier": "tube"}
   },
   "calibration": {
-    "input_full_scale_v": {"value": 38, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the small-signal gain (Gs)"},
+    "input_full_scale_v": {"value": 37.26, "provenance": "fitted", "note": "fitted to the DI run v26 with the GAIN sweep kept: the small-signal gain"},
     "power_drive_v": {"value": 126, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the master step and the knee of the static curve"},
     "coupling_gain_rise": 1.8,
     "output_trim": {"value": 0.0901, "provenance": "fitted", "note": "fitted to the Modern Three measurements: the ceiling"},

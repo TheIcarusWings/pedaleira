@@ -243,6 +243,7 @@ The output stage.
 | `feedback` | object |  |  |  |  | The global negative feedback network. |
 | `feedback.series_ohm` | number | ohm | 1 to 1e+7 | 4000 |  | The feedback resistor from the output back. (default provenance: schematic) |
 | `feedback.shunt_ohm` | number | ohm | 1 to 1e+7 | 1000 |  | The shunt resistor it divides against: beta = shunt / (shunt + series). (default provenance: schematic) |
+| `feedback.delay_free` | true / false |  |  | False |  | Solve the feedback loop within the sample (Newton's method on the stage's curve) instead of feeding back the previous output. Keeps a strong loop stable; without it a large loop gain can oscillate above the audio band. |
 | `presence` | object |  |  |  |  | The presence network: removes high-frequency feedback. |
 | `presence.pot_ohm` | number | ohm | 0 to 1e+7 | 5000 |  | The presence pot. (default provenance: schematic) |
 | `presence.min_ohm` | number | ohm | 0.1 to 1e+7 | 220 |  | Resistance left with the pot turned fully up. (default provenance: schematic) |

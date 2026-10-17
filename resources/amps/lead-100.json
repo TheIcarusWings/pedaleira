@@ -26,19 +26,19 @@
       "name": "V1 input stage",
       "tube": "12AX7",
       "plate_load_ohm": 100000,
-      "plate_capacitance_f": {"value": 2.95e-10, "provenance": "fitted", "note": "wiring plus the next Miller capacitance; sets the stage's high-frequency roll-off"},
+      "plate_capacitance_f": {"value": 9.55e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": 0.001, "bypass_capacitor_f": 6.8e-07},
       "grid": {"cutoff_v": 3.5, "contact_potential_v": 0.3, "conduction_ohm": 2000, "max_bias_shift_v": 10},
-      "coupling": {"capacitance_f": {"value": 1.99e-08, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: the low end of the response"}, "series_ohm": 0, "grid_leak_ohm": 470000},
+      "coupling": {"capacitance_f": {"value": 2.5e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 0, "grid_leak_ohm": 470000},
       "gain_pot": {"resistance_ohm": 1000000, "floor_ohm": {"value": 49500, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: Gs at GAIN 2, 5, 8 and 10"}, "source_ohm": 100000, "load_ohm": 470000, "taper": {"value": 1.12, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: Gs at GAIN 2, 5, 8 and 10"}, "bright_capacitor_f": 1e-10}
     },
     {
       "name": "V2 gain stage",
       "tube": "12AX7",
       "plate_load_ohm": 100000,
-      "plate_capacitance_f": {"value": 3.45e-10, "provenance": "fitted", "note": "wiring plus the next Miller capacitance"},
+      "plate_capacitance_f": {"value": 5.52e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.000708, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
-      "coupling": {"capacitance_f": {"value": 7.12e-09, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: the low end of the response"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 8190, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: the bend and the THD at -54 dBFS"}}
+      "coupling": {"capacitance_f": {"value": 4.45e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 8190, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: the bend and the THD at -54 dBFS"}}
     },
     {
       "name": "V3 gain stage",
@@ -46,7 +46,7 @@
       "plate_load_ohm": 100000,
       "plate_capacitance_f": {"value": 4.13e-10, "provenance": "fitted", "note": "wiring plus the next Miller capacitance"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00125, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
-      "coupling": {"capacitance_f": {"value": 1.44e-08, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: the low end of the response"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 10900, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: the bend and the THD at -54 dBFS"}}
+      "coupling": {"capacitance_f": {"value": 9e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 10900, "provenance": "fitted", "note": "fitted to the Lead 100 measurements: the bend and the THD at -54 dBFS"}}
     },
     {
       "name": "V4 gain stage",

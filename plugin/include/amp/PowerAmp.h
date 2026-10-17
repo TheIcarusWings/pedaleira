@@ -25,6 +25,9 @@
 //     feedback uses the previous output sample, so the loop has a one sample
 //     delay, and the low-pass keeps the loop gain well below one wherever
 //     that delay would turn the feedback positive.
+//     With `delayFreeFeedback` the loop has no delay: the feedback from the
+//     current output is solved within the sample (Newton's method on the
+//     stage's curve), so the loop is stable at any loop gain;
 // The structure follows the feedback description in J. Pakarinen and
 // D. T. Yeh, "A review of digital techniques for modeling vacuum-tube guitar
 // amplifiers", Computer Music Journal 33(2), 2009; the transformer, the
@@ -52,6 +55,9 @@
 //                         (the sharp part is not antialiased; 0 by default)
 //   crossoverRatio        small-signal gain at idle relative to full gain
 //   crossoverWidth        level over which the crossover notch recovers
+//   delayFreeFeedback     solve the loop within the sample; the curve is then
+//                         used as it is, without the antiderivative (the loop
+//                         has to see the output it feeds back)
 //   hardClip              a solid-state stage: clip(t) = max(-1, min(1, t))
 //                         in place of the soft curve, anti-aliased with its
 //                         antiderivative (t^2 / 2 inside, |t| - 1/2 outside);
@@ -90,6 +96,7 @@ struct PowerAmpParams {
   float crossoverRatio{0.9f};
   float crossoverWidth{0.3f};
   bool hardClip{false};
+  bool delayFreeFeedback{false};
 
   float feedbackFraction() const noexcept { return shuntResistor / (shuntResistor + feedbackResistor); }
   float depthHz() const noexcept {
@@ -104,7 +111,11 @@ public:
     params = newParams;
     sampleRate = newSampleRate;
     beta = params.feedbackFraction();
-    depthQ = params.depthQ();
+    // The band is normalised by the Q the filter actually runs at (Svf
+    // clamps it to 0.3..40), so it peaks at 1 and Depth never removes more
+    // than depthMaxCut of the feedback; a wider band than that turned the
+    // feedback positive around depthHz and the stage oscillated there.
+    depthQ = std::clamp(params.depthQ(), 0.3f, 40.0f);
     lowA.setCutoff(params.transformerLowpassHz, sampleRate);
     lowB.setCutoff(params.transformerLowpassHz, sampleRate);
     depth.set(params.depthHz(), depthQ, sampleRate);
@@ -135,6 +146,8 @@ public:
 
   float process(float x, float headroom) noexcept {
     const float h = std::max(headroom, 0.05f);
+    if (params.delayFreeFeedback)
+      return processDelayFree(x, h);
     const float v = params.openLoopGain * (x - beta * feedbackSignal);
     const float t = std::clamp(v * recip(h), -1.0e3f, 1.0e3f);
     if (params.hardClip)
@@ -159,6 +172,63 @@ public:
   }
 
 private:
+  /** The stage's curve without the antiderivative: the soft or hard
+      saturation with the knee and the crossover, and its slope. */
+  float curve(float t, float& slope) const noexcept {
+    if (params.hardClip) {
+      slope = std::abs(t) < 1.0f ? 1.0f : 0.0f;
+      return std::clamp(t, -1.0f, 1.0f);
+    }
+    const float t2 = t * t;
+    const float a = invSqrt(1.0f + t2);
+    float shaped = t * a;
+    float dShaped = a * a * a;
+    if (params.kneeMix > 0.0f) {
+      // The sharp knee t / (1 + t^4)^(1/4) and its slope (1 + t^4)^(-5/4).
+      const float b = invSqrt(invSqrt(1.0f + t2 * t2));
+      const float b5 = b * b * b * b * b;
+      shaped += params.kneeMix * (t * b - shaped);
+      dShaped += params.kneeMix * (b5 - dShaped);
+    }
+    const float w2 = params.crossoverWidth * params.crossoverWidth;
+    const float den = recip(t2 + w2);
+    const float crossover = (t2 + params.crossoverRatio * w2) * den;
+    const float dCrossover = 2.0f * t * w2 * (1.0f - params.crossoverRatio) * den * den;
+    slope = dShaped * crossover + shaped * dCrossover;
+    return shaped * crossover;
+  }
+
+  /** The loop solved within the sample. The output through the two
+      transformer poles, and the feedback taken from it, are affine in this
+      sample's stage output y = h * curve(t): lowpassed = c0 + c^2 y and
+      feedback = e0 + e1 * lowpassed. So t = u - K * curve(t), with u and K
+      known; t + K * curve(t) rises with t (the curve never falls), and
+      Newton's method from the last sample's t converges in a few steps. */
+  float processDelayFree(float x, float h) noexcept {
+    const float ca = lowA.coefficient();
+    const float cb = lowB.coefficient();
+    const float c0 = (1.0f - cb) * lowB.value() + cb * (1.0f - ca) * lowA.value();
+    const float d = ca * cb;
+    const float cp = presence.coefficient();
+    const float depthGain = depthCut * (1.0f / depthQ);
+    const float e1 = 1.0f - presenceCut * (1.0f - cp) - depthGain * depth.bandSlope();
+    const float e0 = presenceCut * (1.0f - cp) * presence.value() - depthGain * depth.bandOffset();
+    const float gain = params.openLoopGain * recip(h);
+    const float u = std::clamp(gain * (x - beta * (e0 + e1 * c0)), -1.0e3f, 1.0e3f);
+    const float k = params.openLoopGain * beta * e1 * d;
+    float t = lastT;
+    float slope = 0.0f;
+    for (int i = 0; i < 12; ++i) {
+      const float g = t + k * curve(t, slope) - u;
+      const float step = g * recip(1.0f + k * slope);
+      t -= step;
+      if (std::abs(step) <= 1.0e-6f * (1.0f + std::abs(t)))
+        break;
+    }
+    lastT = t;
+    return feedBack(h * curve(t, slope));
+  }
+
   /** The hard clip at +-1, anti-aliased with its antiderivative (first order,
       as the soft curve); exactly linear between the rails. */
   float clipped(float t) noexcept {

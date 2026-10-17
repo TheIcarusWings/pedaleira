@@ -2184,6 +2184,120 @@
           },
           "description": "Output transformer corners."
         },
+        "output_resonance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "frequency_hz",
+            "q",
+            "gain_db"
+          ],
+          "properties": {
+            "frequency_hz": {
+              "description": "Centre of the peak. Unit: Hz.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 20,
+                  "maximum": 500
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 20,
+                      "maximum": 500
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "q": {
+              "description": "Width of the peak.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.2,
+                  "maximum": 10
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0.2,
+                      "maximum": 10
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            },
+            "gain_db": {
+              "description": "Height of the peak. Unit: dB.",
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 24
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 24
+                    },
+                    "provenance": {
+                      "enum": [
+                        "schematic",
+                        "measured",
+                        "fitted"
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "description": "The speaker's impedance peak seen at the output of an amp with little or no global feedback: a peak after the output transformer. Left out: none."
+        },
         "knee_mix": {
           "description": "0 is a soft knee, 1 a sharp one.",
           "oneOf": [

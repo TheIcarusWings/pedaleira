@@ -177,6 +177,14 @@ struct PowerDescription {
   /** The output transformer's low corner (the output DC blocker). The high
       corner is params.transformerLowpassHz. */
   float transformerLowCornerHz{12.0f};
+  /** The speaker's impedance peak seen at the output of an amp with little
+      or no global feedback (a high output impedance follows the speaker's
+      impedance): a peak of `outputResonanceDb` at `outputResonanceHz`. Off
+      unless the description gives it. */
+  bool hasOutputResonance{false};
+  float outputResonanceHz{80.0f};
+  float outputResonanceQ{1.0f};
+  float outputResonanceDb{0.0f};
   /** A tone cut network ahead of the output tubes (CouplingFilters.h), or none. */
   bool hasToneCut{false};
   ToneCutParams toneCut;

@@ -15,7 +15,7 @@
   },
   "model": {"stage_solver": "classic"},
   "input": {
-    "coupling_capacitor_f": {"value": 9.76e-10, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: the response with every knob at 5"},
+    "coupling_capacitor_f": {"value": 8.89e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"},
     "grid_leak_ohm": 1000000,
     "grid_stopper_ohm": 68000,
     "miller_f": 1.6e-10,
@@ -33,7 +33,7 @@
         "bypass_capacitor_f": 2.5e-05
       },
       "coupling": {
-        "capacitance_f": {"value": 9.76e-10, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: the response with every knob at 5"},
+        "capacitance_f": {"value": 1e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"},
         "series_ohm": 0,
         "grid_leak_ohm": 1000000
       },
@@ -89,9 +89,10 @@
       "min_ohm": {"value": 3840, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: the tone cut responses"},
       "capacitor_f": {"value": 4.52e-09, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: the tone cut responses"}
     },
+    "output_resonance": {"frequency_hz": {"value": 62.9, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"}, "q": {"value": 1.5, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"}, "gain_db": {"value": 10.1, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"}},
     "transformer": {
       "high_corner_hz": {"value": 40600, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: the response with every knob at 5"},
-      "low_corner_hz": {"value": 60.4, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: the response with every knob at 5"}
+      "low_corner_hz": {"value": 15.6, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the low end of the long-term spectrum"}
     },
     "knee_mix": {"value": 0.654, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: the bend and the THD of the gain sweep"},
     "crossover": {

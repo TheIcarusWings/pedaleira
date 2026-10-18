@@ -1,6 +1,7 @@
 // Local file loading (loadLocalTone for drops, loadLocalTonePath for the
-// tile menus' file pickers): load-time validation (NAM files must be A2),
-// and that accepted files ride the normal load pipeline as `local` blocks:
+// tile menus' file pickers): load-time validation (a NAM file must be one the
+// core can build: any architecture it knows, undamaged), and that accepted
+// files ride the normal load pipeline as `local` blocks:
 // background load from the content-addressed stash (no network), IR mix
 // defaults by kernel length, folder loads as one multi-model tone whose
 // full model list survives switches.
@@ -199,15 +200,21 @@ TEST(LocalLoadTest, GearIsInferredFromNamMetadataAndIrLength) {
 TEST(LocalLoadTest, RejectsBadFilesAndSkipsThemInFolders) {
   TONE3000Processor proc;
 
-  // Valid JSON, wrong architecture: rejected at drop time (never reaches
-  // the background loader, whose failure UI would suggest retrying).
+  // Valid JSON, a damaged capture (an LSTM with no settings): rejected at
+  // drop time (never reaches the background loader, whose failure UI would
+  // suggest retrying).
   const juce::String lstm = R"({"version":"0.5.4","architecture":"LSTM","config":{}})";
   const juce::String lstm64 = juce::Base64::toBase64(lstm.toRawUTF8(), lstm.getNumBytesAsUTF8());
   juce::var res = proc.loadLocalTone("model", filesOf({fileEntry("model.nam", lstm64)}));
-  // The message names the architecture and what to do about it.
-  EXPECT_TRUE(res["error"].toString().startsWith("This capture uses the LSTM architecture."))
+  // The message names the architecture and what is wrong.
+  EXPECT_TRUE(res["error"].toString().startsWith("This LSTM capture is damaged: "))
       << res["error"].toString().toStdString();
-  EXPECT_TRUE(res["error"].toString().contains("A2"));
+
+  // An architecture NAM does not know.
+  const juce::String odd = R"({"version":"0.5.4","architecture":"Transformer","config":{}})";
+  res = proc.loadLocalTone(
+      "odd", filesOf({fileEntry("odd.nam", juce::Base64::toBase64(odd.toRawUTF8(), odd.getNumBytesAsUTF8()))}));
+  EXPECT_TRUE(res["error"].toString().contains("does not know")) << res["error"].toString().toStdString();
 
   res = proc.loadLocalTone("bad", filesOf({fileEntry("bad.wav", juce::Base64::toBase64("x", 1))}));
   EXPECT_EQ(res["error"].toString(), juce::String("Not a valid WAV file"));

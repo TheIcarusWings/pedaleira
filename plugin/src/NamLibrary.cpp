@@ -1,9 +1,12 @@
 #include "NamLibrary.h"
 
 #include "LibraryPaths.h"
+#include "NamModels.h"
+#include "NAM/get_dsp.h"
 #include "NAM/wavenet/a2_fast.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <mutex>
 
@@ -15,41 +18,163 @@ namespace {
 // local files is 50 MB).
 constexpr juce::int64 kMaxInspectBytes = 64 * 1024 * 1024;
 
-const char* const kNotA2Advice =
-    "Pedaleira loads only A2 captures, the current NAM format. Look for an A2 version of this "
-    "tone on TONE3000, or train it again.";
+// Containers inside containers are legal; this only bounds a hostile file.
+constexpr int kMaxNesting = 8;
 
-bool configIsA2(const nlohmann::json& model);
+// What one model (a whole file, or one model inside a container) turned out
+// to be. `problem` completes "This <label> capture is damaged: ..." or, with
+// `whole` set, is the whole sentence.
+struct Verdict {
+  bool ok = false;
+  juce::String label;
+  bool a2 = false;
+  juce::String problem;
+  bool whole = false;
+};
 
-bool wavenetIsA2(const nlohmann::json& model) {
-  int channels = 0;
-  return model.contains("config") && model["config"].is_object() &&
-         nam::wavenet::a2_fast::is_a2_shape(model["config"], &channels);
+Verdict damaged(const juce::String& label, const juce::String& problem) {
+  Verdict v;
+  v.label = label;
+  v.problem = problem;
+  return v;
 }
 
-// A container is A2 when it has submodels and every one of them is.
-bool containerIsA2(const nlohmann::json& model) {
-  if (!model.contains("config") || !model["config"].is_object() ||
-      !model["config"].contains("submodels"))
-    return false;
-  const auto& submodels = model["config"]["submodels"];
-  if (!submodels.is_array() || submodels.empty())
-    return false;
-  for (const auto& entry : submodels)
-    if (!entry.is_object() || !entry.contains("model") || !configIsA2(entry["model"]))
-      return false;
-  return true;
+Verdict refused(const juce::String& label, const juce::String& sentence) {
+  Verdict v;
+  v.label = label;
+  v.problem = sentence;
+  v.whole = true;
+  return v;
 }
 
-bool configIsA2(const nlohmann::json& model) {
-  if (!model.is_object())
-    return false;
-  const std::string architecture = model.value("architecture", "");
-  if (architecture == "WaveNet")
-    return wavenetIsA2(model);
-  if (architecture == "SlimmableContainer")
-    return containerIsA2(model);
-  return false;
+// A word out of someone else's file, shown to the player and handed to
+// agents: only letters, digits and a few marks, and not a sentence.
+juce::String cleanWord(const std::string& raw) {
+  juce::String named;
+  for (const auto c : juce::String(raw))
+    if (named.length() < 32 && (juce::CharacterFunctions::isLetterOrDigit(c) || c == ' ' ||
+                                c == '.' || c == '_' || c == '-'))
+      named << juce::String::charToString(c);
+  return named.trim();
+}
+
+// The settings a model's config must have for the core to build it, checked
+// without the weights. Returns an empty string when they are complete, else
+// what is missing.
+juce::String missingSetting(const nlohmann::json& config,
+                            std::initializer_list<const char*> wholeNumbers,
+                            std::initializer_list<const char*> switches = {}) {
+  for (const char* key : wholeNumbers) {
+    const auto found = config.find(key);
+    if (found == config.end() || !found->is_number_integer() || found->get<long long>() < 1)
+      return juce::String("its settings have no usable ") + key;
+  }
+  for (const char* key : switches) {
+    const auto found = config.find(key);
+    if (found == config.end() || !found->is_boolean())
+      return juce::String("its settings do not say ") + key;
+  }
+  return {};
+}
+
+Verdict inspectModel(const nlohmann::json& model, int depth) {
+  if (!model.is_object() || !model.contains("architecture") || !model["architecture"].is_string())
+    return refused("Unknown", "This file is not a NAM capture: it names no architecture.");
+  const std::string architecture = model["architecture"].get<std::string>();
+  const juce::String word = cleanWord(architecture);
+
+  // The label first: it names the capture in every sentence below.
+  juce::String label = word.isNotEmpty() ? word : juce::String("Unknown");
+  bool a2 = false;
+  const auto config = model.find("config");
+  const bool hasConfig = config != model.end() && config->is_object();
+  if (architecture == "WaveNet") {
+    int channels = 0;
+    a2 = hasConfig && nam::wavenet::a2_fast::is_a2_shape(*config, &channels);
+    label = a2 ? "WaveNet A2" : "WaveNet A1";
+  } else if (architecture == "SlimmableContainer") {
+    label = "Slimmable";
+  }
+
+  const bool known = architecture == "WaveNet" || architecture == "LSTM" ||
+                     architecture == "ConvNet" || architecture == "Linear" ||
+                     architecture == "SlimmableContainer";
+  if (!known)
+    return refused(label, "This capture uses an architecture Pedaleira does not know (\"" +
+                              label + "\"), so it cannot be loaded.");
+
+  const auto version = model.find("version");
+  if (version == model.end() || !version->is_string())
+    return refused(label, "This " + label +
+                              " capture does not say which NAM version saved it, so it cannot "
+                              "be loaded.");
+  if (nam::is_version_supported(version->get<std::string>()) == nam::Supported::NO)
+    return refused(label, "This " + label + " capture was saved by NAM file version " +
+                              cleanWord(version->get<std::string>()) +
+                              ", which Pedaleira cannot read.");
+
+  if (const auto rate = model.find("sample_rate"); rate != model.end()) {
+    if (!rate->is_number())
+      return damaged(label, "its sample rate is not a number");
+    const double hz = rate->get<double>();
+    if (std::isfinite(hz) && hz > 0.0 &&
+        (hz < NamModels::kLowestSampleRate || hz > NamModels::kHighestSampleRate))
+      return damaged(label, "it says it was trained at " + juce::String(hz, 0) +
+                                " Hz, outside the rates audio runs at");
+  }
+
+  if (!hasConfig)
+    return damaged(label, "it has no settings");
+
+  juce::String missing;
+  if (architecture == "WaveNet") {
+    const auto layers = config->find("layers");
+    if (layers == config->end() || !layers->is_array() || layers->empty())
+      missing = "its settings have no layers";
+  } else if (architecture == "LSTM") {
+    missing = missingSetting(*config, {"num_layers", "input_size", "hidden_size"});
+  } else if (architecture == "ConvNet") {
+    missing = missingSetting(*config, {"channels"}, {"batchnorm"});
+    const auto dilations = config->find("dilations");
+    if (missing.isEmpty() &&
+        (dilations == config->end() || !dilations->is_array() || dilations->empty()))
+      missing = "its settings have no dilations";
+    if (missing.isEmpty() && !config->contains("activation"))
+      missing = "its settings name no activation";
+  } else if (architecture == "Linear") {
+    missing = missingSetting(*config, {"receptive_field"}, {"bias"});
+  } else {  // SlimmableContainer
+    const auto submodels = config->find("submodels");
+    if (submodels == config->end() || !submodels->is_array() || submodels->empty())
+      return damaged(label, "it holds no models");
+    if (depth >= kMaxNesting)
+      return damaged(label, "its models are nested too deep");
+    bool allA2 = true;
+    for (const auto& entry : *submodels) {
+      if (!entry.is_object() || !entry.contains("max_value") || !entry["max_value"].is_number() ||
+          !entry.contains("model"))
+        return damaged(label, "one of its models is incomplete");
+      const Verdict inner = inspectModel(entry["model"], depth + 1);
+      if (!inner.ok) {
+        // The container is refused for what is wrong inside it.
+        Verdict v = inner;
+        v.label = label;
+        return v;
+      }
+      allA2 = allA2 && inner.a2;
+    }
+    a2 = allA2;
+    if (a2)
+      label = "Slimmable A2";
+  }
+  if (missing.isNotEmpty())
+    return damaged(label, missing);
+
+  Verdict v;
+  v.ok = true;
+  v.label = label;
+  v.a2 = a2;
+  return v;
 }
 
 Info unreadable(const juce::String& reason) {
@@ -69,41 +194,36 @@ Info inspectJson(const nlohmann::json& model) {
 
   Info info;
   info.readable = true;
-  // A word out of someone else's file, shown to the player and handed to
-  // agents: only letters, digits and a few marks, and not a sentence.
-  juce::String named;
-  for (const auto c : juce::String(model["architecture"].get<std::string>()))
-    if (named.length() < 32 && (juce::CharacterFunctions::isLetterOrDigit(c) || c == ' ' || c == '.' || c == '_' || c == '-'))
-      named << juce::String::charToString(c);
-  info.architecture = named.trim();
+  info.architecture = cleanWord(model["architecture"].get<std::string>());
   if (model.contains("metadata") && model["metadata"].is_object()) {
     const auto& metadata = model["metadata"];
     if (metadata.contains("name") && metadata["name"].is_string())
       info.name = juce::String(metadata["name"].get<std::string>()).trim();
   }
-
-  info.supported = configIsA2(model);
-  const std::string architecture = model["architecture"].get<std::string>();
-  if (architecture == "WaveNet")
-    info.label = info.supported ? "WaveNet A2" : "WaveNet A1";
-  else if (architecture == "SlimmableContainer")
-    info.label = info.supported ? "Slimmable A2" : "Slimmable";
-  else
-    info.label = info.architecture.isNotEmpty() ? info.architecture : juce::String("Unknown");
-
-  if (!info.supported) {
-    juce::String what;
-    if (architecture == "WaveNet")
-      what = "an older WaveNet architecture (A1)";
-    else if (architecture == "SlimmableContainer")
-      what = "a slimmable container that holds models that are not A2";
-    else if (architecture == "LSTM" || architecture == "ConvNet" || architecture == "Linear")
-      what = "the " + info.architecture + " architecture";
-    else
-      what = "an architecture Pedaleira does not know (\"" + info.architecture + "\")";
-    info.reason = "This capture uses " + what + ". " + kNotA2Advice;
+  if (const auto rate = model.find("sample_rate"); rate != model.end() && rate->is_number()) {
+    const double hz = rate->get<double>();
+    info.sampleRate = std::isfinite(hz) && hz > 0.0 ? hz : 0.0;
   }
+
+  const Verdict verdict = inspectModel(model, 0);
+  info.supported = verdict.ok;
+  info.label = verdict.label;
+  info.a2 = verdict.ok && verdict.a2;
+  if (!verdict.ok)
+    info.reason = verdict.whole
+                      ? verdict.problem
+                      : "This " + verdict.label + " capture is damaged: " + verdict.problem + ".";
   return info;
+}
+
+juce::String damagedReason(const Info& info, const juce::String& what) {
+  const juce::String label = info.label.isNotEmpty() ? info.label : juce::String("NAM");
+  // NamModels' own reasons read on from "cannot be loaded: " ("it holds 5
+  // weights where its settings need 70"); the core's are quoted as they are.
+  juce::String detail = what.trim().trimCharactersAtEnd(".!\n");
+  if (detail.startsWith("it ") || detail.startsWith("its ") || detail.startsWith("one of its"))
+    return "This " + label + " capture is damaged and cannot be loaded: " + detail + ".";
+  return "This " + label + " capture is damaged and cannot be loaded (" + detail + ").";
 }
 
 Info inspectBytes(const void* data, size_t size) {

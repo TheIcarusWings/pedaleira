@@ -7,7 +7,7 @@
 #include <vector>
 
 // What the engine knows about NAM capture files beyond their bytes: whether
-// Pedaleira can load one (the architecture check), what a file the user loaded
+// Pedaleira can load one and what it is (the architecture check), what a file the user loaded
 // was called (the stash keeps only content-hash names), the list of recently
 // loaded captures, and where the TONE3000 app keeps the models it downloaded.
 // Any thread; one mutex guards the recents file.
@@ -17,13 +17,22 @@ namespace NamLibrary {
 struct Info {
   // The file parsed as a NAM model at all.
   bool readable = false;
-  // Pedaleira can load it (an A2 WaveNet, or a container of them).
+  // Pedaleira can load it: an architecture NeuralAmpModelerCore builds
+  // (WaveNet A1 or A2, LSTM, ConvNet, Linear, a slimmable container of
+  // those), a NAM version it reads, and settings that are complete. The
+  // weights are not looked at here; loading checks them.
   bool supported = false;
   // The "architecture" field as written ("WaveNet", "LSTM", ...).
   juce::String architecture;
   // A short name for the architecture a player recognises: "WaveNet A2",
-  // "WaveNet A1", "LSTM", "ConvNet", "Linear", "Slimmable A2".
+  // "WaveNet A1", "LSTM", "ConvNet", "Linear", "Slimmable A2", "Slimmable".
   juce::String label;
+  // NAM A2: an A2 WaveNet, or a container whose models all are.
+  bool a2 = false;
+  // The rate the file says the model was trained at, 0 when it does not say
+  // (it then runs at 48 kHz). The engine runs it at this rate whatever the
+  // session's.
+  double sampleRate = 0.0;
   // A sentence for the player when the file cannot be loaded (also when it
   // cannot be read); empty for a supported file.
   juce::String reason;
@@ -33,6 +42,10 @@ struct Info {
 
 // The check on a parsed model. The weights need not be in it.
 Info inspectJson(const nlohmann::json& model);
+// The sentence for a file that passed inspectJson but could not be built
+// (NamModels::build threw `what`, usually weights that do not fit the
+// settings).
+juce::String damagedReason(const Info& info, const juce::String& what);
 // The same on the bytes of a file: parsed with the weight arrays skipped, so a
 // large capture costs time but not memory.
 Info inspectBytes(const void* data, size_t size);

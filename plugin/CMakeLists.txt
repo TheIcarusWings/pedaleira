@@ -114,6 +114,7 @@ add_library(NAM STATIC
     ${NAM_SRC}/convnet.cpp
     ${NAM_SRC}/dsp.cpp
     ${NAM_SRC}/get_dsp.cpp
+    ${NAM_SRC}/linear.cpp
     ${NAM_SRC}/lstm.cpp
     ${NAM_SRC}/ring_buffer.cpp
     ${NAM_SRC}/util.cpp
@@ -442,6 +443,7 @@ target_sources(${PROJECT_NAME}
         include/ChainBoundaryMulti.h
         include/NamEngine.h
         src/NamEngine.cpp
+        src/NamModels.cpp
         include/TunerDetector.h
         src/TunerDetector.cpp
         include/PitchShift.h

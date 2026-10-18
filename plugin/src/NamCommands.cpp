@@ -32,6 +32,9 @@ void addArchitecture(juce::var& target, const NamLibrary::Info& info) {
   auto* obj = target.getDynamicObject();
   obj->setProperty("architecture", info.architecture);
   obj->setProperty("architectureLabel", info.label);
+  obj->setProperty("a2", info.a2);
+  if (info.sampleRate > 0.0)
+    obj->setProperty("sampleRate", info.sampleRate);
   obj->setProperty("supported", info.supported);
   if (!info.supported)
     obj->setProperty("unsupportedReason", info.reason);
@@ -44,9 +47,14 @@ void AgentHub::registerNamCommands() {
       "nam.inspect",
       "Tells whether Pedaleira can load a NAM capture, without loading it: its architecture "
       "(architecture as the file says it, architectureLabel as a player knows it, such as "
-      "WaveNet A2 or LSTM), supported (only A2 captures are loaded) and, when it is not "
-      "supported or not a capture at all, unsupportedReason in a sentence that can be shown "
-      "as it is. modelName is the name in the file's metadata, empty when it has none.",
+      "WaveNet A2, WaveNet A1, LSTM, ConvNet, Linear or Slimmable A2), a2 (true for NAM A2), "
+      "sampleRate (the rate it was trained at, when the file says; it always runs at that "
+      "rate, resampled when the session runs at another, and at 48 kHz when the file does "
+      "not say), supported (every architecture NAM builds loads; false for a file that is "
+      "not a capture, a NAM version or architecture Pedaleira cannot read, or damaged "
+      "settings) and, when it is not supported, unsupportedReason in a sentence that can be "
+      "shown as it is. Weights that do not fit the settings are only found when the file is "
+      "loaded. modelName is the name in the file's metadata, empty when it has none.",
       {P::required("path", T::string, "A .nam file, as an absolute path.").path()},
       false,
       CommandPermission::read,

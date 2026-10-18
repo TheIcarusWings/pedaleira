@@ -52,6 +52,7 @@ function(t3k_add_headless_processor target)
         ${plugin_dir}/src/MidiMapper.cpp
         ${plugin_dir}/src/NamBlockProcessor.cpp
         ${plugin_dir}/src/NamEngine.cpp
+        ${plugin_dir}/src/NamModels.cpp
         ${plugin_dir}/src/ParameterisedBlockProcessor.cpp
         ${plugin_dir}/src/PresetFile.cpp
         ${plugin_dir}/src/PresetJson.cpp

@@ -1,8 +1,8 @@
 #include "Processor.h"
 #include "LibraryPaths.h"
 #include "NamLibrary.h"
+#include "NamModels.h"
 #include "json.hpp"
-#include "NAM/wavenet/a2_fast.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -65,39 +65,16 @@ bool irIsLongFor(const juce::String& gear, bool longByLength) {
 // reverb head size.
 constexpr int kIrNonUniformHeadSamples = 8192;
 
-// NAM phase-interleaved oversampling eligibility (see NamEngine.h).
-// Phase interleaving is exact only for architectures whose temporal structure
-// is pure (dilated) convolution: splitting the oversampled stream into factor
-// phases and running one native-rate instance per phase computes the same
-// math as one dilation-scaled instance at the high rate, and the temporal
-// images a dilated kernel produces above the base Nyquist are removed by the
-// chain's decimation filter. Recurrent models (LSTM) update state on
-// consecutive samples and can't be phase-split; they get a single instance
-// running time-scaled at the full chain rate instead.
-bool namConfigIsPhaseSafe(const nlohmann::json& modelJson) {
-  const std::string architecture = modelJson.value("architecture", "");
-  if (architecture == "WaveNet" || architecture == "ConvNet" || architecture == "Linear")
-    return true;
-  if (architecture == "SlimmableContainer") {
-    // Safe only when every submodel is (containers switch tiers at runtime).
-    if (!modelJson.contains("config") || !modelJson["config"].contains("submodels"))
-      return false;
-    const auto& submodels = modelJson["config"]["submodels"];
-    if (!submodels.is_array() || submodels.empty())
-      return false;
-    for (const auto& entry : submodels) {
-      if (!entry.contains("model") || !namConfigIsPhaseSafe(entry["model"]))
-        return false;
-    }
-    return true;
-  }
-  return false;  // LSTM and anything unknown
-}
+// NAM phase-interleaved oversampling eligibility is NamModels::isPhaseSafe
+// (see NamEngine.h): pure (dilated) convolution can be split into phases,
+// recurrent models (LSTM) get a single instance that runs at its own rate.
 
-// Gate for drop-loaded local NAM files: the catalog only serves
-// architecture-2 models (the runtime is tuned around them: 48 kHz training
-// rate, the slimmable tiers, the fast path), so local files must be A2 too.
-// The check, and the sentence a refused file gets, are NamLibrary::inspectJson.
+// Gate for local NAM files: every architecture NeuralAmpModelerCore can build
+// loads (WaveNet A1 and A2, LSTM, ConvNet, Linear and slimmable containers of
+// those), at the rate the file says it was trained at (see NamEngine.h). What
+// is refused is a file that is not a capture, or one that is damaged: the
+// check without the weights is NamLibrary::inspectJson, and the file is then
+// built once to check the weights against the settings (NamModels::build).
 
 // Stash folder for drop-loaded local models. The block's toneJson persists
 // the stash path as its model_url, so a cache-lost reload (undo after
@@ -193,16 +170,26 @@ juce::var stashLocalBytes(const juce::String& filename, juce::MemoryOutputStream
   juce::String gear;
   if (isNam) {
     // The architecture check names what is wrong with a file Pedaleira can't
-    // load (an LSTM, an A1 WaveNet), so the player is told, not just refused.
+    // load (not a capture, an architecture NAM does not know, damaged
+    // settings), so the player is told, not just refused.
     const NamLibrary::Info info = NamLibrary::inspectBytes(decoded.getData(), decoded.getDataSize());
     if (!info.readable || !info.supported)
       return fail(info.reason.isNotEmpty() ? info.reason : juce::String("Not a valid NAM file"));
+    nlohmann::json parsed;
     try {
       const auto* bytes = static_cast<const char*>(decoded.getData());
-      gear = localGearFromNamMetadata(nlohmann::json::parse(bytes, bytes + decoded.getDataSize()));
+      parsed = nlohmann::json::parse(bytes, bytes + decoded.getDataSize());
     } catch (const std::exception&) {
       return fail("Not a valid NAM file");
     }
+    // Built once here, so weights that do not fit the settings are refused
+    // now with a sentence, not later as a load that fails and offers a retry.
+    try {
+      NamModels::build(parsed);
+    } catch (const std::exception& e) {
+      return fail(NamLibrary::damagedReason(info, e.what()));
+    }
+    gear = localGearFromNamMetadata(parsed);
   } else {
     juce::AudioFormatManager formatManager;
     formatManager.registerBasicFormats();
@@ -882,31 +869,33 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
       const nlohmann::json config =
           nlohmann::json::parse(modelData.begin(), modelData.end());
 
-      // Oversampling: phase-safe architectures get one native-rate instance
-      // per phase (see NamEngine.h); anything else runs a single instance
-      // time-scaled at the full chain rate. Dual mono doubles the set: one
-      // independent voice per channel (voice-major layout). The factor is
-      // read once here and the voice count is the caller's reading for the
-      // block's row (wantedNamVoices); both are baked into the engine, and
-      // the apply path re-queues the build if either requirement moved
-      // while it was in flight.
+      // Oversampling: phase-safe architectures get one model-rate instance
+      // per phase (see NamEngine.h); anything else (LSTM) runs a single
+      // instance, which the engine still runs at the model's own rate. Dual
+      // mono doubles the set: one independent voice per channel
+      // (voice-major layout). The factor is read once here and the voice
+      // count is the caller's reading for the block's row (wantedNamVoices);
+      // both are baked into the engine, and the apply path re-queues the
+      // build if either requirement moved while it was in flight.
       const int oversampleFactor = chainOversampleFactor.load();
       const int voices = juce::jlimit(1, 2, namVoices);
-      const bool phaseSafe = oversampleFactor > 1 && namConfigIsPhaseSafe(config);
+      const bool phaseSafe = oversampleFactor > 1 && NamModels::isPhaseSafe(config);
       const int phaseCount = phaseSafe ? oversampleFactor : 1;
       const int instanceCount = phaseCount * voices;
       if (oversampleFactor > 1 && !phaseSafe) {
         juce::Logger::writeToLog(
             "[ModelLoader] NAM architecture '" +
             juce::String(config.value("architecture", std::string("?"))) +
-            "' can't be phase-interleaved; running time-scaled at ×" +
-            juce::String(oversampleFactor));
+            "' can't be phase-interleaved; one instance at the model's rate inside the ×" +
+            juce::String(oversampleFactor) + " chain");
       }
 
       std::vector<std::unique_ptr<nam::DSP>> instances;
       instances.reserve(static_cast<size_t>(instanceCount));
       for (int i = 0; i < instanceCount; ++i) {
-        std::unique_ptr<nam::DSP> rawDsp = nam::get_dsp(config);
+        // WaveNet and Linear from the core; LSTM and ConvNet as their
+        // realtime-safe equivalents (see NamModels.h).
+        std::unique_ptr<nam::DSP> rawDsp = NamModels::build(config);
         if (!rawDsp) {
           juce::Logger::writeToLog("[ModelLoader] Failed to load NAM model: null DSP returned");
           return out;
@@ -924,24 +913,24 @@ TONE3000Processor::PreparedBlockModel TONE3000Processor::prepareBlockModelOffThr
 
       auto engine = std::make_unique<NamEngine>(std::move(instances), oversampleFactor, voices);
 
-      // The chain domain runs everything at the chain rate. A2 models are
-      // all trained at 48k; anything else is rare enough that we just run it
-      // anyway and note it in the log (a slight pitch/tone shift beats
-      // per-block resampling machinery for a case that ~never happens).
-      if (std::abs(engine->getModelSampleRate() - kChainBaseSampleRate) > 0.1) {
-        juce::Logger::writeToLog(
-            "[ModelLoader] NAM model reports " + juce::String(engine->getModelSampleRate()) +
-            " Hz; the chain runs at " + juce::String(chainSampleRate()) + " Hz regardless");
-      }
-
       // The block's A2 size (no-op for non-slimmable models); prepare()
       // applies it.
       engine->setSlimmableSize(namSlimSize);
       engine->prepare(domainBlockSize);
 
+      // The engine runs the model at the rate it was trained at, bridging
+      // from the chain rate when the two differ (see NamEngine.h).
+      static const char* const kBridgeNames[] = {"none", "half-band raise", "half-band lower",
+                                                 "resampled"};
       juce::Logger::writeToLog(
           "[ModelLoader] NAM model prepared, model sample rate: " +
           juce::String(engine->getModelSampleRate()) +
+          (engine->modelRateDeclared() ? juce::String() : juce::String(" (assumed)")) +
+          ", chain " + juce::String(kChainBaseSampleRate * oversampleFactor) + " Hz, bridge " +
+          kBridgeNames[static_cast<int>(engine->getRateBridge())] +
+          (engine->latencySamples() > 0
+               ? ", latency " + juce::String(engine->latencySamples()) + " samples"
+               : juce::String()) +
           (phaseSafe ? " (" + juce::String(phaseCount) + " phase instances)" : "") +
           (voices > 1 ? " (" + juce::String(voices) + " voices)" : ""));
 
@@ -1140,14 +1129,16 @@ void TONE3000Processor::requestSwapFadeAndWait(const std::string& blockId, bool 
 
 std::unique_ptr<TONE3000Processor::ChainEditFade>
 TONE3000Processor::fadeForModelInstall(const std::string& blockId, int modelId,
-                                       bool muteWetOnly) {
+                                       bool muteWetOnly, int incomingLatency) {
   bool timingMoves = false;
   {
     juce::ScopedLock lock(chainMutex);
     const ChainBlock* block = findBlockById(blockId);
     if (block == nullptr || block->activeModelId != modelId)
       return nullptr;
-    timingMoves = block->dryDelay.delaySamples() > 0;
+    // The lane moves in time when the latency it leaves behind and the one
+    // it gets differ.
+    timingMoves = block->dryDelay.delaySamples() != incomingLatency;
   }
   if (timingMoves) {
     // Already muted by a restore that is waiting for this very load: its

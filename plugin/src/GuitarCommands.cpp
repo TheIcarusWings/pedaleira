@@ -123,6 +123,9 @@ juce::var describeAsset(const juce::File& file, const juce::File& root, const ch
     const NamLibrary::Info info = NamLibrary::inspectFile(file);
     obj->setProperty("architecture", info.architecture);
     obj->setProperty("architectureLabel", info.label);
+    obj->setProperty("a2", info.a2);
+    if (info.sampleRate > 0.0)
+      obj->setProperty("sampleRate", info.sampleRate);
     obj->setProperty("supported", info.supported);
     if (!info.supported)
       obj->setProperty("unsupportedReason", info.reason);
@@ -443,8 +446,9 @@ void AgentHub::registerGuitarCommands() {
       "finds it by that name. A capture carries what its file "
       "says about itself as nam_name, nam_modeled_by, nam_gear_type, nam_gear_make, "
       "nam_gear_model, nam_tone_type, nam_gain and nam_loudness when present, and its architecture, "
-      "architectureLabel and supported (false when Pedaleira can not load it, with "
-      "unsupportedReason in a sentence); an IR its sampleRate, channels "
+      "architectureLabel, a2, sampleRate (when the file names the rate it was trained at) "
+      "and supported (every architecture NAM builds loads; false for a file Pedaleira can "
+      "not load, with unsupportedReason in a sentence); an IR its sampleRate, channels "
       "and seconds. inRig lists the tones the rig already holds, with their titles and gear "
       "tags. There is no searchable catalogue beyond this: tones from the online catalogue "
       "are only known once they are in a rig.",

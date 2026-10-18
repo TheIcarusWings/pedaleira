@@ -4,8 +4,8 @@
 #include "NamEngine.h"
 
 /**
- * A NAM capture as a chain block: the engine (runs at the chain rate, no
- * per-block resampling; see ChainDomain.h), input calibration, and the
+ * A NAM capture as a chain block: the engine (fed at the chain rate; it runs
+ * the model at the model's own rate, see NamEngine.h), input calibration, and the
  * post-model gain that is either a calibrated hand-off to the next amp or
  * loudness normalization.
  */
@@ -22,6 +22,12 @@ public:
   const char* kindId() const noexcept override { return "nam"; }
   bool hasEngine() const noexcept override { return namEngine != nullptr; }
   float costSeed() const noexcept override;
+  /** The engine's rate bridge: 0 for a capture that runs at the chain rate
+      or a power-of-two step from it, the resampler's delay otherwise (see
+      NamEngine.h). Fixed for an engine, so there is nothing to latch. */
+  int latencySamples() const noexcept override {
+    return namEngine != nullptr ? namEngine->latencySamples() : 0;
+  }
   void prepare(const BlockPrepareSpec& spec) override;
   void prepareForInstall(const BlockPrepareSpec& spec) override;
   BlockProcessResult process(juce::AudioBuffer<float>& buffer,

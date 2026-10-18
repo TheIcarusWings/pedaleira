@@ -31,8 +31,8 @@ Coefficients are adapted from
 [DLC86/NAM-Oversampler](https://github.com/DLC86/NAM-Oversampler)'s
 AudioDSPTools fork (MIT), following the published HIIR half-band allpass
 tables. That project pioneered oversampled NAM processing, and this design
-follows its lead in several places (including the time-scaled handling of
-LSTM models noted below).
+follows its lead in several places (it also ran LSTM models time-scaled,
+which this engine no longer does; see below).
 
 ## Phase-interleaved NAM
 
@@ -67,9 +67,13 @@ prepared engine that no longer matches the live factor or voice count is
 re-queued rather than installed.
 
 LSTM models update state on consecutive samples and can't be phase-split;
-they get a single instance run time-scaled at the full chain rate. (A
-defensive path in practice: the catalog and the local-file gate only admit
-A2 WaveNets, which are always phase-safe.)
+they get a single instance, and the engine lowers the rate around it with
+the same half-band stages an IR island uses, so it runs at the rate it was
+trained at (it used to run time-scaled at the full chain rate, which moved
+its tone with the factor). WaveNet, ConvNet and Linear models are
+phase-split. Every model runs at its own training rate, whatever the chain's;
+how the engine bridges the two is in `local-models.md` ("Architectures and
+the model's rate").
 
 ## IR islands
 

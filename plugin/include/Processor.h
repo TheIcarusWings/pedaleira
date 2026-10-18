@@ -1363,11 +1363,13 @@ private:
       (checked under the lock: a superseded job must not dip a block that
       has moved on). A block whose current processor has latency is leaving
       its lane's timing behind, so the whole chain is muted (the returned
-      fade, which the caller keeps alive across its install); otherwise the
-      block's own swap fade, shaped by `muteWetOnly`. */
+      fade, which the caller keeps alive across its install); so is one
+      whose incoming processor brings latency (`incomingLatency`, a capture
+      that runs resampled at its own rate), which moves the lane the other
+      way. Otherwise the block's own swap fade, shaped by `muteWetOnly`. */
   struct ChainEditFade;
   std::unique_ptr<ChainEditFade> fadeForModelInstall(const std::string& blockId, int modelId,
-                                                     bool muteWetOnly);
+                                                     bool muteWetOnly, int incomingLatency = 0);
 
   /** Same idea for structural edits that can't be expressed as one block's
       wet fade (reorder, cross-lane move): glide the whole chain output to

@@ -1,10 +1,11 @@
 // The drive family (plugin/src/effects/drive): clean boost, treble boost,
-// overdrive, transparent drive, distortion, metal distortion, fuzz and bass
-// drive. Every kind goes through the same checks: the conformance test of the
+// overdrive, transparent drive, distortion, metal distortion, fuzz, bass
+// drive, bass fuzz and multiband bass drive. Every kind goes through the same checks: the conformance test of the
 // framework, stability at extreme settings, distortion that rises with the
 // drive control, loudness near unity at the defaults, a reset that restores
 // the first render exactly, little aliasing from a high frequency tone at
 // high gain, and its place in the Drive category. Then what each one is for.
+#include "effects/allocation_guard.h"
 #include "effects/effect_test_helpers.h"
 
 #include <gtest/gtest.h>
@@ -48,6 +49,12 @@ std::vector<DriveCase> allCases() {
        {{"drivePercent", 100.0}, {"blendPercent", 100.0}},
        0.1f,
        1000.0},
+      {"drive.bassfuzz",
+       {{"drivePercent", 0.0}, {"lowRetainHz", 30.0}, {"blendPercent", 100.0}},
+       {{"drivePercent", 100.0}, {"lowRetainHz", 30.0}, {"blendPercent", 100.0}},
+       0.05f,
+       1000.0},
+      {"drive.multibandbass", {{"midDrivePercent", 0.0}}, {{"midDrivePercent", 100.0}}, 0.1f, 1000.0},
   };
 }
 
@@ -202,13 +209,13 @@ TEST(DriveEffectsTest, TheKindsAreListedInTheDriveCategory) {
       }
     EXPECT_TRUE(present) << c.id << " is not in kinds.list";
   }
-  EXPECT_EQ(found, 8);
-  // Nothing else is in the category by accident: the eight are the family.
+  EXPECT_EQ(found, 10);
+  // Nothing else is in the category by accident: the ten are the family.
   int inCategory = 0;
   for (const auto& kind : *kinds)
     if (kind["category"].toString() == "drive")
       ++inCategory;
-  EXPECT_GE(inCategory, 8);
+  EXPECT_GE(inCategory, 10);
 }
 
 TEST(DriveEffectsTest, NoNaNOrInfAndBoundedAtExtremeSettings) {
@@ -341,6 +348,10 @@ TEST(DriveEffectsTest, AHighToneAtHighGainLeavesLittleBelowOneKilohertz) {
       {"drive.fuzz", {{"voicing", 2.0}, {"fuzzPercent", 100.0}, {"tonePercent", 100.0}}},
       {"drive.bass", {{"drivePercent", 100.0}, {"blendPercent", 100.0}, {"crossoverHz", 60.0}}},
       {"drive.boost", {{"gainDb", 20.0}}},
+      {"drive.bassfuzz",
+       {{"drivePercent", 100.0}, {"tonePercent", 100.0}, {"lowRetainHz", 30.0}, {"gatePercent", 0.0}}},
+      {"drive.multibandbass",
+       {{"lowDrivePercent", 100.0}, {"midDrivePercent", 100.0}, {"highDrivePercent", 100.0}, {"highLevelDb", 12.0}}},
   };
   for (const Loud& item : loud) {
     SCOPED_TRACE(item.id);
@@ -1267,4 +1278,278 @@ TEST(DriveEffectsTest, GritCrossoverKeepsTheLowsClean) {
   const Params high = {{"voicing", 3.0}, {"crossoverHz", 800.0}, {"drivePercent", 80.0}};
   EXPECT_LT(thdAtDbfs("drive.bass", high, 100.0, -30.0),
             thdAtDbfs("drive.bass", low, 100.0, -30.0) - 2.0);
+}
+
+// ---------------------------------------------------------------------------
+// Bass Fuzz and Multiband Bass Drive: our own designs, no unit to match. The
+// checks are the design targets: the low end kept under the fuzz, a gate on
+// low notes, three bands that sum flat when clean, a Blend that is clean at
+// 0, and nothing allocated while processing.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// The third-octave centres from 40 Hz to 10 kHz.
+std::vector<double> thirdOctaves() {
+  std::vector<double> out;
+  for (int k = 0; 40.0 * std::pow(2.0, k / 3.0) <= 10000.0; ++k)
+    out.push_back(40.0 * std::pow(2.0, k / 3.0));
+  out.push_back(10000.0);
+  return out;
+}
+
+// The gain at one frequency on a longer sine than toneGainDb, so the lowest
+// bands settle and the window holds many periods.
+double steadyGainDb(const char* id, const Params& params, double hz, double peakDb) {
+  const std::vector<float> in = sine(2.0, hz, amp(peakDb), kRate);
+  DirectKind kind(id, params);
+  const std::vector<float> out = kind.render(in);
+  const size_t skip = static_cast<size_t>(0.6 * kRate);
+  return db(goertzelPower(out.data() + skip, out.size() - skip, hz, kRate)) -
+         db(goertzelPower(in.data() + skip, in.size() - skip, hz, kRate));
+}
+
+// The worst deviation from 0 dB over the third octaves, printed.
+double worstFlatnessDb(const char* label, const char* id, const Params& params, double peakDb) {
+  double worst = 0.0;
+  for (const double hz : thirdOctaves()) {
+    const double got = steadyGainDb(id, params, hz, peakDb);
+    worst = std::max(worst, std::abs(got));
+    EXPECT_NEAR(got, 0.0, 0.1) << label << " at " << hz << " Hz";
+  }
+  std::cout << "[   FLAT   ] " << label << ": worst " << juce::String(worst, 4)
+            << " dB from 40 Hz to 10 kHz" << std::endl;
+  return worst;
+}
+
+// Calls to operator new while the kind runs blocks of noise, with every
+// parameter moved to its maximum a third of the way in and to its minimum
+// two thirds in (so the crossovers, the gains and the control grid all move).
+long allocationsWhileRunning(const char* id) {
+  DirectKind kind(id, {}, Layout::Stereo);
+  const BlockKindInfo* info = BlockKindRegistry::instance().find(id);
+  if (info == nullptr || !kind.valid())
+    return -1;
+  const std::vector<float> source = makeNoise(static_cast<int>(kRate), 5u, 0.5f);
+  juce::AudioBuffer<float> buffer(2, 256);
+  buffer.clear();
+  kind.processor->processInChain(buffer, kind.ctx);
+  long total = 0;
+  const int blocks = 300;
+  for (int b = 0; b < blocks; ++b) {
+    if (b == blocks / 3 || b == 2 * blocks / 3)
+      for (size_t i = 0; i < info->params.size(); ++i)
+        kind.processor->setParameter(static_cast<int>(i),
+                                     b == blocks / 3 ? info->params[i].max : info->params[i].min);
+    for (int ch = 0; ch < 2; ++ch)
+      buffer.copyFrom(ch, 0, source.data() + (static_cast<size_t>(b) * 256 % (source.size() - 256)), 256);
+    AllocationGuard guard;
+    kind.processor->processInChain(buffer, kind.ctx);
+    total += guard.count();
+  }
+  return total;
+}
+
+// A low note that dies away, as a bass string does.
+std::vector<float> decayingNote(double hz, double peak, double seconds) {
+  std::vector<float> note(static_cast<size_t>(seconds * kRate));
+  for (size_t i = 0; i < note.size(); ++i) {
+    const double t = static_cast<double>(i) / kRate;
+    note[i] = static_cast<float>(peak * std::exp(-t * 3.0) * std::sin(2.0 * kPi * hz * t));
+  }
+  return note;
+}
+
+// The last sample above `threshold`.
+size_t lastAbove(const std::vector<float>& x, float threshold) {
+  size_t last = 0;
+  for (size_t i = 0; i < x.size(); ++i)
+    if (std::abs(x[i]) > threshold)
+      last = i;
+  return last;
+}
+
+}  // namespace
+
+TEST(DriveEffectsTest, BassFuzzConforms) {
+  ConformanceOptions options;
+  options.params = {{"drivePercent", 80.0}, {"tonePercent", 60.0}, {"lowRetainHz", 150.0},
+                    {"blendPercent", 90.0}, {"gatePercent", 40.0}};
+  options.stateParams = {{"drivePercent", 20.0}, {"tonePercent", 30.0}, {"lowRetainHz", 60.0},
+                         {"blendPercent", 50.0}, {"gatePercent", 70.0}, {"levelDb", -3.0}};
+  options.sweepBound = 16.0f;
+  options.cpuAverageBudgetNs = 90000.0;
+  options.cpuWorstBudgetNs = 500000.0;
+  expectKindConforms("drive.bassfuzz", options);
+}
+
+TEST(DriveEffectsTest, MultibandBassDriveConforms) {
+  ConformanceOptions options;
+  options.params = {{"lowDrivePercent", 60.0}, {"midDrivePercent", 80.0},   {"highDrivePercent", 50.0},
+                    {"lowCrossoverHz", 200.0}, {"highCrossoverHz", 2000.0}, {"blendPercent", 90.0}};
+  options.stateParams = {{"lowDrivePercent", 10.0},  {"lowLevelDb", 3.0},          {"midDrivePercent", 20.0},
+                         {"midLevelDb", -4.0},       {"highDrivePercent", 70.0},   {"highLevelDb", -6.0},
+                         {"lowCrossoverHz", 90.0},   {"highCrossoverHz", 3000.0},  {"blendPercent", 60.0},
+                         {"levelDb", -3.0}};
+  options.sweepBound = 16.0f;
+  // Nine filters per lane at 4x: about twice Bass Drive.
+  options.cpuAverageBudgetNs = 100000.0;
+  options.cpuWorstBudgetNs = 600000.0;
+  expectKindConforms("drive.multibandbass", options);
+}
+
+TEST(DriveEffectsTest, BassKindsDoNotAllocateWhileProcessing) {
+  for (const char* id : {"drive.bassfuzz", "drive.multibandbass"})
+    EXPECT_EQ(allocationsWhileRunning(id), 0) << id;
+}
+
+// --- Bass Fuzz ----------------------------------------------------------------
+
+TEST(DriveEffectsTest, BassFuzzKeepsTheFundamentalOfALowNote) {
+  // Drive all the way up, Low Retain all the way up: an open E (41 Hz) comes
+  // out at its own level, the clean band carries it under the fuzz.
+  const Params kept = {{"drivePercent", 100.0}, {"lowRetainHz", 300.0}, {"blendPercent", 100.0}};
+  for (const double peakDb : {-30.0, -18.0, -6.0}) {
+    const double got = steadyGainDb("drive.bassfuzz", kept, 41.2, peakDb);
+    std::cout << "[   LOW    ] Bass Fuzz, 41 Hz at " << peakDb << " dBFS, full drive and retain: "
+              << juce::String(got, 2) << " dB" << std::endl;
+    EXPECT_NEAR(got, 0.0, 1.0) << peakDb;
+  }
+  // With the retain at its lowest the fuzz takes the note: it is no longer
+  // the same sine.
+  const Params fuzzed = {
+      {"drivePercent", 100.0}, {"lowRetainHz", 30.0}, {"blendPercent", 100.0}, {"gatePercent", 0.0}};
+  const double thdFuzzed = thdAtDbfs("drive.bassfuzz", fuzzed, 41.2, -18.0);
+  const double thdKept = thdAtDbfs("drive.bassfuzz", kept, 41.2, -18.0);
+  std::cout << "[   THD    ] Bass Fuzz at 41 Hz: " << juce::String(thdKept, 1) << " % kept, "
+            << juce::String(thdFuzzed, 1) << " % fuzzed" << std::endl;
+  EXPECT_GT(thdFuzzed, 20.0);
+  EXPECT_GT(thdFuzzed, thdKept + 15.0);
+}
+
+TEST(DriveEffectsTest, BassFuzzFuzzesAboveTheRetainCorner) {
+  // A tone well above the corner is fuzzed; a low note well below it stays
+  // nearly clean.
+  const Params p = {{"drivePercent", 80.0}, {"lowRetainHz", 100.0}, {"blendPercent", 100.0}};
+  EXPECT_GT(thdAtDbfs("drive.bassfuzz", p, 400.0, -18.0), 20.0);
+  const Params kept = {{"drivePercent", 80.0}, {"lowRetainHz", 300.0}, {"blendPercent", 100.0}};
+  EXPECT_LT(thdAtDbfs("drive.bassfuzz", kept, 41.2, -18.0), 3.0);
+}
+
+TEST(DriveEffectsTest, BassFuzzIsCleanWithTheBlendAtZero) {
+  // The two bands add up to an all-pass and the oversampler is one too: the
+  // magnitude is flat and nothing is added, at full drive.
+  const Params dry = {{"drivePercent", 100.0}, {"blendPercent", 0.0}, {"gatePercent", 100.0}};
+  worstFlatnessDb("Bass Fuzz, Blend 0", "drive.bassfuzz", dry, -12.0);
+  for (const double hz : {41.2, 200.0, 1000.0})
+    EXPECT_LT(thdAtDbfs("drive.bassfuzz", dry, hz, -6.0), 0.01) << hz;
+  // The latency is compensated: the response starts where the kind says.
+  DirectKind kind("drive.bassfuzz", dry);
+  EXPECT_EQ(onsetIndex(kind.render(impulse(4800, 0, 0.5f))), kind.latencySamples());
+}
+
+TEST(DriveEffectsTest, BassFuzzGatesQuietLowNotes) {
+  // A quiet low note (55 Hz at -40 dBFS), the whole range fuzzed: the gate
+  // closes on it; a loud one goes through at about the same level either way.
+  const auto at = [&](double gate, float level) {
+    const Params p = {
+        {"drivePercent", 60.0}, {"lowRetainHz", 30.0}, {"blendPercent", 100.0}, {"gatePercent", gate}};
+    return levelGainDb("drive.bassfuzz", p, 55.0, level);
+  };
+  const double open = at(0.0, 0.01f), closed = at(100.0, 0.01f);
+  std::cout << "[   GATE   ] Bass Fuzz, 55 Hz at -40 dBFS: " << juce::String(open, 1) << " dB open, "
+            << juce::String(closed, 1) << " dB with the gate up" << std::endl;
+  EXPECT_GT(open, closed + 12.0);
+  EXPECT_LT(std::abs(at(0.0, 0.3f) - at(100.0, 0.3f)), 4.0);
+}
+
+TEST(DriveEffectsTest, BassFuzzSputtersOutOnADecayingLowNote) {
+  // The starved stage cuts a dying 55 Hz note off well before it fades.
+  const std::vector<float> note = decayingNote(55.0, 0.4, 2.0);
+  const auto lastAudible = [&](double gate) {
+    DirectKind kind("drive.bassfuzz", {{"drivePercent", 70.0},
+                                       {"lowRetainHz", 30.0},
+                                       {"blendPercent", 100.0},
+                                       {"gatePercent", gate}});
+    return lastAbove(kind.render(note), 0.01f);
+  };
+  const size_t gated = lastAudible(100.0), open = lastAudible(0.0);
+  std::cout << "[   GATE   ] Bass Fuzz, decaying 55 Hz: audible to "
+            << juce::String(static_cast<double>(gated) / kRate, 2) << " s gated, "
+            << juce::String(static_cast<double>(open) / kRate, 2) << " s open" << std::endl;
+  EXPECT_LT(gated + static_cast<size_t>(0.2 * kRate), open);
+}
+
+TEST(DriveEffectsTest, BassFuzzToneMovesTheTopOfTheFuzz) {
+  const auto top = [&](double tone) {
+    const Params p = {{"drivePercent", 60.0}, {"tonePercent", tone}, {"blendPercent", 100.0}};
+    return toneGainDb("drive.bassfuzz", p, 5000.0, -18.0) - toneGainDb("drive.bassfuzz", p, 500.0, -18.0);
+  };
+  EXPECT_GT(top(100.0), top(50.0) + 4.0);
+  EXPECT_GT(top(50.0), top(0.0) + 4.0);
+}
+
+// --- Multiband Bass Drive -----------------------------------------------------
+
+TEST(DriveEffectsTest, MultibandSumsFlatWithEveryBandClean) {
+  // Drive 0 and every band at 0 dB: the three Linkwitz-Riley bands add up to
+  // a flat magnitude, wherever the crossovers are.
+  const Params clean = {{"lowDrivePercent", 0.0}, {"midDrivePercent", 0.0}, {"highDrivePercent", 0.0}};
+  worstFlatnessDb("Multiband, drive 0", "drive.multibandbass", clean, -18.0);
+  Params moved = clean;
+  moved.emplace_back("lowCrossoverHz", 60.0);
+  moved.emplace_back("highCrossoverHz", 4000.0);
+  worstFlatnessDb("Multiband, drive 0, crossovers 60 Hz and 4 kHz", "drive.multibandbass", moved, -18.0);
+}
+
+TEST(DriveEffectsTest, MultibandIsCleanWithTheBlendAtZero) {
+  const Params dry = {{"lowDrivePercent", 100.0}, {"midDrivePercent", 100.0}, {"highDrivePercent", 100.0},
+                      {"lowLevelDb", 12.0},       {"highLevelDb", -24.0},     {"blendPercent", 0.0}};
+  worstFlatnessDb("Multiband, Blend 0", "drive.multibandbass", dry, -12.0);
+  for (const double hz : {41.2, 500.0, 3000.0})
+    EXPECT_LT(thdAtDbfs("drive.multibandbass", dry, hz, -6.0), 0.01) << hz;
+  DirectKind kind("drive.multibandbass", dry);
+  EXPECT_EQ(onsetIndex(kind.render(impulse(4800, 0, 0.5f))), kind.latencySamples());
+}
+
+TEST(DriveEffectsTest, MultibandDrivesEachBandOnItsOwn) {
+  // Each band's drive distorts a tone in its band and leaves a tone in the
+  // others clean (at bass level, -18 dBFS).
+  struct Case {
+    const char* drive;
+    double inside, outside;
+  };
+  for (const Case& c : {Case{"lowDrivePercent", 60.0, 3000.0}, Case{"midDrivePercent", 500.0, 41.2},
+                        Case{"highDrivePercent", 5000.0, 41.2}}) {
+    SCOPED_TRACE(c.drive);
+    const Params p = {
+        {"lowDrivePercent", 0.0}, {"midDrivePercent", 0.0}, {"highDrivePercent", 0.0}, {c.drive, 100.0}};
+    const double in = thdAtDbfs("drive.multibandbass", p, c.inside, -18.0);
+    const double out = thdAtDbfs("drive.multibandbass", p, c.outside, -18.0);
+    std::cout << "[   THD    ] Multiband " << c.drive << " 100 %: " << juce::String(in, 1) << " % at "
+              << c.inside << " Hz, " << juce::String(out, 2) << " % at " << c.outside << " Hz" << std::endl;
+    EXPECT_GT(in, 10.0);
+    EXPECT_LT(out, 2.0);
+  }
+}
+
+TEST(DriveEffectsTest, MultibandBandLevelsAreBandLevels) {
+  const Params flat = {{"lowDrivePercent", 0.0}, {"midDrivePercent", 0.0}, {"highDrivePercent", 0.0}};
+  Params shaped = flat;
+  shaped.emplace_back("lowLevelDb", -12.0);
+  shaped.emplace_back("highLevelDb", 6.0);
+  EXPECT_NEAR(steadyGainDb("drive.multibandbass", shaped, 41.2, -18.0), -12.0, 0.5);
+  EXPECT_NEAR(steadyGainDb("drive.multibandbass", shaped, 480.0, -18.0), 0.0, 0.5);
+  EXPECT_NEAR(steadyGainDb("drive.multibandbass", shaped, 10000.0, -18.0), 6.0, 0.5);
+}
+
+TEST(DriveEffectsTest, MultibandCrossoverMovesTheSplit) {
+  // A 300 Hz tone with only the mid band driven: clean when the low
+  // crossover is above it, driven when it is below.
+  const auto thd = [&](double crossover) {
+    const Params p = {{"lowDrivePercent", 0.0}, {"midDrivePercent", 100.0}, {"highDrivePercent", 0.0},
+                      {"lowCrossoverHz", crossover}};
+    return thdAtDbfs("drive.multibandbass", p, 300.0, -18.0);
+  };
+  EXPECT_GT(thd(60.0), thd(500.0) + 10.0);
 }

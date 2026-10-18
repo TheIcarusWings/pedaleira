@@ -58,7 +58,7 @@ struct GridPoint {
   bool operator==(const GridPoint& other) const { return row == other.row && mix == other.mix; }
 };
 
-class GridView : public juce::Component, private juce::Timer {
+class GridView : public juce::Component, public juce::FileDragAndDropTarget, private juce::Timer {
 public:
   GridView();
   ~GridView() override;
@@ -106,6 +106,20 @@ public:
   // The arrow keys (one step left or right, up or down) and Escape.
   std::function<void(int dx, int dy)> onMoveSelection;
   std::function<void()> onClearSelection;
+  // Capture (.nam) or impulse response (.wav) files dropped on a slot of a
+  // shown row: all of one kind, the paths as dropped.
+  std::function<void(const juce::StringArray& paths, int row, int slot)> onDropFiles;
+
+  // Files dragged over the grid: the slot that would take them is outlined.
+  bool isInterestedInFileDrag(const juce::StringArray& files) override;
+  void fileDragEnter(const juce::StringArray& files, int x, int y) override;
+  void fileDragMove(const juce::StringArray& files, int x, int y) override;
+  void fileDragExit(const juce::StringArray& files) override;
+  void filesDropped(const juce::StringArray& files, int x, int y) override;
+  // Where a slot of a shown row is (empty for a row that is not shown).
+  juce::Rectangle<int> slotBounds(int row, int slot) const;
+  // The slot outlined for files being dragged, if any.
+  std::optional<std::pair<int, int>> fileDropTarget() const { return fileDropSlot; }
 
   void paint(juce::Graphics& g) override;
   void paintOverChildren(juce::Graphics& g) override;
@@ -169,6 +183,13 @@ private:
   void tileMouseDrag(int row, int slot, const juce::MouseEvent& event);
   void tileMouseUp(int row, int slot, const juce::MouseEvent& event);
   void cancelDrags();
+  // The files a drop would load: the first .nam or .wav file's kind decides,
+  // and only files of that kind are kept (the engine wants one kind per block).
+  juce::StringArray droppableFiles(const juce::StringArray& files) const;
+  // The slot under a position that can take files of that kind: an empty slot
+  // of a shown row, or a block of the same kind (its tone is replaced).
+  std::optional<std::pair<int, int>> dropSlotAt(const juce::StringArray& files, juce::Point<int> position) const;
+  void showDropSlot(const juce::StringArray& files, int x, int y);
 
   GridModel model;
   std::vector<int> shown;
@@ -205,6 +226,8 @@ private:
   // A block on the move: where it came from and where the mouse is.
   std::optional<std::pair<int, int>> draggingTile;
   juce::Point<int> tileDragPosition;
+  // The slot that files being dragged over the grid would go to.
+  std::optional<std::pair<int, int>> fileDropSlot;
 
   struct TileMouse;
   std::vector<std::unique_ptr<TileMouse>> tileMice;
@@ -288,6 +311,8 @@ public:
   // Where the library's TONE3000 chip gets its tones (the feed outlives the page).
   void setTone3000Feed(Tone3000Feed* feed) { library.setTone3000Feed(feed); }
   const GridModel& currentModel() const { return model; }
+  // The grid itself, for the testbed to drag and drop files on.
+  GridView& gridView() { return grid; }
   // The editor of a block over the page (NAM capture, IR or built-in
   // effect), with "Back to grid" to return.
   void openEditor(const juce::String& blockId);

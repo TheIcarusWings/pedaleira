@@ -434,6 +434,71 @@ std::optional<std::pair<int, int>> GridView::slotAt(juce::Point<int> position) c
   return std::nullopt;
 }
 
+juce::Rectangle<int> GridView::slotBounds(int row, int slot) const {
+  const int visible = visibleIndexOf(row);
+  if (visible < 0 || slot < 0 || slot >= 8)
+    return {};
+  return {kFirstSlotX + slot * kSlotPitch, rowTop(visible), kSlotWidth, kSlotHeight};
+}
+
+juce::StringArray GridView::droppableFiles(const juce::StringArray& files) const {
+  juce::StringArray kept;
+  juce::String extension;
+  for (const auto& path : files) {
+    const juce::File file(path);
+    const juce::String own = file.getFileExtension().toLowerCase();
+    if (!file.existsAsFile() || (own != ".nam" && own != ".wav"))
+      continue;
+    if (extension.isEmpty())
+      extension = own;
+    if (own == extension)
+      kept.add(path);
+  }
+  return kept;
+}
+
+std::optional<std::pair<int, int>> GridView::dropSlotAt(const juce::StringArray& files, juce::Point<int> position) const {
+  const juce::StringArray kept = droppableFiles(files);
+  if (kept.isEmpty())
+    return std::nullopt;
+  const auto target = slotAt(position);
+  // The free row below the last one is for a dragged block, not for files.
+  if (!target || visibleIndexOf(target->first) < 0)
+    return std::nullopt;
+  const GridSlot& slot = model.rows[static_cast<size_t>(target->first)].slots[static_cast<size_t>(target->second)];
+  if (slot.empty)
+    return target;
+  const juce::String kind = juce::File(kept[0]).hasFileExtension("nam") ? "nam" : "ir";
+  return slot.kindId == kind ? target : std::nullopt;
+}
+
+bool GridView::isInterestedInFileDrag(const juce::StringArray& files) { return !droppableFiles(files).isEmpty(); }
+
+void GridView::showDropSlot(const juce::StringArray& files, int x, int y) {
+  const auto target = dropSlotAt(files, {x, y});
+  if (target != fileDropSlot) {
+    fileDropSlot = target;
+    repaint();
+  }
+}
+
+void GridView::fileDragEnter(const juce::StringArray& files, int x, int y) { showDropSlot(files, x, y); }
+
+void GridView::fileDragMove(const juce::StringArray& files, int x, int y) { showDropSlot(files, x, y); }
+
+void GridView::fileDragExit(const juce::StringArray&) {
+  fileDropSlot.reset();
+  repaint();
+}
+
+void GridView::filesDropped(const juce::StringArray& files, int x, int y) {
+  fileDropSlot.reset();
+  repaint();
+  const auto target = dropSlotAt(files, {x, y});
+  if (target && onDropFiles)
+    onDropFiles(droppableFiles(files), target->first, target->second);
+}
+
 void GridView::paint(juce::Graphics& g) {
   g.fillAll(colour::ground);
   g.setColour(colour::line);
@@ -681,6 +746,12 @@ void GridView::paintOverChildren(juce::Graphics& g) {
     g.setColour(colour::iris);
     g.fillEllipse(plus);
     icons::draw(g, icons::path(icons::Icon::plus), plus.reduced(4.0f), colour::ground, 2.5f);
+  }
+
+  // Files over the grid: the slot that would take them is marked the same way.
+  if (fileDropSlot) {
+    const auto slot = slotBounds(fileDropSlot->first, fileDropSlot->second).toFloat();
+    paint::dashedOutline(g, slot.expanded(3.0f), size::panelRadius + 2.0f, colour::iris, 2.0f);
   }
 
   // A block on the move: its ghost follows the mouse; the slot under it is
@@ -1296,6 +1367,26 @@ GridPage::GridPage(EngineClient& client)
       engine.run("split.add", object({{"row", row - 1}, {"splitAt", slot}, {"mixAt", juce::jmin(8, slot + 1)}}));
     engine.run("grid.moveBlock", object({{"blockId", blockId}, {"row", row}, {"slot", slot}, {"mode", "swap"}}));
     rigChanged();
+  };
+  grid.onDropFiles = [this](const juce::StringArray& paths, int row, int slot) {
+    ensureGrid();
+    juce::Array<juce::var> files;
+    for (const auto& path : paths)
+      files.add(path);
+    // An empty slot takes the tone; a block of the same kind has it replaced
+    // in place, keeping its settings (the command's own rule).
+    const EngineReply reply =
+        engine.run("chain.addToneFromFiles", object({{"paths", files}, {"row", row}, {"slot", slot}}));
+    rigChanged();
+    if (!reply.ok) {
+      Dialog::Options options;
+      options.title = "Could not load " + juce::File(paths[0]).getFileName();
+      options.message = reply.errorMessage;
+      options.cancelable = false;
+      prompt.show(options, [](bool, const juce::String&) {});
+      return;
+    }
+    selectBlock(reply.value["blockId"].toString());
   };
   grid.onDuplicate = [this](const juce::String& blockId) {
     engine.run("chain.duplicateBlock", object({{"blockId", blockId}}));

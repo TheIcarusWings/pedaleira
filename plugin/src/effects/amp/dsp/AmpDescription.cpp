@@ -465,7 +465,7 @@ public:
       if (out.potStage >= 0)
         fail(child(path, "gain_pot"), "only one gain pot is supported");
       const std::string potPath = child(path, "gain_pot");
-      allowOnly(*pot, potPath, {"resistance_ohm", "floor_ohm", "source_ohm", "load_ohm", "taper", "bright_capacitor_f"});
+      allowOnly(*pot, potPath, {"resistance_ohm", "floor_ohm", "source_ohm", "load_ohm", "taper", "bright_capacitor_f", "wiper_capacitance_f"});
       spec.hasPot = true;
       out.potStage = static_cast<int>(index);
       spec.pot.sourceResistance = spec.triode.plateLoad;
@@ -476,6 +476,7 @@ public:
       readFloat(*pot, potPath, "load_ohm", spec.pot.loadResistance, Provenance::Schematic, 1.0e3, 1.0e9);
       readFloat(*pot, potPath, "taper", spec.pot.taperExponent, Provenance::Schematic, 0.2, 10.0);
       readFloat(*pot, potPath, "bright_capacitor_f", spec.pot.brightCapacitance, Provenance::Schematic, 0.0, 1.0e-6);
+      readFloat(*pot, potPath, "wiper_capacitance_f", spec.pot.wiperCapacitance, Provenance::Schematic, 0.0, 1.0e-8);
     }
   }
 

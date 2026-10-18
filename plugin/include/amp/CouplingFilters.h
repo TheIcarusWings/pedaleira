@@ -110,6 +110,7 @@ struct GainPotParams {
   float loadResistance{470.0e3f};  // grid leak of the stage after
   float taperExponent{3.3f};
   float brightCapacitance{100.0e-12f};  // 0 for none
+  float wiperCapacitance{0.0f};         // what the wiper drives (the next grid's input capacitance); 0 for none
 };
 
 class GainPot {
@@ -120,7 +121,10 @@ public:
     setPosition(1.0f, false);
     reset();
   }
-  void reset() noexcept { lift.reset(); }
+  void reset() noexcept {
+    lift.reset();
+    wiper.reset();
+  }
 
   /** `position` 0..1 (1 = pot fully up). Call at control rate. */
   void setPosition(float position, bool brightOn) noexcept {
@@ -138,6 +142,14 @@ public:
     } else {
       highRatio = 1.0f;
     }
+    // The wiper's source resistance (the upper section plus the source, in
+    // parallel with the lower section and its load) against the capacitance
+    // it drives: a low-pass that is open with the pot near either end and
+    // lowest near the middle of its resistance.
+    if (params.wiperCapacitance > 0.0f) {
+      const float wiperOhms = (params.sourceResistance + top) * bottom / total;
+      wiper.setCutoff(1.0 / (kTwoPi * static_cast<double>(wiperOhms) * params.wiperCapacitance), sampleRate);
+    }
   }
 
   /** The linear mid-band gain of the pot at the current position. */
@@ -146,15 +158,14 @@ public:
   float brightRatio() const noexcept { return highRatio; }
 
   float process(float x) noexcept {
-    if (highRatio == 1.0f)
-      return midGain * x;
-    return midGain * (highRatio * x + (1.0f - highRatio) * lift.lowpass(x));
+    const float y = highRatio == 1.0f ? midGain * x : midGain * (highRatio * x + (1.0f - highRatio) * lift.lowpass(x));
+    return params.wiperCapacitance > 0.0f ? wiper.lowpass(y) : y;
   }
 
 private:
   GainPotParams params;
   double sampleRate{48000.0};
-  OnePole lift;
+  OnePole lift, wiper;
   float midGain{1.0f};
   float highRatio{1.0f};
 };

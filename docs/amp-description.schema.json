@@ -1038,6 +1038,41 @@
                   }
                 ],
                 "default": 0
+              },
+              "wiper_capacitance_f": {
+                "description": "What the wiper drives: the next grid's input capacitance. With the wiper's source resistance it is a low-pass that is open with the pot near either end and lowest near the middle of its resistance, so the highs fall as the pot turns up from low settings. Classic solver only. 0 for none. Unit: F.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1e-08
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1e-08
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ],
+                "default": 0
               }
             },
             "required": [

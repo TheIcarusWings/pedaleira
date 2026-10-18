@@ -43,7 +43,8 @@
         "source_ohm": 220000,
         "load_ohm": {"value": 100000, "provenance": "fitted", "note": "fitted to the Bronze Twenty measurements: Gs at GAIN 2, 5, 8 and 10 (the gain law)"},
         "taper": {"value": 4.57, "provenance": "fitted", "note": "fitted to the Bronze Twenty measurements: Gs at GAIN 2, 5, 8 and 10 (the gain law)"},
-        "bright_capacitor_f": 0
+        "bright_capacitor_f": 0,
+        "wiper_capacitance_f": {"value": 5e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top at GAIN 8 against GAIN 5"}
       }
     },
     {
@@ -102,7 +103,7 @@
     "supply": {"b_plus_v": 330, "source_ohm": 60, "full_load_a": 0.15, "reservoir_f": 3.2e-05, "attack_s": 0.008, "rectifier": "tube"}
   },
   "calibration": {
-    "input_full_scale_v": {"value": 20.8, "provenance": "fitted", "note": "fitted to the Bronze Twenty measurements: the small-signal gain (Gs) at GAIN 2, 5, 8 and 10"},
+    "input_full_scale_v": {"value": 21.41, "provenance": "fitted", "note": "fitted to the Bronze Twenty measurements, 0.25 dB up with the wiper capacitance: the small-signal gain (Gs) at GAIN 2, 5, 8 and 10"},
     "power_drive_v": {"value": 0.211, "provenance": "fitted", "note": "fitted to the Bronze Twenty measurements: the bend and the THD of the gain sweep"},
     "coupling_gain_rise": 0,
     "output_trim": {"value": 0.0956, "provenance": "fitted", "note": "fitted to the Bronze Twenty measurements: the ceiling of the gain sweep"},

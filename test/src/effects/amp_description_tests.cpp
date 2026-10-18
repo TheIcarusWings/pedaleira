@@ -263,6 +263,21 @@ TEST(AmpDescriptionLoader, TheOutputResonanceIsOptionalAndOffByDefault) {
                  "power_amp.output_resonance.gain_db");
 }
 
+TEST(AmpDescriptionLoader, TheWiperCapacitanceIsOptionalAndOffByDefault) {
+  const Parsed plain = parse(shipped());
+  ASSERT_TRUE(plain.ok) << plain.error;
+  const int pot = plain.description.potStage;
+  ASSERT_GE(pot, 0);
+  EXPECT_EQ(plain.description.stages[pot].spec.pot.wiperCapacitance, 0.0f);
+
+  const std::string cap = "\"bright_capacitor_f\": 100e-12, \"wiper_capacitance_f\": 2e-10";
+  const Parsed parsed = parse(edited(shipped(), "\"bright_capacitor_f\": 100e-12", cap));
+  ASSERT_TRUE(parsed.ok) << parsed.error;
+  EXPECT_FLOAT_EQ(parsed.description.stages[pot].spec.pot.wiperCapacitance, 2.0e-10f);
+  expectRejected(edited(shipped(), "\"bright_capacitor_f\": 100e-12", "\"bright_capacitor_f\": 100e-12, \"wiper_capacitance_f\": 1e-6"),
+                 "gain_pot.wiper_capacitance_f: must be between");
+}
+
 TEST(AmpDescriptionLoader, RefusesWhatIsWrongAndSaysWhere) {
   const std::string good = shipped();
   expectRejected("{", "not valid JSON");

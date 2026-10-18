@@ -257,6 +257,49 @@ TEST(AmpCoupling, GainPotFollowsTheDividerAndTaper) {
   }
 }
 
+TEST(AmpCoupling, WiperCapacitanceDarkensTheMiddleOfTheRotationOnly) {
+  const double fs = 192000.0;
+  amp::GainPotParams params;
+  params.wiperCapacitance = 200.0e-12f;
+  // The loss at 8 kHz against 500 Hz with the wiper capacitance, relative to
+  // the same pot without it.
+  const auto lossDb = [&](float position) {
+    double out[2];
+    for (int withCap = 0; withCap < 2; ++withCap) {
+      amp::GainPotParams p = params;
+      if (withCap == 0)
+        p.wiperCapacitance = 0.0f;
+      amp::GainPot pot;
+      pot.prepare(fs, p);
+      pot.setPosition(position, false);
+      const double high = gainDb([&](float x) { return pot.process(x); }, 8000.0, fs, 0.1f, 0.5);
+      pot.reset();
+      const double low = gainDb([&](float x) { return pot.process(x); }, 500.0, fs, 0.1f, 0.5);
+      out[withCap] = high - low;
+    }
+    return out[0] - out[1];
+  };
+  // Near the bottom the wiper sees the floor resistor; at the top, the
+  // source (100k against the 322k below it, about 2 dB at 8 kHz); in between
+  // it sees hundreds of kilohms and the 200 pF takes the most.
+  const double bottom = lossDb(0.05f), middle = lossDb(0.75f), top = lossDb(1.0f);
+  EXPECT_LT(bottom, 0.5);
+  EXPECT_NEAR(top, 2.0, 0.5);
+  EXPECT_GT(middle, top + 2.0);
+  // Without it the pot is exactly what it was.
+  amp::GainPot plain, off;
+  plain.prepare(fs, {});
+  amp::GainPotParams zero;
+  zero.wiperCapacitance = 0.0f;
+  off.prepare(fs, zero);
+  plain.setPosition(0.6f, false);
+  off.setPosition(0.6f, false);
+  for (int i = 0; i < 64; ++i) {
+    const float x = std::sin(0.3f * static_cast<float>(i));
+    EXPECT_EQ(plain.process(x), off.process(x));
+  }
+}
+
 TEST(AmpCoupling, BrightCapLiftsHighsMostWhenTurnedDownAndFadesToNothing) {
   const double fs = 192000.0;
   const auto liftDb = [&](float position) {

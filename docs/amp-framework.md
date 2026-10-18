@@ -190,6 +190,7 @@ One entry per gain stage, in signal order, 1 to 6 of them. The first is the inpu
 | `gain_pot.load_ohm` | number | ohm | 1000 to 1e+9 |  |  | What loads the wiper (classic solver only; the wdf solver uses the real coupling network). Defaults to the coupling grid leak. (default provenance: schematic) |
 | `gain_pot.taper` | number |  | 0.2 to 10 | 3.3 |  | Resistance law of the pot: the resistance below the wiper is R * position ^ taper (3.3 is about 10 percent at half rotation, an audio taper). (default provenance: schematic) |
 | `gain_pot.bright_capacitor_f` | number | F | 0 to 1e-6 | 0 |  | The bright capacitor across the upper part of the pot; 0 for none. (default provenance: schematic) |
+| `gain_pot.wiper_capacitance_f` | number | F | 0 to 1e-8 | 0 |  | What the wiper drives: the next grid's input capacitance. With the wiper's source resistance it is a low-pass that is open with the pot near either end and lowest near the middle of its resistance, so the highs fall as the pot turns up from low settings. Classic solver only. 0 for none. (default provenance: schematic) |
 
 #### `voicings[]`
 

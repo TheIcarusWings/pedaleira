@@ -43,7 +43,8 @@
         "source_ohm": 100000,
         "load_ohm": {"value": 100000, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: Gs at GAIN 2, 5, 8 and 10 (the gain law)"},
         "taper": {"value": 5.94, "provenance": "fitted", "note": "fitted to the Copper Eighteen measurements: Gs at GAIN 2, 5, 8 and 10 (the gain law)"},
-        "bright_capacitor_f": 0
+        "bright_capacitor_f": 0,
+        "wiper_capacitance_f": {"value": 7e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top at GAIN 8 against GAIN 5"}
       }
     },
     {

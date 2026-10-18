@@ -1603,6 +1603,20 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
     picker.setSize(1440, 900);
   }
 
+  // The header: the mode switch never touches the tempo box, at the narrowest
+  // window (1120 px) and at the default one (1440 px).
+  {
+    pedaleira::ui::AppShell headerShell(*engine.client);
+    for (const int shellWidth : {1120, size::windowWidth}) {
+      headerShell.setSize(shellWidth, shellWidth == 1120 ? 700 : size::windowHeight);
+      headerShell.header().refresh();
+      const auto modeBox = headerShell.header().modeBounds();
+      const auto tempoBox = headerShell.header().tempoBounds();
+      check(!modeBox.isEmpty() && modeBox.getWidth() >= 200, "the mode switch keeps a usable width");
+      check(modeBox.getRight() + 12 <= tempoBox.getX(), "the mode switch keeps a gap before the BPM box");
+    }
+  }
+
   // Settings: the folders to scan, added and removed, kept by the engine.
   SettingsCaptures folders(*engine.client);
   folders.refresh();

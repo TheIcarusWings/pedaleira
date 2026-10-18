@@ -62,6 +62,10 @@ public:
   // changes to ask about first.
   std::function<void(bool unsaved)> onNewPreset;
 
+  // Where the mode switch and the tempo box sit, in the header's own space.
+  juce::Rectangle<int> modeBounds() const { return mode.getBounds(); }
+  juce::Rectangle<int> tempoBounds() const { return tempo.getBounds(); }
+
   void paint(juce::Graphics& g) override;
   void resized() override;
   void mouseMove(const juce::MouseEvent& event) override;

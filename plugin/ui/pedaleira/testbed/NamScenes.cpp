@@ -1,6 +1,7 @@
 #include "NamScenes.h"
 
 #include "NamLibrary.h"
+#include "pages/Tone3000Credit.h"
 
 #include <algorithm>
 #include <vector>
@@ -99,15 +100,33 @@ void FakeTone3000Feed::captures(const Tone3000Tone& tone, std::function<void(Cap
 }
 
 void FakeTone3000Feed::download(const Tone3000Tone& tone, const Tone3000Capture& capture, std::function<void(Downloaded)> reply) {
-  ++downloads;
   Downloaded out;
-  const juce::File folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("PedaleiraTestbed-TONE3000");
-  folder.createDirectory();
-  const juce::File file = folder.getChildFile(tone.title + " - " + capture.name + ".nam");
-  if (!setup.capture.existsAsFile() || !setup.capture.copyFileTo(file))
+  // A capture downloaded before is in the library's TONE3000 folder: reused.
+  if (setup.engine != nullptr) {
+    const juce::String known = setup.engine->read("nam.downloaded", object({{"tone", tone.id}, {"capture", capture.id}}))["path"].toString();
+    if (known.isNotEmpty() && juce::File(known).existsAsFile()) {
+      out.file = juce::File(known);
+      reply(std::move(out));
+      return;
+    }
+  }
+  ++downloads;
+  const juce::File temp = juce::File::createTempFile(".nam");
+  if (!setup.capture.existsAsFile() || !setup.capture.copyFileTo(temp)) {
     out.error = "The download could not be saved.";
-  else
-    out.file = file;
+  } else if (setup.engine == nullptr) {
+    out.file = temp;
+  } else {
+    const EngineReply kept = setup.engine->run(
+        "nam.keepDownload", object({{"file", temp.getFullPathName()},
+                                    {"capture", capture.id},
+                                    {"tone3000", Tone3000Credit::fromTone(tone, capture.name).toAttribution()}}));
+    temp.deleteFile();
+    if (kept.ok)
+      out.file = juce::File(kept.value["path"].toString());
+    else
+      out.error = "The download could not be saved: " + kept.errorMessage;
+  }
   reply(std::move(out));
 }
 
@@ -158,7 +177,6 @@ juce::String namVariant(const juce::File& fixtureFile, const juce::String& make,
 }
 
 juce::String prepareNam(EngineClient& client, const juce::File& scratch, const juce::File& fixtures, const juce::String& steps) {
-  static std::vector<juce::File> tone3000Folders;
   for (const auto& step : juce::StringArray::fromTokens(steps, ";", "")) {
     const juce::StringArray parts = juce::StringArray::fromTokens(step, ":", "");
     const juce::String key = parts[0];
@@ -194,9 +212,29 @@ juce::String prepareNam(EngineClient& client, const juce::File& scratch, const j
       const EngineReply reply = client.run("roots.add", object({{"path", scratch.getChildFile(parts[1]).getFullPathName()}}));
       if (!reply.ok)
         return step + ": " + reply.errorMessage;
-    } else if (key == "tone3000") {
-      tone3000Folders = {scratch.getChildFile(parts[1])};
-      NamLibrary::setTone3000FoldersForTesting(&tone3000Folders);
+    } else if (key == "download") {
+      // As if downloaded on the TONE3000 page: kept in the library's TONE3000 folder.
+      static int nextId = 500;
+      const juce::String fixture = arg(3).isNotEmpty() ? arg(3) : juce::String("a2-amp-test");
+      const juce::String text = fixture == "old" ? juce::String(kLstm)
+                                                  : namVariant(fixtures.getChildFile(fixture + ".nam"), arg(4), arg(5));
+      const juce::File temp = scratch.getChildFile("download-" + juce::String(nextId) + ".nam");
+      if (text.isEmpty() || !temp.replaceWithText(text))
+        return "cannot write " + step;
+      Tone3000Credit credit;
+      credit.id = nextId;
+      credit.title = arg(1);
+      credit.capture = arg(2);
+      credit.gear = "amp";
+      credit.format = "nam";
+      credit.licence = "cc-by";
+      credit.username = "sample-user-a";
+      const EngineReply reply = client.run("nam.keepDownload", object({{"file", temp.getFullPathName()},
+                                                                       {"capture", nextId * 10},
+                                                                       {"tone3000", credit.toAttribution()}}));
+      ++nextId;
+      if (!reply.ok)
+        return step + ": " + reply.errorMessage;
     } else if (key == "pause") {
       juce::Thread::sleep(5);
     } else if (key.isNotEmpty()) {

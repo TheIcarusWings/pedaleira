@@ -34,7 +34,7 @@ PedaleiraEditor::PedaleiraEditor(TONE3000Processor& processor)
   grid = std::make_unique<GridPage>(*client);
 #if PEDALEIRA_STANDALONE_DEVICE
   // The library's TONE3000 chip, over the client the application already has.
-  tone3000Feed = makeTone3000LiveFeed();
+  tone3000Feed = makeTone3000LiveFeed(*client);
   grid->setTone3000Feed(tone3000Feed.get());
 #endif
   shell->setPageComponent(Page::grid, grid.get());

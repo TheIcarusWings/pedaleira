@@ -465,15 +465,15 @@ has not used).
 
 - `assets.list` lists such a copy by that name (`name`, `loadedFrom`, `loadedAt`), falls back to the
   name in the file's metadata, and a `query` finds it by either. `origin` says where a
-  file came from: `library`, `folder` (added with `roots.add`), `tone3000` or `loaded`.
+  file came from: `library`, `folder` (added with `roots.add`), `tone3000` (downloaded
+  on Pedaleira's TONE3000 page, kept in `<library>/TONE3000`, listed with its `tone3000`
+  credit) or `loaded`.
 - `nam.recent` lists the captures loaded from a file, newest first, each with the path to load
   again (the original, else the stash copy); `nam.clearRecent` (local) empties it.
-- `nam.tone3000Folders` lists where the TONE3000 app's downloaded models are looked for
-  (its data folder, and its `TONE3000` folders in Documents and Downloads; the paths of
-  each platform are `NamLibrary::tone3000Candidates`). The ones that exist are scanned by
-  `assets.list` (source `tone3000`, captures only). The paths are the ones the app's
-  data folder convention gives; they are not read from the app, so a folder elsewhere is
-  added with `roots.add`.
+- `nam.downloaded {tone, capture}` returns the file a TONE3000 capture was downloaded to
+  before, if it is still there, so it is not downloaded twice; `nam.keepDownload` (local)
+  moves a fresh download into `<library>/TONE3000` and records its credit. The TONE3000
+  desktop app has no downloads folder, so none is looked for.
 - The architecture check: `assets.list` gives each capture `architecture`,
   `architectureLabel`, `a2`, `sampleRate` (when the file names it) and `supported`
   (every architecture NAM builds loads, A1 WaveNets, LSTMs, ConvNets and Linear models

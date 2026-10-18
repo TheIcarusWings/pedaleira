@@ -9,6 +9,9 @@
 #include "services/Tone3000Client.h"
 #include "services/UiPrefs.h"
 
+#include "../EngineClient.h"
+#include "../pages/Tone3000Credit.h"
+
 #include <map>
 #include <memory>
 
@@ -67,8 +70,9 @@ bool refusedForAccount(const juce::String& error) {
 
 class LiveFeed final : public Tone3000Feed {
 public:
-  LiveFeed()
-      : prefs_(&prefsFile_->file, &prefsFile_->lock),
+  explicit LiveFeed(EngineClient& engine)
+      : engine_(engine),
+        prefs_(&prefsFile_->file, &prefsFile_->lock),
         client_(http_, prefs_, t3k::ui::config::kApiOrigin, t3k::ui::config::kPublishableKey) {}
 
   bool signedIn() const override { return client_.authenticated(); }
@@ -169,6 +173,17 @@ public:
       reply(std::move(refused));
       return;
     }
+    // A capture downloaded before is in the library's TONE3000 folder: reused,
+    // not downloaded again.
+    if (tone.id > 0 && capture.id > 0) {
+      const juce::String known = engine_.read("nam.downloaded", object({{"tone", tone.id}, {"capture", capture.id}}))["path"].toString();
+      if (known.isNotEmpty() && juce::File(known).existsAsFile()) {
+        Downloaded reused;
+        reused.file = juce::File(known);
+        reply(std::move(reused));
+        return;
+      }
+    }
     client_.getAccessToken([self = juce::WeakReference<LiveFeed>(this), tone, capture, reply](Result<juce::String> token) {
       if (self == nullptr)
         return;
@@ -177,7 +192,7 @@ public:
       request.timeoutMs = 60000;
       if (token)
         request.headers.set("Authorization", "Bearer " + *token);
-      self->http_.send(std::move(request), [tone, capture, reply](t3k::ui::HttpResponse response) {
+      self->http_.send(std::move(request), [self, tone, capture, reply](t3k::ui::HttpResponse response) {
         Downloaded out;
         if (!response.ok() || response.body.isEmpty()) {
           out.error = response.failed() ? juce::String("TONE3000 could not be reached.")
@@ -185,17 +200,29 @@ public:
           reply(std::move(out));
           return;
         }
-        // Named after the tone and the capture, so the recent list reads well.
-        juce::String name = tone.title + " - " + capture.name;
-        name = name.replaceCharacters("/\\:*?\"<>|", "---------").trim();
-        const juce::File folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("Pedaleira-TONE3000");
-        const juce::File file = folder.getChildFile(name + ".nam");
-        if (!folder.createDirectory() || !file.replaceWithData(response.body.toRawUTF8(), response.body.getNumBytesAsUTF8())) {
+        if (self == nullptr)
+          return;
+        // The bytes wait in a temporary file; the engine moves them into the
+        // library's TONE3000 folder under a name made from the tone and the
+        // capture (so the recent list reads well) and keeps the credit.
+        const juce::File temp = juce::File::createTempFile(".nam");
+        if (!temp.replaceWithData(response.body.toRawUTF8(), response.body.getNumBytesAsUTF8())) {
           out.error = "The download could not be saved.";
           reply(std::move(out));
           return;
         }
-        out.file = file;
+        const EngineReply kept = self->engine_.run(
+            "nam.keepDownload",
+            object({{"file", temp.getFullPathName()},
+                    {"capture", capture.id},
+                    {"tone3000", Tone3000Credit::fromTone(tone, capture.name).toAttribution()}}));
+        temp.deleteFile();
+        if (!kept.ok) {
+          out.error = "The download could not be saved: " + kept.errorMessage;
+          reply(std::move(out));
+          return;
+        }
+        out.file = juce::File(kept.value["path"].toString());
         reply(std::move(out));
       });
     });
@@ -226,6 +253,7 @@ public:
   void markIntroSeen() override { prefs_.setBool(kIntroSeen, true); }
 
 private:
+  EngineClient& engine_;
   juce::SharedResourcePointer<PrefsFile> prefsFile_;
   t3k::ui::HttpClient http_;
   t3k::ui::UiPrefs prefs_;
@@ -239,6 +267,6 @@ private:
 
 }  // namespace
 
-std::unique_ptr<Tone3000Feed> makeTone3000LiveFeed() { return std::make_unique<LiveFeed>(); }
+std::unique_ptr<Tone3000Feed> makeTone3000LiveFeed(EngineClient& engine) { return std::make_unique<LiveFeed>(engine); }
 
 }  // namespace pedaleira::ui

@@ -9,7 +9,7 @@
 // What the engine knows about NAM capture files beyond their bytes: whether
 // Pedaleira can load one and what it is (the architecture check), what a file the user loaded
 // was called (the stash keeps only content-hash names), the list of recently
-// loaded captures, and where the TONE3000 app keeps the models it downloaded.
+// loaded captures, and the captures downloaded from TONE3000.
 // Any thread; one mutex guards the recents file.
 namespace NamLibrary {
 
@@ -99,21 +99,36 @@ void resetForTesting();
 
 constexpr int kMaxRemembered = 1000;
 
-// ---- The TONE3000 app's folders ----
+// ---- Captures downloaded from TONE3000 ----
+//
+// The TONE3000 desktop app keeps no downloads folder, so there is nothing of
+// it to look for. A capture the player downloads on Pedaleira's own TONE3000
+// page is kept in the library: <library root>/TONE3000/<tone> - <capture>.nam,
+// with an index (downloads.json, beside the files) that remembers which tone
+// and capture each file is and who made it, so a tone is downloaded once and
+// its credit stays with the file after a restart.
 
-enum class Platform { mac, windows, other };
-// The folders the TONE3000 app may keep downloaded models in, for a platform:
-// its data folder (<Application Support|%APPDATA%|~/.config>/TONE3000) first,
-// then the TONE3000 folders in Documents and Downloads. Pure: the callers
-// give the folders of the user, so tests can ask for every platform.
-std::vector<juce::File> tone3000Candidates(Platform platform, const juce::File& appData,
-                                           const juce::File& documents, const juce::File& home);
-// The candidates of this machine, whether they exist or not (for a settings
-// page that says where it looked).
-std::vector<juce::File> tone3000Searched();
-// The candidates of this machine that exist as folders. A test can replace
-// the candidates with a list of its own (nullptr restores the default).
-std::vector<juce::File> tone3000Folders();
-void setTone3000FoldersForTesting(const std::vector<juce::File>* folders);
+constexpr const char* kDownloadsFolder = "TONE3000";
+
+// <root>/TONE3000, where the downloads of the library at `root` are kept.
+juce::File downloadsDir(const juce::File& root);
+// A file name (no extension) for a capture, made from the tone's title and the
+// capture's name: "Title - Capture". Safe on every OS: no characters
+// Windows or macOS refuse, no control characters, no trailing dot or space,
+// not a reserved Windows device name, at most 120 characters; never empty.
+juce::String downloadBaseName(const juce::String& toneTitle, const juce::String& captureName);
+// The file kept for this tone and capture, or an empty File when none is (it
+// was never downloaded, or the file was deleted).
+juce::File findDownload(const juce::File& root, int toneId, int captureId);
+// Moves `temp` (a .nam or .wav the caller downloaded) into the downloads folder
+// of the library at `root` under a name made from the attribution's title and
+// capture (a number is added on a collision) and records it with its
+// attribution. `tone3000` is the cleaned attribution (TONE3000Processor::
+// tone3000Attribution); its id is the tone's. `kept` is the new file.
+juce::Result keepDownload(const juce::File& root, const juce::File& temp, int captureId,
+                          const juce::var& tone3000, juce::File& kept);
+// What the index remembers about a file in the downloads folder: the
+// attribution, or void when the file is not in it.
+juce::var downloadCredit(const juce::File& root, const juce::File& file);
 
 }  // namespace NamLibrary

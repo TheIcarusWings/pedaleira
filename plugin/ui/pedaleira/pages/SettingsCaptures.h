@@ -1,8 +1,7 @@
 // Settings, "Capture folders": the folders Pedaleira looks in for NAM captures
 // and IRs on top of the library (roots.list, roots.add, roots.remove; kept
-// across restarts by the engine), and where it looks for the models the
-// TONE3000 app downloaded (nam.tone3000Folders). What is found shows in the
-// block library, by name.
+// across restarts by the engine). What is found shows in the block library,
+// by name; the captures downloaded from TONE3000 are in the library itself.
 #pragma once
 
 #include "SettingsParts.h"
@@ -23,19 +22,14 @@ public:
   void addFolderPath(const juce::String& path);
   void removeFolderPath(const juce::String& path);
   int folderCount() const { return folders.size(); }
-  int tone3000FoundCount() const;
 
   void paint(juce::Graphics& g) override;
   void resized() override;
 
 private:
-  struct Where {
-    juce::String path;
-    bool exists = false;
-  };
   struct Layout {
-    juce::Rectangle<int> mine, tone3000, addFolder, note, tone3000Note;
-    std::vector<juce::Rectangle<int>> folderRows, whereRows;
+    juce::Rectangle<int> mine, addFolder, note;
+    std::vector<juce::Rectangle<int>> folderRows;
     int height = 0;
   };
 
@@ -44,7 +38,6 @@ private:
   void chooseFolder();
 
   juce::StringArray folders;
-  std::vector<Where> where;
   Layout lay;
 
   PushButton addFolderButton{"Add folder"};

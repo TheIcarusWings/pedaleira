@@ -1,7 +1,8 @@
 // The agent layer's commands over the NAM captures the player has loaded and
 // the folders captures are found in: nam.inspect (can Pedaleira load this
 // file), nam.recent and nam.clearRecent (the loaded captures, newest first),
-// nam.tone3000Folders (where the TONE3000 app's downloads are looked for).
+// nam.downloaded and nam.keepDownload (the captures downloaded from TONE3000,
+// kept in the library's TONE3000 folder).
 // Searching the captures is assets.list (GuitarCommands.cpp); the folders the
 // player adds are roots.add and roots.remove (AgentHub.cpp).
 #include "AgentHub.h"
@@ -149,19 +150,63 @@ void AgentHub::registerNamCommands() {
   });
 
   liveCommands.add({
-      "nam.tone3000Folders",
-      "Lists the folders where the TONE3000 app's downloaded models are looked for on this "
-      "computer (its data folder, and its folders in Documents and Downloads) with whether "
-      "each exists. The ones that exist are scanned by assets.list (source tone3000). A "
-      "folder anywhere else is added with roots.add.",
-      {},
+      "nam.downloaded",
+      "Finds the file a capture of a TONE3000 tone was downloaded to before, in the library's "
+      "TONE3000 folder: {path} when it is there, {path: \"\"} when it is not (never "
+      "downloaded, or the file was deleted). The TONE3000 page asks before it downloads, so a "
+      "capture is fetched once.",
+      {P::required("tone", T::integer, "The TONE3000 tone id.").range(1, 2147483647),
+       P::required("capture", T::integer, "The TONE3000 capture (model) id.").range(1, 2147483647)},
       false,
       CommandPermission::read,
-      [](const juce::var&) {
-        juce::Array<juce::var> folders;
-        for (const auto& folder : NamLibrary::tone3000Searched())
-          folders.add(object({{"path", folder.getFullPathName()}, {"exists", folder.isDirectory()}}));
-        return CommandResult::success(object({{"folders", folders}}));
+      [this](const juce::var& args) {
+        const juce::File file =
+            NamLibrary::findDownload(live.getLibraryRoot(), args["tone"], args["capture"]);
+        return CommandResult::success(object({{"path", file.getFullPathName()}}));
+      },
+  });
+
+  liveCommands.add({
+      "nam.keepDownload",
+      "Keeps a capture or IR just downloaded from TONE3000 in the library: moves `file` into "
+      "<library>/TONE3000 under a name made from the tone's title and the capture's name "
+      "(\"Title - Capture.nam\", unsafe characters replaced, a number added when the name is "
+      "taken) and remembers which tone and capture it is and who made it, so it persists across "
+      "restarts, is found by assets.list (origin tone3000, with its tone3000 credit) and is "
+      "reused by nam.downloaded. Returns {path}, the kept file. The file is then loaded with "
+      "chain.addToneFromFiles.",
+      {P::required("file", T::string, "The downloaded .nam or .wav, an absolute path. It is moved.")
+           .path(),
+       P::required("capture", T::integer, "The TONE3000 capture (model) id.").range(1, 2147483647),
+       P::required("tone3000", T::object,
+                   "Where it came from: {id (the tone), title, url, gear, format, license, image, "
+                   "capture (the capture's name), user: {username, display_name, avatar_url, "
+                   "is_verified}}, as chain.addToneFromFiles takes it.")},
+      true,
+      CommandPermission::local,
+      [this](const juce::var& args) {
+        const juce::File file(args["file"].toString());
+        if (!file.existsAsFile())
+          return CommandResult::failure(CommandError::notFound,
+                                        "file not found: " + file.getFullPathName());
+        if (!file.hasFileExtension("nam;wav"))
+          return CommandResult::failure(CommandError::invalidArgs,
+                                        "nam.keepDownload: argument 'file' must be a .nam or .wav");
+        const juce::var attribution = TONE3000Processor::tone3000Attribution(args["tone3000"]);
+        if (!attribution.isObject() || static_cast<int>(attribution["id"]) <= 0)
+          return CommandResult::failure(
+              CommandError::invalidArgs,
+              "nam.keepDownload: argument 'tone3000' needs the tone's id and a title or a user");
+        // Not a capture at all (an error page saved as .nam) is not kept.
+        if (file.hasFileExtension("nam") && !NamLibrary::inspectFile(file).readable)
+          return CommandResult::failure(CommandError::invalidArgs,
+                                        "nam.keepDownload: the file is not a NAM capture");
+        juce::File kept;
+        const juce::Result result = NamLibrary::keepDownload(live.getLibraryRoot(), file,
+                                                             args["capture"], attribution, kept);
+        if (result.failed())
+          return CommandResult::failure(CommandError::failed, result.getErrorMessage());
+        return CommandResult::success(object({{"path", kept.getFullPathName()}}));
       },
   });
 }

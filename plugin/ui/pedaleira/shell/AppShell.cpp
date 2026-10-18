@@ -397,10 +397,6 @@ void Header::resized() {
     right = button->getX() - 12;
   }
 
-  // Centre: the mode switch.
-  const int modeWidth = mode.idealWidth();
-  mode.setBounds(getWidth() / 2 - modeWidth / 2, middle - 18, modeWidth, 36);
-
   // Left: setlist and preset, the unsaved note, Save.
   const juce::Font nameFont = type::sans(20.0f, type::Weight::medium, unsaved);
   const int nameWidth = juce::jmin(320, juce::roundToInt(juce::GlyphArrangement::getStringWidth(nameFont, presetName)) + 4);
@@ -415,6 +411,16 @@ void Header::resized() {
   }
   save.setBounds(x, middle - 16, save.idealWidth(), 32);
   newPreset.setBounds(save.getRight() + 8, middle - 16, newPreset.idealWidth(), 32);
+
+  // Centre: the mode switch. It sits on the window's centre when there is
+  // room; when short it moves left, then its segments close up, keeping the
+  // same gap as the other header items on both sides.
+  constexpr int kGap = 12;
+  const int roomLeft = newPreset.getRight() + kGap;
+  const int roomRight = tempo.getX() - kGap;
+  const int modeWidth = juce::jmin(mode.idealWidth(), juce::jmax(0, roomRight - roomLeft));
+  const int modeX = juce::jlimit(roomLeft, juce::jmax(roomLeft, roomRight - modeWidth), getWidth() / 2 - modeWidth / 2);
+  mode.setBounds(modeX, middle - 18, modeWidth, 36);
 }
 
 // ####################

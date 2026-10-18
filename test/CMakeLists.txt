@@ -60,6 +60,7 @@ target_sources(DspTests PRIVATE
     src/local_load_tests.cpp
     src/looper_tests.cpp
     src/midi_map_tests.cpp
+    src/nam_architecture_tests.cpp
     src/nam_library_tests.cpp
     src/multicore_tests.cpp
     src/hosted_plugin_tests.cpp

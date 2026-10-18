@@ -1449,11 +1449,11 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
   picker.setFilter({}, BlockPicker::recent, "quill");
   check(picker.shownNames().size() == 1, "and a search narrows it");
 
-  // A capture that is not A2 says why and is not added.
+  // A capture whose file is damaged (an LSTM short of weights) says why and is not added.
   picker.setFilter({}, BlockPicker::captures, {});
   check(picker.clickName("Old Granite"), "an unsupported capture can be clicked");
   check(added == 0, "and is not added");
-  check(picker.noticeText().contains("Old Granite") && picker.noticeText().contains("LSTM") && picker.noticeText().contains("A2"),
+  check(picker.noticeText().contains("Old Granite") && picker.noticeText().contains("LSTM") && picker.noticeText().contains("damaged"),
         "the message names the capture and its architecture");
   const EngineReply unsupported = engine.client->run(
       "chain.addToneFromFiles", object({{"paths", juce::Array<juce::var>{engine.data.getChildFile("Folder/Old Granite.nam").getFullPathName()}}}));

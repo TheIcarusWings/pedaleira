@@ -239,7 +239,8 @@ juce::Result requireA2(const Info& info) {
     return juce::Result::ok();
   return juce::Result::fail(
       "The trainer produced a '" + info.architecture +
-      "' model, not NAM A2 (architecture SlimmableContainer), and Pedaleira only loads A2. "
+      "' model, not NAM A2 (architecture SlimmableContainer), which is what the capture "
+      "wizard trains. "
       "Use neural-amp-modeler " + juce::String(TrainerRunner::kMinimumVersion) +
       " or newer: pip install --upgrade neural-amp-modeler.");
 }

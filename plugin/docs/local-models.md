@@ -31,9 +31,9 @@ becomes the tone title, and each file becomes one model named after it
 in natural name order). A single file must be `.nam` or `.wav` and is titled
 from its name.
 
-Each file is validated at load time (`.nam` must parse and pass the A2
-shape check, `.wav` must open as real audio) so a bad file is a toast, never
-a retry badge. Survivors are stashed (below) and wrapped in a synthetic tone
+Each file is validated at load time (`.nam` must parse, pass the
+architecture check and build once; `.wav` must open as real audio) so a bad
+file is a toast, never a retry badge. Survivors are stashed (below) and wrapped in a synthetic tone
 JSON: `id: 0`, `local: true`, and each model's `model_url` pointing at its
 stash copy with a `file://` URL. From there `loadTone` takes over, and
 `fetchModelFromUrl` resolves `file://` URLs from disk instead of the
@@ -120,13 +120,75 @@ files are collected after a week. It feeds three things:
   still there, else the stash copy).
 - Loading a copy again from the stash keeps its name (`touchLoaded`).
 
-The A2 gate in `stashLocalBytes` is `NamLibrary::inspectBytes`, which parses the
-file with the weight arrays skipped. A file that fails it is refused with a
-sentence that names the architecture (an LSTM, an older WaveNet, a slimmable
-container with models that are not A2) and says where to find an A2 version.
-The same check backs the `architecture`, `supported` and `unsupportedReason`
-fields of `assets.list` and `nam.inspect`, so the library can say so before a
-click.
+The gate in `stashLocalBytes` has two steps. `NamLibrary::inspectBytes` parses
+the file with the weight arrays skipped and checks what can be checked without
+them: an architecture NeuralAmpModelerCore builds (WaveNet A1 and A2, LSTM,
+ConvNet, Linear, and slimmable containers of those, at any depth), a NAM file
+version the core reads, settings that are complete, and a sample rate (when
+the file names one) between 8 and 768 kHz. Then `NamModels::build` builds the
+model once, which checks the weights against the settings. A file that fails
+either is refused with a sentence that names the architecture and what is
+wrong ("This LSTM capture is damaged and cannot be loaded: it holds 2 weights
+where its settings need 70."). The first step backs the `architecture`,
+`architectureLabel`, `a2`, `sampleRate`, `supported` and `unsupportedReason`
+fields of `assets.list`, `nam.inspect` and `nam.recent`, so the library can
+say so before a click.
+
+Until 2026-10-18 only NAM A2 files loaded; that rule was reversed, so a
+player's older captures play as they are.
+
+## Architectures and the model's rate
+
+How each architecture runs (the engine side is `NamEngine.h`, the builders
+`NamModels.h`):
+
+| Architecture | Built by | Oversampled chain | Notes |
+| --- | --- | --- | --- |
+| WaveNet A2, A1 | the core | phase-split | A2 takes the core's fast path |
+| Linear | the core | phase-split | primed once at prepare (it does not prewarm); its source file was missing from the NAM library build until 2026-10-18 |
+| ConvNet | `RealtimeConvNet` | phase-split | the core's allocates every call |
+| LSTM | `RealtimeLstm` | one instance, rate lowered around it | recurrent, so it can't be phase-split; the core's allocates every sample |
+| SlimmableContainer | the core, or `NamModels` when it holds an LSTM or ConvNet | phase-split when every model in it is | |
+
+`RealtimeLstm` and `RealtimeConvNet` keep the core's weight layout and
+arithmetic (the ConvNet reuses the core's own blocks) with every buffer made
+when the block size is set; `NamArchitectureTest.MatchesTheCoreBitForBit` pins
+them bit-identical to the core's own models. They also count the weights
+before reading them: the core's LSTM and ConvNet do not, and would read past
+the end of a short file.
+
+Calibration and loudness metadata (`input_level_dbu`, `output_level_dbu`,
+`loudness`) are read the same way for every architecture, so input
+calibration, the calibrated hand-off between two captures and loudness
+normalization work for all of them; a file without the fields gets what an A2
+file without them gets. Only a slimmable container changes with the block's
+size setting; a capture of one size keeps it.
+
+A capture runs at the rate it was trained at (the file's `sample_rate`, 48 kHz
+when the file has none, as NAM assumes). Run at another rate its time
+constants and its frequency response move with the ratio: a 44.1 kHz capture
+played unresampled in a 48 kHz chain had its resonances 8.8% high. The engine
+bridges the chain rate and the model's rate:
+
+- **none** when they are equal (every A2 capture);
+- **half-band stages** when the ratio is a power of two (a 96 kHz capture, or
+  an LSTM in an oversampled chain): the chain oversampler's minimum-phase
+  allpass half-bands, no added latency;
+- **a band-limited resampler** for any other ratio (`SincResampler.h`): a
+  Kaiser-windowed sinc polyphase bank designed against the lower rate,
+  passband flat within 0.0002 dB to 0.4535 of the lower rate (20 kHz at
+  44.1 kHz), at least 99 dB down from 0.5465 of it, linear phase. It runs on
+  the multi-port boundary's push/pop schedule and adds 1.67 ms for a
+  44.1 kHz capture at 48 kHz (80 samples), which the block reports to the
+  chain like any block latency: the dry share of its mix and the other paths
+  are delayed to match, and the host is told.
+
+NAM's own plugin does the same job with the Lanczos resampler in
+AudioDSPTools; that kernel is not scaled when it lowers the rate, so what a
+capture puts above the lower rate's Nyquist folds back. It is still what the
+host boundary uses (the direction it lowers the rate in is the guitar input,
+which has little up there); the model bridge uses the sinc bank because
+what a capture puts out does (an 88.2 kHz capture's distortion, say).
 
 Nothing in the repo knew where a TONE3000 app keeps downloads (the plugin streams
 models into memory and stashes only local files). `NamLibrary::tone3000Candidates`

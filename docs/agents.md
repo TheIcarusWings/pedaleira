@@ -475,8 +475,11 @@ has not used).
   data folder convention gives; they are not read from the app, so a folder elsewhere is
   added with `roots.add`.
 - The architecture check: `assets.list` gives each capture `architecture`,
-  `architectureLabel` and `supported` (only A2 captures load), with `unsupportedReason`
-  in a sentence when not; `nam.inspect {path}` answers for one file; loading an
+  `architectureLabel`, `a2`, `sampleRate` (when the file names it) and `supported`
+  (every architecture NAM builds loads, A1 WaveNets, LSTMs, ConvNets and Linear models
+  included, each run at the rate it was trained at), with `unsupportedReason` in a
+  sentence for a file that is not a capture, an unknown architecture or version, or
+  damaged; `nam.inspect {path}` answers for one file; loading an
   unsupported file (`chain.addToneFromFiles`) fails with the same sentence.
 
 ### Captures and IR index

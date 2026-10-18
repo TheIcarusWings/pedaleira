@@ -1399,7 +1399,8 @@ void EngineCommands::registerBlockCommands() {
   commands.add({
       "block.setSlimSize",
       "Sets a NAM block's model size, trading CPU for accuracy: 0 is the lightest, 1 the full "
-      "model (only A2 slimmable captures change; IR blocks refuse).",
+      "model (only slimmable captures, which NAM A2 files are, change; a capture of one size "
+      "keeps it; IR blocks refuse).",
       {blockIdParam,
        P::required("slimSize", T::number, "Model size from 0 (lite) to 1 (full).")
            .range(0.0, 1.0)},

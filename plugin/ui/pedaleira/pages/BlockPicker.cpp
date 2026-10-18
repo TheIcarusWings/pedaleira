@@ -29,6 +29,17 @@ const std::vector<std::pair<juce::String, Category>>& categoryList() {
   return list;
 }
 
+// The model column of a capture: the sizes an A2 container holds, else the
+// architecture ("LSTM", "WaveNet A1"), which is also what an unsupported
+// one is shown with.
+juce::String captureModelText(const juce::var& capture) {
+  const juce::String label = capture["architectureLabel"].toString();
+  const bool supported = !capture.hasProperty("supported") || static_cast<bool>(capture["supported"]);
+  if (supported && (label == "Slimmable A2" || label.isEmpty()))
+    return "Full, Lite";
+  return label;
+}
+
 const juce::StringArray& chipNames() {
   static const juce::StringArray names{"All sources", "Built-in", "NAM captures", "IRs", "My plugins (VST3/AU)", "Recent", "Browse TONE3000"};
   return names;
@@ -228,7 +239,7 @@ void BlockPicker::readAssets() {
       if (capture) {
         item.unsupported = asset.hasProperty("supported") && !static_cast<bool>(asset["supported"]);
         item.reason = asset["unsupportedReason"].toString();
-        item.model = item.unsupported ? asset["architectureLabel"].toString() : juce::String("Full, Lite");
+        item.model = captureModelText(asset);
       }
       // Downloaded from TONE3000 through Pedaleira: its tone, creator and licence.
       item.tone3000 = asset["tone3000"];
@@ -300,7 +311,7 @@ void BlockPicker::readRecent() {
       if (capture) {
         item.unsupported = entry.hasProperty("supported") && !static_cast<bool>(entry["supported"]);
         item.reason = entry["unsupportedReason"].toString();
-        item.model = item.unsupported ? entry["architectureLabel"].toString() : juce::String("Full, Lite");
+        item.model = captureModelText(entry);
       }
       credit(item);
       item.keywords = (item.name + " " + item.badge + " " + item.credit.title + " " + item.credit.username).toLowerCase();

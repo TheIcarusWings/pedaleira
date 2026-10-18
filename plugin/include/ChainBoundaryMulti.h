@@ -47,18 +47,26 @@
 //
 // Like the container, this is only meant to be instantiated when the host rate
 // differs from the chain base rate; at 48 kHz the processor skips the boundary.
-class ChainBoundaryMulti {
+//
+// The schedule is written against the resampler's interface, not its filter,
+// so the class is a template on the resampler. ChainBoundaryMulti (below) is
+// the boundary with the container's Lanczos resampler; a NAM engine whose
+// capture runs at another rate than the chain uses the same schedule with
+// SincResampler (see NamEngine.h).
+template <class ResamplerType>
+class BasicChainBoundaryMulti {
 public:
   static constexpr int kMaxPorts = 4;
   static constexpr int kChannelsPerPort = 2;
 
-  /** The resampler the single-port container is built from. Using its alias
-      keeps both on one template instantiation (and one kernel table). */
-  using Resampler = ChainBoundaryResampler::LanczosResampler;
+  /** The resampler every port owns. For ChainBoundaryMulti it is the one the
+      single-port container is built from: using its alias keeps both on one
+      template instantiation (and one kernel table). */
+  using Resampler = ResamplerType;
 
-  ChainBoundaryMulti() = default;
-  ChainBoundaryMulti(const ChainBoundaryMulti&) = delete;
-  ChainBoundaryMulti& operator=(const ChainBoundaryMulti&) = delete;
+  BasicChainBoundaryMulti() = default;
+  BasicChainBoundaryMulti(const BasicChainBoundaryMulti&) = delete;
+  BasicChainBoundaryMulti& operator=(const BasicChainBoundaryMulti&) = delete;
 
   /** Configure the boundary and warm it up with silence. `maxHostBlock` is the
       largest host frame count per process() call; port counts are 1 to
@@ -141,7 +149,7 @@ public:
   /** The measurement behind latencySamples(), usable without an instance.
       Allocates and runs audio; not realtime-safe. Returns 0 on bad arguments. */
   static int measureLatency(double hostRate, double chainRate, int blockSize) {
-    ChainBoundaryMulti probe;
+    BasicChainBoundaryMulti probe;
     if (!probe.configure(hostRate, chainRate, blockSize, 1, 1, false))
       return 0;
 
@@ -378,3 +386,7 @@ private:
   // Zeros for the warm-up push.
   std::vector<float> silence;
 };
+
+/** The host-rate boundary: the push/pop schedule over the container's Lanczos
+    resampler. */
+using ChainBoundaryMulti = BasicChainBoundaryMulti<ChainBoundaryResampler::LanczosResampler>;

@@ -1175,9 +1175,12 @@ void TONE3000Processor::loadToneInBackground(const std::string& blockId, int fir
   // the wet path mutes in place (the dry input is never exposed, see
   // ChainBlock.h); on failure the block is dropped from processing, so it
   // glides to bypass, which is what plays afterwards. No fade at all for a
-  // load the block no longer wants, and the whole chain's when the outgoing
-  // processor has latency (see fadeForModelInstall).
-  const auto editFade = fadeForModelInstall(blockId, firstModelId, prepared.success);
+  // load the block no longer wants, and the whole chain's when the block's
+  // latency changes (see fadeForModelInstall).
+  const auto editFade = fadeForModelInstall(blockId, firstModelId, prepared.success,
+                                            prepared.success && prepared.processor != nullptr
+                                                ? prepared.processor->chainLatencySamples()
+                                                : 0);
 
   {
     juce::ScopedLock lock(chainMutex);
@@ -1275,8 +1278,12 @@ void TONE3000Processor::switchModelInBackground(const std::string& blockId, int 
   // at 100% mix that's a burst of the un-cabbed/un-ampped signal, see
   // ChainBlock.h); on a failed prepare the block is dropped, so it glides
   // to bypass instead. (No fade for a superseded load, the whole chain's
-  // for a block leaving latency behind: see fadeForModelInstall.)
-  const auto editFade = fadeForModelInstall(blockId, modelId, prepared.success);
+  // for a block whose latency changes: see fadeForModelInstall.)
+  const auto editFade =
+      fadeForModelInstall(blockId, modelId, prepared.success,
+                          prepared.success && prepared.processor != nullptr
+                              ? prepared.processor->chainLatencySamples()
+                              : 0);
 
   {
     juce::ScopedLock lock(chainMutex);

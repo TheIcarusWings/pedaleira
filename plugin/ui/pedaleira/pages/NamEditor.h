@@ -19,6 +19,9 @@ public:
 
   void showBlock(const BlockContext& block) override;
   void tick() override;
+  // Replaces this block's capture with a file, keeping its settings (what
+  // Load file... does with the file picked; public for the testbed).
+  void swapTo(const juce::File& file);
 
   void paint(juce::Graphics& g) override;
   void resized() override;
@@ -32,6 +35,7 @@ private:
 
   void readAsset();
   void updateKnobs();
+  void chooseFile();
 
   BlockContext context;
   juce::String assetKey, knobKey;
@@ -43,6 +47,8 @@ private:
   BlockEqPanel eq;
   std::unique_ptr<MeterRow> inputMeter, outputMeter;
   PushButton swap{"Swap capture"};
+  PushButton loadFile{"Load file..."};
+  std::unique_ptr<juce::FileChooser> chooser;
 
   juce::Rectangle<int> capture, levels, gate, meters;
   std::vector<juce::Rectangle<int>> captureRows;

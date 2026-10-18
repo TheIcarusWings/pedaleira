@@ -28,6 +28,7 @@
 #include "pages/GigView.h"
 #include "pages/GridPage.h"
 #include "pages/ImportPage.h"
+#include "pages/NamEditor.h"
 #include "pages/LibraryPage.h"
 #include "pages/LivePage.h"
 #include "pages/SettingsPage.h"
@@ -63,6 +64,8 @@ struct Scenario {
   // on the TONE3000 page.
   // Or a block's editor: "editor:<block, as $slot:row:slot>"; "replace:<source>"
   // then presses what asks for another file (Swap capture). Several, with ";".
+  // Or files dragged onto the grid: "dragover:<file>@<row>:<slot>" holds them over a
+  // slot, "drop:<file>@<row>:<slot>" lets go (the file as $files/<name> or $library/..).
   const char* open = "";
   // Plays a second of a tone through the rig first, so the meters have a level.
   bool audio = false;
@@ -523,6 +526,12 @@ const std::vector<Scenario>& scenarios() {
        kEditorRig, false, "", "", "editor:$slot:0:5"},
       {"editor-nam", "A NAM capture's editor: capture info, levels, block EQ and meters", Page::grid, kEditorRig,
        false, "", "", "editor:$slot:0:2", true},
+      {"grid-drag-over", "A capture dragged over a block: the slot that would be replaced is outlined", Page::grid,
+       kEditorRig, false, "", "", "dragover:$files/a2-amp-cab-test.nam@0:2"},
+      {"grid-drag-empty", "A capture dragged over an empty slot: the slot that would take it is outlined", Page::grid,
+       kEditorRig, false, "", "", "dragover:$files/a2-amp-cab-test.nam@0:6"},
+      {"grid-dropped", "A capture dropped on a block: replaced in place, the row as it was", Page::grid, kEditorRig,
+       false, "", "", "drop:$files/a2-amp-cab-test.nam@0:2"},
       {"editor-swap", "Swap capture: the library over the editor, on the NAM captures", Page::grid, kEditorRig, false,
        "", "", "editor:$slot:0:2;replace:2"},
       {"editor-ir", "An IR's editor: file, its folder's IRs, levels", Page::grid, kEditorRig, false, "", "",
@@ -1787,6 +1796,119 @@ int selfTest() {
     }
   }
 
+  // Capture and IR files dropped on the grid.
+  {
+    ScratchEngine drops;
+    juce::String dropError;
+    if (!runScript(*drops.client, kEditorRig, dropError)) {
+      std::cerr << "drop rig: " << dropError << "\n";
+      return 1;
+    }
+    GridPage page(*drops.client);
+    page.setSize(1368, 836);
+    GridView& view = page.gridView();
+    const auto slotId = [&](int row, int slot) { return resolve(*drops.client, juce::var("$slot:" + juce::String(row) + ":" + juce::String(slot))).toString(); };
+    const auto paramOf = [&](const juce::String& block, const juce::String& param) {
+      const juce::var params = drops.client->read("block.listParams", object({{"blockId", block}}));
+      for (const auto& item : *params["params"].getArray())
+        if (item["id"].toString() == param)
+          return static_cast<double>(item["value"]);
+      return -1.0;
+    };
+    const auto slotOf = [&](int row, int slot) { return GridModel::read(*drops.client).rows[static_cast<size_t>(row)].slots[static_cast<size_t>(slot)]; };
+    const auto centreOf = [&](int row, int slot) { return view.slotBounds(row, slot).getCentre(); };
+    const auto dropOn = [&](const juce::String& file, int row, int slot) {
+      const auto at = centreOf(row, slot);
+      view.filesDropped({file}, at.x, at.y);
+      drops.client->run("state.waitUntilLoaded");
+      page.rigChanged();
+    };
+    const juce::String nam = testFiles().getChildFile("a2-amp-cab-test.nam").getFullPathName();
+    const juce::String ir = testFiles().getChildFile("cab-ir-test-2.wav").getFullPathName();
+    const juce::File notes = drops.data.getChildFile("notes.txt");
+    notes.replaceWithText("not a capture");
+
+    check(view.isInterestedInFileDrag({nam}) && view.isInterestedInFileDrag({ir}), "the grid takes .nam and .wav files");
+    check(!view.isInterestedInFileDrag({notes.getFullPathName()}), "and nothing else");
+    check(!view.isInterestedInFileDrag({drops.data.getFullPathName()}), "not a folder either");
+
+    // A drop on a capture replaces it in place, keeping its settings.
+    const juce::String amp = slotId(0, 2);
+    const juce::String ampName = slotOf(0, 2).name;
+    const double gainBefore = paramOf(amp, "inputGain"), levelBefore = paramOf(amp, "outputGain");
+    check(std::abs(gainBefore - 0.55) < 0.01, "the capture starts with the settings of the rig");
+    {
+      const auto at = centreOf(0, 2);
+      view.fileDragEnter({nam}, at.x, at.y);
+      check(view.fileDropTarget() == std::make_pair(0, 2), "a capture dragged over a capture outlines its slot");
+      const auto empty = centreOf(0, 6);
+      view.fileDragMove({nam}, empty.x, empty.y);
+      check(view.fileDropTarget() == std::make_pair(0, 6), "and the outline follows to an empty slot");
+      view.fileDragMove({ir}, at.x, at.y);
+      check(!view.fileDropTarget().has_value(), "but an impulse response over a capture outlines nothing");
+      view.fileDragExit({nam});
+      check(!view.fileDropTarget().has_value(), "and the outline goes when the drag leaves");
+    }
+    dropOn(nam, 0, 2);
+    check(slotId(0, 2) == amp, "a drop on a capture keeps its block");
+    check(!slotOf(0, 2).empty && slotOf(0, 2).kindId == "nam" && slotOf(0, 2).name != ampName,
+          "and puts the new capture in it");
+    check(std::abs(paramOf(amp, "inputGain") - gainBefore) < 1.0e-6 && std::abs(paramOf(amp, "outputGain") - levelBefore) < 1.0e-6,
+          "with its settings kept");
+    check(page.selectedBlock() == amp, "and selects it");
+
+    // A drop on an empty slot adds a block there.
+    check(slotOf(0, 6).empty, "slot 7 starts empty");
+    dropOn(nam, 0, 6);
+    check(!slotOf(0, 6).empty && slotOf(0, 6).kindId == "nam", "a drop on an empty slot adds a capture there");
+    dropOn(ir, 0, 7);
+    check(!slotOf(0, 7).empty && slotOf(0, 7).kindId == "ir", "and an impulse response too");
+
+    // An IR replaces an IR; the wrong kind and other files change nothing.
+    const juce::String cab = slotId(0, 3);
+    const juce::String cabName = slotOf(0, 3).name;
+    dropOn(nam, 0, 3);
+    check(slotOf(0, 3).kindId == "ir" && slotOf(0, 3).name == cabName, "a capture does not replace an impulse response");
+    dropOn(ir, 0, 2);
+    check(slotOf(0, 2).kindId == "nam", "nor an impulse response a capture");
+    dropOn(nam, 0, 0);
+    check(slotOf(0, 0).kindId == "dynamics.gate", "nor does a file replace an effect");
+    dropOn(notes.getFullPathName(), 0, 6);
+    check(slotOf(0, 6).kindId == "nam", "a file that is not a capture changes nothing");
+    dropOn(ir, 0, 3);
+    check(slotId(0, 3) == cab && slotOf(0, 3).kindId == "ir" && slotOf(0, 3).name != cabName,
+          "an impulse response dropped on one replaces it in place");
+
+    // The drag marks no slot where a drop would do nothing.
+    const auto onGate = centreOf(0, 0);
+    view.fileDragEnter({nam}, onGate.x, onGate.y);
+    check(!view.fileDropTarget().has_value(), "a capture dragged over an effect outlines nothing");
+    view.fileDragExit({nam});
+    int added = 0;
+    view.onDropFiles = [&](const juce::StringArray&, int, int) { ++added; };
+    view.filesDropped({nam}, onGate.x, onGate.y);
+    check(added == 0, "the grid hands nothing on for a slot that can not take the file");
+    const auto atCapture = centreOf(0, 2);
+    view.filesDropped({nam}, atCapture.x, atCapture.y);
+    check(added == 1, "and hands on a drop that it can");
+
+    // The capture editor's Load file... replaces the block's capture in place.
+    page.openEditor(amp);
+    auto* editor = dynamic_cast<NamEditor*>(page.blockEditor().currentBody());
+    check(page.isEditorOpen() && editor != nullptr, "a capture's block opens the capture editor");
+    if (editor != nullptr) {
+      const juce::String before = slotOf(0, 2).name;
+      const juce::File other = testFiles().getChildFile("a2-am-test-2.nam");
+      editor->swapTo(other);
+      drops.client->run("state.waitUntilLoaded");
+      page.rigChanged();
+      check(slotId(0, 2) == amp && slotOf(0, 2).name == other.getFileNameWithoutExtension() && slotOf(0, 2).name != before,
+            "a file loaded from the editor replaces the capture in its block");
+      check(std::abs(paramOf(amp, "inputGain") - gainBefore) < 1.0e-6 && std::abs(paramOf(amp, "outputGain") - levelBefore) < 1.0e-6,
+            "and the editor leaves its settings");
+    }
+  }
+
   std::cout << (total - failures) << " of " << total << " checks passed\n";
   return failures == 0 ? 0 : 1;
 }
@@ -1877,6 +1999,18 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
               panel.addSelected();
           } else if (open.startsWith("editor:")) {
             grid->openEditor(resolve(*engine.client, open.substring(7)).toString());
+          } else if (open.startsWith("dragover:") || open.startsWith("drop:")) {
+            const juce::String rest = open.fromFirstOccurrenceOf(":", false, false);
+            const juce::String file = resolve(*engine.client, rest.upToLastOccurrenceOf("@", false, false)).toString();
+            const juce::StringArray at = juce::StringArray::fromTokens(rest.fromLastOccurrenceOf("@", false, false), ":", "");
+            const auto spot = grid->gridView().slotBounds(at[0].getIntValue(), at[1].getIntValue()).getCentre();
+            if (open.startsWith("drop:")) {
+              grid->gridView().filesDropped({file}, spot.x, spot.y);
+              engine.client->run("state.waitUntilLoaded");
+              grid->rigChanged();
+            } else {
+              grid->gridView().fileDragEnter({file}, spot.x, spot.y);
+            }
           } else if (open.startsWith("replace:")) {
             // What the editor's Swap capture or Load button asks for: the
             // library over the slot, on that source.

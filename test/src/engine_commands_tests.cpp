@@ -232,6 +232,59 @@ TEST(EngineCommandsTest, BuildsARigAndStateGetReflectsEveryChange) {
             static_cast<int>(added["revision"]));
 }
 
+// A capture loaded onto a block (the NAM editor's Load file..., a file dropped
+// on a tile) replaces the tone and leaves everything the player set on it.
+TEST(EngineCommandsTest, LoadingACaptureOnABlockKeepsItsSettings) {
+  CommandRig rig;
+  rig.must("grid.convert", R"({"to":"grid"})");
+  const juce::String amp = rig.must("chain.addToneFromFiles",
+                                    "{\"paths\":[" + pathOf("a2-amp-test.nam") + "],\"row\":0,\"slot\":2}")
+                               ["blockId"].toString();
+  rig.waitLoaded();
+  rig.must("block.setParam", blockArgs(amp, R"(,"param":"inputGain","value":0.7)"));
+  rig.must("block.setParam", blockArgs(amp, R"(,"param":"outputGain","value":0.4)"));
+  rig.must("block.setParam", blockArgs(amp, R"(,"param":"normalize","value":0)"));
+  rig.must("block.setEqBand", blockArgs(amp, R"(,"band":2,"freqHz":800,"gainDb":6,"q":2)"));
+  rig.must("block.setEqEnabled", blockArgs(amp, R"(,"enabled":false)"));
+  rig.must("block.setEnabled", blockArgs(amp, R"(,"enabled":false)"));
+  rig.must("block.setSlimSize", blockArgs(amp, R"(,"slimSize":0.5)"));
+  rig.waitLoaded();
+
+  const auto expectKept = [&](const char* how) {
+    const juce::var block = rig.block(amp);
+    EXPECT_EQ(block["tone"]["title"].toString(), juce::String("a2-amp-cab-test")) << how;
+    EXPECT_EQ(block["tone"]["format"].toString(), juce::String("nam")) << how;
+    EXPECT_NEAR(static_cast<double>(block["params"]["inputGain"]), 0.7, 1e-6) << how;
+    EXPECT_NEAR(static_cast<double>(block["params"]["outputGain"]), 0.4, 1e-6) << how;
+    EXPECT_FALSE(static_cast<bool>(block["params"]["normalize"])) << how;
+    EXPECT_FALSE(static_cast<bool>(block["params"]["enabled"])) << how;
+    EXPECT_FALSE(static_cast<bool>(block["params"]["eq"]["enabled"])) << how;
+    EXPECT_NEAR(static_cast<double>(block["params"]["eq"]["bands"][2]["gainDb"]), 6.0, 1e-6) << how;
+    EXPECT_NEAR(static_cast<double>(block["params"]["slimSize"]), 0.5, 1e-9) << how;
+  };
+
+  // By block id, as the editor does.
+  const juce::var byTarget = rig.must(
+      "chain.addToneFromFiles",
+      "{\"paths\":[" + pathOf("a2-amp-cab-test.nam") + "],\"target\":" + quoted(amp) + "}");
+  EXPECT_EQ(byTarget["blockId"].toString(), amp);
+  rig.waitLoaded();
+  expectKept("by target");
+  EXPECT_EQ(toneIds(rig.state()["chain"], "chain").size(), 1);
+
+  // By row and slot, as a drop on the grid does.
+  rig.must("chain.addToneFromFiles",
+           "{\"paths\":[" + pathOf("a2-am-test-2.nam") + "],\"target\":" + quoted(amp) + "}");
+  rig.waitLoaded();
+  const juce::var bySlot = rig.must(
+      "chain.addToneFromFiles",
+      "{\"paths\":[" + pathOf("a2-amp-cab-test.nam") + "],\"row\":0,\"slot\":2}");
+  EXPECT_EQ(bySlot["blockId"].toString(), amp);
+  rig.waitLoaded();
+  expectKept("by row and slot");
+  EXPECT_EQ(toneIds(rig.state()["chain"], "chain").size(), 1);
+}
+
 TEST(EngineCommandsTest, AddToneFromFilesTargetsAndErrors) {
   CommandRig rig;
 

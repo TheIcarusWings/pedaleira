@@ -135,12 +135,36 @@ NamEditor::NamEditor(EngineClient& client) : BlockEditorBody(client), eq(client)
       onReplace(2);
   };
   swap.setTooltip("Pick another capture for this block. Its settings stay.");
+  loadFile.onClick = [this] { chooseFile(); };
+  loadFile.setTooltip("Load a .nam file for this block. Its settings stay.");
   for (juce::Component* c : std::initializer_list<juce::Component*>{&modelSize, &normalize, &eq, inputMeter.get(),
-                                                                    outputMeter.get(), &swap})
+                                                                    outputMeter.get(), &swap, &loadFile})
     addAndMakeVisible(c);
 }
 
 NamEditor::~NamEditor() = default;
+
+void NamEditor::swapTo(const juce::File& file) {
+  const auto reply = engine.run("chain.addToneFromFiles",
+                                object({{"paths", juce::Array<juce::var>{file.getFullPathName()}}, {"target", context.blockId}}));
+  if (!reply.ok) {
+    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Could not load " + file.getFileName(),
+                                           reply.errorMessage);
+    return;
+  }
+  if (onChanged)
+    onChanged();
+}
+
+void NamEditor::chooseFile() {
+  chooser = std::make_unique<juce::FileChooser>("Load a NAM capture", juce::File(), "*.nam");
+  juce::Component::SafePointer<NamEditor> self(this);
+  chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                       [self](const juce::FileChooser& picked) {
+                         if (self != nullptr && picked.getResult().existsAsFile())
+                           self->swapTo(picked.getResult());
+                       });
+}
 
 void NamEditor::showBlock(const BlockContext& block) {
   const bool other = block.blockId != context.blockId;
@@ -291,6 +315,8 @@ void NamEditor::resized() {
 
   auto bar = meters.reduced(16, 0);
   swap.setBounds(bar.removeFromRight(swap.idealWidth() + 4).withSizeKeepingCentre(swap.idealWidth() + 4, 36));
+  bar.removeFromRight(12);
+  loadFile.setBounds(bar.removeFromRight(loadFile.idealWidth() + 4).withSizeKeepingCentre(loadFile.idealWidth() + 4, 36));
   bar.removeFromRight(24);
   const int half = (bar.getWidth() - 24) / 2;
   inputMeter->setBounds(bar.removeFromLeft(half));

@@ -219,6 +219,8 @@ void ensureRead(Memory& m) {
       entry.kind = item["kind"].toString();
       entry.loadedAt = static_cast<juce::int64>(item["at"]);
       entry.recent = !item.hasProperty("recent") || static_cast<bool>(item["recent"]);
+      if (item["tone3000"].isObject())
+        entry.tone3000 = item["tone3000"];
       if (entry.stashFile.isNotEmpty() && entry.name.isNotEmpty())
         m.entries.push_back(entry);
     }
@@ -236,6 +238,8 @@ void save(Memory& m) {
     item->setProperty("kind", entry.kind);
     item->setProperty("at", entry.loadedAt);
     item->setProperty("recent", entry.recent);
+    if (entry.tone3000.isObject())
+      item->setProperty("tone3000", entry.tone3000);
     list.add(juce::var(item.get()));
   }
   juce::DynamicObject::Ptr root = new juce::DynamicObject();
@@ -255,10 +259,16 @@ void noteLoaded(const juce::String& name, const juce::String& sourcePath,
   Memory& m = memory();
   const std::lock_guard<std::mutex> lock(m.mutex);
   ensureRead(m);
+  // The same bytes are the same capture: where it came from on TONE3000 stays.
+  juce::var tone3000;
+  for (const auto& e : m.entries)
+    if (e.stashFile == stashFile && e.tone3000.isObject())
+      tone3000 = e.tone3000;
   m.entries.erase(std::remove_if(m.entries.begin(), m.entries.end(),
                                  [&](const Loaded& e) { return e.stashFile == stashFile; }),
                   m.entries.end());
   Loaded entry;
+  entry.tone3000 = tone3000;
   entry.name = name;
   entry.sourcePath = sourcePath;
   entry.stashFile = stashFile;
@@ -284,6 +294,20 @@ void touchLoaded(const juce::String& stashFile) {
   m.entries.erase(found);
   m.entries.insert(m.entries.begin(), entry);
   save(m);
+}
+
+void noteTone3000(const juce::String& stashFile, const juce::var& attribution) {
+  if (stashFile.isEmpty() || !attribution.isObject())
+    return;
+  Memory& m = memory();
+  const std::lock_guard<std::mutex> lock(m.mutex);
+  ensureRead(m);
+  for (auto& entry : m.entries)
+    if (entry.stashFile == stashFile) {
+      entry.tone3000 = attribution;
+      save(m);
+      return;
+    }
 }
 
 Loaded loadedFor(const juce::String& stashFileName) {

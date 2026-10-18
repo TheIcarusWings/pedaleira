@@ -1,4 +1,7 @@
 #include "Processor.h"
+
+#include "NamLibrary.h"
+
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
@@ -202,8 +205,21 @@ juce::var TONE3000Processor::makeToneSummary(const juce::var& toneVar) {
     juce::DynamicObject::Ptr u = new juce::DynamicObject();
     u->setProperty("username", user->getProperty("username"));
     u->setProperty("avatar_url", user->getProperty("avatar_url"));
+    if (user->hasProperty("display_name"))
+      u->setProperty("display_name", user->getProperty("display_name"));
+    if (user->hasProperty("is_verified"))
+      u->setProperty("is_verified", user->getProperty("is_verified"));
     out->setProperty("user", juce::var(u.get()));
   }
+
+  // TONE3000's terms: the creator and the licence are always shown, so the
+  // licence travels with the summary like the creator does.
+  if (tone->hasProperty("license"))
+    out->setProperty("license", tone->getProperty("license"));
+  // A local tone downloaded from TONE3000 keeps where it came from.
+  if (const juce::var attribution = tone3000Attribution(tone->getProperty("tone3000"));
+      attribution.isObject())
+    out->setProperty("tone3000", attribution);
 
   // Catalog tones store only the active model (see parseToneForLoading /
   // switchModel); the picker pages the full catalog from the API
@@ -638,6 +654,62 @@ bool TONE3000Processor::refreshToneMetadata(const juce::String& toneJsonString) 
     bumpChainRevision();
   }
   return changed;
+}
+
+juce::var TONE3000Processor::tone3000Attribution(const juce::var& from) {
+  if (!from.isObject())
+    return {};
+  // Text only, trimmed and bounded: this lands in presets and on screen.
+  const auto text = [](const juce::var& value) {
+    if (!value.isString() && !value.isInt() && !value.isInt64() && !value.isDouble())
+      return juce::String();
+    return value.toString().trim().substring(0, 500);
+  };
+  juce::DynamicObject::Ptr out = new juce::DynamicObject();
+  if (const int id = from["id"]; id > 0)
+    out->setProperty("id", id);
+  for (const char* key : {"title", "url", "gear", "format", "license", "image", "capture"})
+    if (const juce::String value = text(from[juce::Identifier(key)]); value.isNotEmpty())
+      out->setProperty(key, value);
+  bool creator = false;
+  if (const juce::var user = from["user"]; user.isObject()) {
+    juce::DynamicObject::Ptr u = new juce::DynamicObject();
+    for (const char* key : {"username", "display_name", "avatar_url"})
+      if (const juce::String value = text(user[juce::Identifier(key)]); value.isNotEmpty())
+        u->setProperty(key, value);
+    if (user["is_verified"].isBool())
+      u->setProperty("is_verified", static_cast<bool>(user["is_verified"]));
+    creator = u->hasProperty("username");
+    if (creator)
+      out->setProperty("user", juce::var(u.get()));
+  }
+  if (!creator && !out->hasProperty("title"))
+    return {};
+  return juce::var(out.get());
+}
+
+bool TONE3000Processor::setToneAttribution(const std::string& blockId, const juce::var& attribution) {
+  const juce::var clean = tone3000Attribution(attribution);
+  if (!clean.isObject())
+    return false;
+  juce::StringArray stashFiles;
+  {
+    juce::ScopedLock lock(chainMutex);
+    ChainBlock* block = findBlockById(blockId);
+    if (block == nullptr || !block->toneVar.isObject() || !static_cast<bool>(block->toneVar["local"]))
+      return false;
+    juce::var merged = block->toneVar.clone();
+    merged.getDynamicObject()->setProperty("tone3000", clean);
+    setToneOnBlock(*block, block->toneId, juce::JSON::toString(merged), merged);
+    if (const auto* models = merged["models"].getArray())
+      for (const auto& model : *models)
+        if (const juce::File file = juce::URL(model["model_url"].toString()).getLocalFile(); file != juce::File())
+          stashFiles.add(file.getFileName());
+  }
+  bumpChainRevision();
+  for (const auto& name : stashFiles)
+    NamLibrary::noteTone3000(name, clean);
+  return true;
 }
 
 bool TONE3000Processor::switchModel(const std::string& blockId, int modelId,

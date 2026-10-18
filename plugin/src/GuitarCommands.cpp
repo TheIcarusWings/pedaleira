@@ -196,6 +196,8 @@ juce::var describeListed(const juce::File& file, const juce::File& tagRoot, cons
     if (record.sourcePath.isNotEmpty())
       obj->setProperty("loadedFrom", record.sourcePath);
     obj->setProperty("loadedAt", record.loadedAt);
+    if (record.tone3000.isObject())
+      obj->setProperty("tone3000", record.tone3000);
   } else if (const juce::String named = asset["nam_name"].toString(); named.isNotEmpty()) {
     obj->setProperty("name", named);
   }
@@ -436,10 +438,11 @@ void AgentHub::registerGuitarCommands() {
       "captures only; see nam.tone3000Folders). origin says where a file came from: library, "
       "folder (one the user added), tone3000, or loaded (a copy kept for a file the user "
       "loaded). A copy kept under a hash name is listed by the name the file was loaded "
-      "under (name, with loadedFrom and loadedAt), else by its metadata name, and query finds "
-      "it by that name. A capture carries what its file "
-      "says about itself as nam_name, nam_gear_type, nam_gear_make, nam_gear_model, "
-      "nam_tone_type, nam_gain and nam_loudness when present, and its architecture, "
+      "under (name, with loadedFrom and loadedAt, and tone3000 with the tone, creator and "
+      "licence when it was downloaded from TONE3000), else by its metadata name, and query "
+      "finds it by that name. A capture carries what its file "
+      "says about itself as nam_name, nam_modeled_by, nam_gear_type, nam_gear_make, "
+      "nam_gear_model, nam_tone_type, nam_gain and nam_loudness when present, and its architecture, "
       "architectureLabel and supported (false when Pedaleira can not load it, with "
       "unsupportedReason in a sentence); an IR its sampleRate, channels "
       "and seconds. inRig lists the tones the rig already holds, with their titles and gear "

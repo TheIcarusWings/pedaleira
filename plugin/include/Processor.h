@@ -198,6 +198,17 @@ public:
   // changed, so an identical payload is a true no-op. Returns whether any
   // block changed.
   bool refreshToneMetadata(const juce::String& toneJsonString);
+  // Where a local tone's files came from on TONE3000 (the tone, its creator
+  // and its licence), kept on the tone as `tone3000` so the attribution
+  // stays with the block, its presets and its summary, and given to the
+  // recent list for each of its files. Only for a local tone; returns
+  // whether the block took it. No undo step: it belongs to the load.
+  bool setToneAttribution(const std::string& blockId, const juce::var& attribution);
+  // The attribution fields kept, cleaned: id, title, url, gear, format,
+  // license, image, capture and user {username, display_name, avatar_url,
+  // is_verified}; anything else is dropped. Void when it names neither a
+  // title nor a creator.
+  static juce::var tone3000Attribution(const juce::var& from);
   // Switch the block's active model. Native only stores the active model, so
   // `modelData` (JSON object with id/name/model_url, paged in from the API by
   // the UI) is required and becomes the tone's new sole stored model.

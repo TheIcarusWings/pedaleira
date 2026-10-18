@@ -32,6 +32,7 @@
 #include "pages/LibraryPage.h"
 #include "pages/LivePage.h"
 #include "pages/SettingsPage.h"
+#include "pages/Tone3000Credit.h"
 #include "shell/AppShell.h"
 
 #include <cmath>
@@ -127,7 +128,8 @@ struct Scenario {
   // loads, user folders, the TONE3000 app's folder.
   const char* nam = "";
   // The TONE3000 feed of the block library: "none", "out" (signed out), "in"
-  // (signed in) or "down" (TONE3000 can not be reached).
+  // (signed in), "down" (TONE3000 can not be reached) or "first" (signed out, its
+  // splash not seen yet). Every feed but "first" has had its splash seen.
   const char* tone3000 = "none";
   // The control of an amp's faceplate the mouse rests on (a parameter id, such as
   // "gain"), so the picture shows its value bubble.
@@ -511,6 +513,16 @@ const std::vector<Scenario>& scenarios() {
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6", .tone3000 = "down"},
       {.name = "picker-tone3000-none", .description = "The block library, TONE3000 in a build without a feed",
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6"},
+      {.name = "picker-tone3000-splash", .description = "The block library, TONE3000 opened the first time: its splash",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6", .tone3000 = "first"},
+      {.name = "picker-tone3000-narrow", .description = "The block library, TONE3000 at the narrowest window: creator and licence stay",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tab:2;t3k:tone:0", .width = 1120, .height = 700,
+       .tone3000 = "in"},
+      {.name = "picker-tone3000-recent", .description = "The block library, Recent: a capture added from TONE3000 keeps its credit",
+       .page = Page::grid, .script = R"([{"command":"grid.convert","args":{"to":"grid"}}])",
+       .open = "picker:0:6:-:6;t3k:tab:2;t3k:tone:1;t3k:capture:1;t3k:add;picker:0:7:-:5", .nam = kCaptureFiles, .tone3000 = "in"},
+      {.name = "picker-captures-narrow", .description = "The block library at the narrowest window: the TONE3000 app's files and Browse TONE3000",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:2", .width = 1120, .height = 700, .nam = kCaptureFiles},
       {"editor-effect", "A tape echo's editor: time with tempo sync, its other parameters, output", Page::grid,
        kEditorRig, false, "", "", "editor:$slot:0:4"},
       {"editor-geq", "The graphic equaliser's editor: band sliders over their curve", Page::grid,
@@ -532,6 +544,10 @@ const std::vector<Scenario>& scenarios() {
        kEditorRig, false, "", "", "dragover:$files/a2-amp-cab-test.nam@0:6"},
       {"grid-dropped", "A capture dropped on a block: replaced in place, the row as it was", Page::grid, kEditorRig,
        false, "", "", "drop:$files/a2-amp-cab-test.nam@0:2"},
+      {.name = "editor-nam-tone3000", .description = "A NAM capture from TONE3000: its image, title, gear, format, creator and licence",
+       .page = Page::grid, .script = R"([{"command":"grid.convert","args":{"to":"grid"}}])", .open = "editor:$slot:0:0",
+       .nam = "file:Downloads:Harbor Crunch pack - Crunch, gain 5;t3kload:Downloads/Harbor Crunch pack - Crunch, gain 5.nam",
+       .tone3000 = "in"},
       {"editor-swap", "Swap capture: the library over the editor, on the NAM captures", Page::grid, kEditorRig, false,
        "", "", "editor:$slot:0:2;replace:2"},
       {"editor-ir", "An IR's editor: file, its folder's IRs, levels", Page::grid, kEditorRig, false, "", "",
@@ -1506,6 +1522,84 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
     picker.setTone3000Feed(nullptr);
   }
 
+  // TONE3000's terms. The splash comes first, once: nothing is listed behind it.
+  {
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.introSeen = false;
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.openFor(0, 7);
+    auto& panel = picker.tone3000Panel();
+    panel.selectTab(Tone3000List::trending);
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    check(panel.splashShown(), "the first visit to TONE3000 shows its splash");
+    check(feed.lists == 0 && panel.toneCount() == 0, "and loads nothing behind it");
+    int before = tone3000::wordmarkDraws();
+    juce::ignoreUnused(panel.createComponentSnapshot(panel.getLocalBounds()));
+    check(tone3000::wordmarkDraws() > before, "the splash draws TONE3000's wordmark");
+    panel.continueSplash();
+    check(!panel.splashShown() && feed.introSeen(), "Continue closes it and remembers it was seen");
+    check(panel.toneCount() == 8, "and the list loads");
+    before = tone3000::wordmarkDraws();
+    juce::ignoreUnused(panel.createComponentSnapshot(panel.getLocalBounds()));
+    check(tone3000::wordmarkDraws() > before, "the page says Powered by with the wordmark");
+    picker.setFilter({}, BlockPicker::all, {});
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    check(!panel.splashShown(), "the splash is shown once");
+    panel.beginSignIn();
+    check(panel.splashShown(), "a sign-in starts with the splash");
+    panel.continueSplash();
+    check(!panel.splashShown() && panel.problem().contains("not available yet"), "then says signing in is not here yet");
+    picker.setTone3000Feed(nullptr);
+  }
+  // At the narrowest window the creator and the licence of every tone keep their room.
+  {
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.signedIn = true;
+    setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.setSize(1120 - size::railWidth, 700 - size::headerHeight);
+    picker.openFor(0, 7);
+    const auto chip = picker.sourceChipBounds(BlockPicker::tone3000);
+    check(chip.getRight() <= picker.getWidth() - 24 - 20, "Browse TONE3000 fits in the chips at the narrowest window");
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    auto& panel = picker.tone3000Panel();
+    panel.selectTab(Tone3000List::trending);
+    bool roomy = panel.toneCount() == 8;
+    int shown = 0;
+    for (int i = 0; i < panel.toneCount(); ++i) {
+      const auto line = panel.rowCredit(i);
+      if (line.creator.isEmpty())
+        continue;
+      ++shown;
+      roomy = roomy && line.creator.getWidth() >= 40 && line.licence.getWidth() >= 40 &&
+              line.licence.getRight() <= panel.tableBounds().getRight() && !line.avatar.isEmpty();
+    }
+    check(roomy && shown >= 3, "each listed tone shows its creator, avatar and licence at the narrowest window");
+    panel.selectTone(6);
+    const auto detail = panel.detailCredit();
+    check(detail.creator.getWidth() >= 40 && !detail.avatar.isEmpty() && panel.detailLicence().getHeight() > 0 &&
+              panel.detailLicence().getBottom() < panel.getHeight() - 100,
+          "the chosen tone shows its creator and licence above its buttons");
+    // A capture added from TONE3000 keeps its credit in the rig and in Recent.
+    panel.selectTone(1);
+    panel.selectCapture(1);
+    panel.addSelected();
+    const juce::var recentNow = engine.client->read("nam.recent");
+    check(recentNow["recent"][0]["tone3000"]["user"]["username"].toString() == "sample-user-b" &&
+              recentNow["recent"][0]["tone3000"]["license"].toString() == "cc0",
+          "the added capture keeps its creator and licence");
+    picker.openFor(0, 6);
+    picker.setFilter({}, BlockPicker::recent, {});
+    const auto credit = picker.creditOf("Coastline Clean - Crunch, gain 5");
+    check(credit.creator.getWidth() >= 40 && credit.licence.getWidth() >= 40 &&
+              credit.licence.getRight() <= picker.listBounds().getRight(),
+          "Recent shows its creator and licence at the narrowest window");
+    picker.setTone3000Feed(nullptr);
+    picker.setSize(1440, 900);
+  }
+
   // Settings: the folders to scan, added and removed, kept by the engine.
   SettingsCaptures folders(*engine.client);
   folders.refresh();
@@ -1943,6 +2037,7 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
       pedaleira::ui::testbed::FakeTone3000Feed::Setup setup;
       setup.signedIn = kind == "in";
       setup.unreachable = kind == "down";
+      setup.introSeen = kind != "first";
       setup.capture = testFiles().getChildFile("a2-amp-test.nam");
       tone3000 = std::make_unique<pedaleira::ui::testbed::FakeTone3000Feed>(setup);
     }

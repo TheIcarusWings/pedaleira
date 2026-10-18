@@ -616,11 +616,22 @@ void EngineCommands::registerChainCommands() {
                    "or lane. They name the slot as target would: an empty slot takes the tone, "
                    "a block already in it has its tone replaced in place.")
            .range(0, 3),
-       P::optional("slot", T::integer, "Grid mode: the slot in that row.").range(0, 7)},
+       P::optional("slot", T::integer, "Grid mode: the slot in that row.").range(0, 7),
+       P::optional("tone3000", T::object,
+                   "Where the files came from on TONE3000, kept with the block, its presets and "
+                   "the recent list so the creator and the licence stay shown: {id, title, url, "
+                   "gear, format, license, image, capture, user: {username, display_name, "
+                   "avatar_url, is_verified}}. It needs a title or a user; other fields are "
+                   "dropped.")},
       true,
       CommandPermission::edit,
       [this](const juce::var& args) {
         const auto* paths = args["paths"].getArray();
+        const juce::var attribution = TONE3000Processor::tone3000Attribution(args["tone3000"]);
+        if (args.hasProperty("tone3000") && !attribution.isObject())
+          return fail(CommandError::invalidArgs,
+                      "chain.addToneFromFiles: argument 'tone3000' needs a title or a user "
+                      "with a username");
         if (paths->isEmpty())
           return fail(CommandError::invalidArgs,
                       "chain.addToneFromFiles: argument 'paths' must name at least one file");
@@ -684,6 +695,8 @@ void EngineCommands::registerChainCommands() {
           return fail(CommandError::failed, loaded["error"].toString().isNotEmpty()
                                                 ? loaded["error"].toString()
                                                 : juce::String("could not add the block"));
+        if (attribution.isObject())
+          processor.setToneAttribution(blockId.toStdString(), attribution);
         return blockResult(blockId);
       },
   });

@@ -1,11 +1,13 @@
 // The editor of a NAM capture (the board "Block editor, NAM capture"): what
-// the capture file says about itself, its model size, the level knobs, the
-// block EQ and the block's input and output meters. The noise gate of the
+// the capture file says about itself (and, for a capture from TONE3000, the
+// tone's image, title, gear, format, creator and licence), its model size, the
+// level knobs, the block EQ and the block's input and output meters. The noise gate of the
 // board is not an engine setting of a capture block yet and says so.
 #pragma once
 
 #include "BlockEqPanel.h"
 #include "EditorParts.h"
+#include "Tone3000Credit.h"
 
 #include <memory>
 #include <vector>
@@ -31,6 +33,8 @@ private:
   class MeterRow;
   struct Info {
     juce::String file, source, type, gainTag, calibration;
+    // Where it came from on TONE3000, when it did.
+    Tone3000Credit credit;
   };
 
   void readAsset();
@@ -40,6 +44,7 @@ private:
   BlockContext context;
   juce::String assetKey, knobKey;
   Info info;
+  Tone3000Images images{*this};
 
   std::vector<std::unique_ptr<ParamKnob>> knobs;
   SegmentedControl modelSize{{"Lite", "Half", "Full"}};

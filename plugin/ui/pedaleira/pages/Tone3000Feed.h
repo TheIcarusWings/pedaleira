@@ -108,7 +108,8 @@ public:
     juce::String error;
   };
   // Downloads one capture, only when the player asked for it (TONE3000's
-  // terms: no bulk caching). The file is a .nam or .wav in a temporary folder.
+  // terms: no bulk caching). The file is a .nam or .wav kept in the library's
+  // TONE3000 folder; a capture downloaded before is not downloaded again.
   virtual void download(const Tone3000Tone& tone, const Tone3000Capture& capture,
                         std::function<void(Downloaded)> reply) = 0;
 

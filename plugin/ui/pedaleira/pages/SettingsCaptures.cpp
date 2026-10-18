@@ -14,27 +14,17 @@ constexpr int kNoteGap = 10;
 const char* const kMineNote =
     "Subfolders are searched too, and the folders' names become tags. Programs connected over MCP can read "
     "files in these folders as well (AI and MCP).";
-const char* const kTone3000Note =
-    "Where the TONE3000 app keeps the models it downloaded on this computer. A folder that is there is searched "
-    "with the others. If yours is somewhere else, add it above.";
 
 }  // namespace
 
 SettingsCaptures::SettingsCaptures(EngineClient& client)
     : SettingsSection(client, "Capture folders",
                       "Pedaleira finds your NAM captures and IRs by file name and by the name inside the file, in the "
-                      "library, in the folders below and in the TONE3000 app's download folder. Captures it can not "
+                      "library, which holds what you download from TONE3000, and in the folders below. Captures it can not "
                       "load, such as older A1 models, are listed with the reason.") {
   addFolderButton.setIcon(&icons::path(icons::Icon::plus));
   addFolderButton.onClick = [this] { chooseFolder(); };
   addAndMakeVisible(addFolderButton);
-}
-
-int SettingsCaptures::tone3000FoundCount() const {
-  int found = 0;
-  for (const auto& w : where)
-    found += w.exists ? 1 : 0;
-  return found;
 }
 
 // ####################
@@ -46,11 +36,6 @@ void SettingsCaptures::refresh() {
   if (const auto* added = roots["added"].getArray())
     for (const auto& folder : *added)
       folders.add(folder.toString());
-  where.clear();
-  const juce::var searched = engine.read("nam.tone3000Folders");
-  if (const auto* list = searched["folders"].getArray())
-    for (const auto& item : *list)
-      where.push_back({item["path"].toString(), static_cast<bool>(item["exists"])});
   rebuildControls();
   resized();
   heightChanged();
@@ -108,15 +93,7 @@ SettingsCaptures::Layout SettingsCaptures::layoutFor(int width) const {
     l.folderRows.push_back({kCardPadding, kCardTop + i * kFolderRow, cw, kFolderRow});
   l.note = {kCardPadding, kCardTop + rowsHeight + kNoteGap, cw, mineNote};
 
-  // ---- The TONE3000 app ----
-  const int top = l.mine.getBottom() + kCardGap;
-  const int whereHeight = juce::jmax(1, static_cast<int>(where.size())) * kFolderRow;
-  const int appNote = noteHeight(cw, kTone3000Note, 12.0f);
-  l.tone3000 = {0, top, width, kCardTop + whereHeight + kNoteGap + appNote + kCardBottom};
-  for (size_t i = 0; i < where.size(); ++i)
-    l.whereRows.push_back({kCardPadding, top + kCardTop + static_cast<int>(i) * kFolderRow, cw, kFolderRow});
-  l.tone3000Note = {kCardPadding, top + kCardTop + whereHeight + kNoteGap, cw, appNote};
-  l.height = l.tone3000.getBottom();
+  l.height = l.mine.getBottom();
   return l;
 }
 
@@ -148,28 +125,6 @@ void SettingsCaptures::paint(juce::Graphics& g) {
                juce::Rectangle<int>(kCardPadding, kCardTop, getWidth() - 2 * kCardPadding, kFolderRow), juce::Justification::centredLeft, true);
   }
   paintNote(g, lay.note, kMineNote, 12.0f);
-
-  paintCard(g, lay.tone3000, "TONE3000 app downloads");
-  for (size_t i = 0; i < lay.whereRows.size(); ++i) {
-    const auto row = lay.whereRows[i];
-    paintRowLine(g, row);
-    auto area = row;
-    const juce::String text = where[i].exists ? "Found" : "Not found";
-    const int chipW = paint::chipWidth(text);
-    paint::chip(g, text, area.removeFromRight(chipW).withSizeKeepingCentre(chipW, 24).toFloat(),
-                where[i].exists ? paint::ChipStyle::ok : paint::ChipStyle::outline);
-    area.removeFromRight(12);
-    g.setFont(type::mono(12.0f, type::Weight::regular));
-    g.setColour(where[i].exists ? colour::text : colour::muted);
-    g.drawText(where[i].path, area, juce::Justification::centredLeft, true);
-  }
-  if (where.empty()) {
-    g.setFont(type::sans(13.0f));
-    g.setColour(colour::muted);
-    g.drawText("Nothing to look in.", lay.tone3000Note.withY(lay.tone3000Note.getY() - kNoteGap - kFolderRow).withHeight(kFolderRow),
-               juce::Justification::centredLeft, true);
-  }
-  paintNote(g, lay.tone3000Note, kTone3000Note, 12.0f);
 }
 
 }  // namespace pedaleira::ui

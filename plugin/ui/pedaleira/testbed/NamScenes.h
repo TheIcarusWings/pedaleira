@@ -12,7 +12,10 @@ namespace pedaleira::ui::testbed {
 
 // A Tone3000Feed that answers at once from a list of its own. Signed out it
 // refuses what a real session would: the player's lists and the captures of a
-// tone. A download copies a test capture to a temporary file.
+// tone. A download copies a test capture to a temporary file and, when it is given
+// the engine, does what the application's feed does: reuses a capture downloaded
+// before and has the engine keep a new one in the library's TONE3000 folder
+// (nam.downloaded, nam.keepDownload).
 class FakeTone3000Feed : public Tone3000Feed {
 public:
   struct Setup {
@@ -22,6 +25,8 @@ public:
     bool unreachable = false;
     // The capture a download delivers.
     juce::File capture;
+    // The engine that keeps the downloads; none leaves the file in a temporary folder.
+    EngineClient* engine = nullptr;
     // The player has seen and continued TONE3000's splash before.
     bool introSeen = true;
   };
@@ -53,7 +58,10 @@ private:
 //                             (a canned tone, creator and licence)
 //   gone:<folder>/<name>      deletes the original of a loaded file
 //   root:<folder>             adds the folder as a user folder (roots.add)
-//   tone3000:<folder>         makes that folder the TONE3000 app's download folder
+//   download:<tone>:<capture>:<fixture>[:<make>[:<model>]]
+//                             a capture downloaded on the TONE3000 page: kept by the engine in
+//                             the library's TONE3000 folder (nam.keepDownload) with a canned
+//                             creator and licence, named "<tone> - <capture>"
 //   pause                     a few milliseconds, so loads have distinct times
 // Returns the first problem, or an empty string.
 juce::String prepareNam(EngineClient& client, const juce::File& scratch, const juce::File& fixtures, const juce::String& steps);

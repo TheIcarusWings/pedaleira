@@ -125,7 +125,7 @@ struct Scenario {
   int width = 0;
   int height = 0;
   // The captures to set up first, steps with ";" (NamScenes.h): files in folders,
-  // loads, user folders, the TONE3000 app's folder.
+  // loads, user folders, captures downloaded from TONE3000.
   const char* nam = "";
   // The TONE3000 feed of the block library: "none", "out" (signed out), "in"
   // (signed in), "down" (TONE3000 can not be reached) or "first" (signed out, its
@@ -395,16 +395,16 @@ const char* kFamiliesRig = R"([{"command":"grid.convert","args":{"to":"grid"}},
 
 // The captures of the capture scenarios (NamScenes.h): three loaded from a folder that is
 // not a library folder, two in a folder the player added (one an older LSTM), and the
-// TONE3000 app's download folder with a pack's captures (and one old fuzz).
+// captures downloaded on the TONE3000 page, kept in the library's TONE3000 folder (a pack's
+// captures and one old fuzz).
 const char* kCaptureFiles =
     "file:Elsewhere:Fav Northfield:a2-amp-test:Northfield:N59 Lead;file:Elsewhere:Quill Clean:a2-amp-cab-test:Quill:Q1;"
     "file:Elsewhere:Cobalt Lead:a2-am-test-2:Northfield:Grand Lead;"
     "load:Elsewhere/Fav Northfield.nam;pause;load:Elsewhere/Quill Clean.nam;pause;load:Elsewhere/Cobalt Lead.nam;"
     "file:Folder:Old Granite:old;file:Folder:Studio Preamp:a2-amp-test:Aldermoor:A73;root:Folder;"
-    "file:TONE3000/Amps:Harbor Crunch pack - Crunch gain 5:a2-amp-test:Northfield:N800;"
-    "file:TONE3000/Amps:Coastline Clean - Bright vol 6:a2-amp-cab-test:Seabright:Coast Reverb;"
-    "file:TONE3000/Pedals:Jade overdrive - Edge:a2-am-test-2:Kestrel:KS8;file:TONE3000/Pedals:Old Fuzz - LSTM:old;"
-    "tone3000:TONE3000";
+    "download:Harbor Crunch pack:Crunch gain 5:a2-amp-test:Northfield:N800;"
+    "download:Coastline Clean:Bright vol 6:a2-amp-cab-test:Seabright:Coast Reverb;"
+    "download:Jade overdrive:Edge:a2-am-test-2:Kestrel:KS8;download:Old Fuzz:LSTM:old";
 
 // Steps of a capture scenario with one more.
 const char* joinedSteps(const char* steps, const char* more) {
@@ -493,7 +493,7 @@ const std::vector<Scenario>& scenarios() {
        false, "$slot:0:2"},
       {"picker", "The block library, adding to row 1, slot 7", Page::grid, kFullRig, false, "", "", "picker:0:6"},
       {"picker-delay", "The block library filtered to delays", Page::grid, kFullRig, false, "", "", "picker:0:6:delay"},
-      {.name = "picker-captures", .description = "The block library, NAM captures: loaded files by name, a folder, the TONE3000 app's downloads",
+      {.name = "picker-captures", .description = "The block library, NAM captures: loaded files by name, a folder, the downloads from TONE3000",
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:2", .nam = kCaptureFiles},
       {.name = "picker-recent", .description = "The block library, Recent: the files loaded last, newest first",
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:5", .nam = kCaptureFiles},
@@ -521,7 +521,7 @@ const std::vector<Scenario>& scenarios() {
       {.name = "picker-tone3000-recent", .description = "The block library, Recent: a capture added from TONE3000 keeps its credit",
        .page = Page::grid, .script = R"([{"command":"grid.convert","args":{"to":"grid"}}])",
        .open = "picker:0:6:-:6;t3k:tab:2;t3k:tone:1;t3k:capture:1;t3k:add;picker:0:7:-:5", .nam = kCaptureFiles, .tone3000 = "in"},
-      {.name = "picker-captures-narrow", .description = "The block library at the narrowest window: the TONE3000 app's files and Browse TONE3000",
+      {.name = "picker-captures-narrow", .description = "The block library at the narrowest window: the downloads from TONE3000 and Browse TONE3000",
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:2", .width = 1120, .height = 700, .nam = kCaptureFiles},
       {"editor-effect", "A tape echo's editor: time with tempo sync, its other parameters, output", Page::grid,
        kEditorRig, false, "", "", "editor:$slot:0:4"},
@@ -766,9 +766,9 @@ const std::vector<Scenario>& scenarios() {
        .page = Page::settings, .script = kAgentRig, .settings = "part:agents;server:on;agent:Claude Code"},
       {.name = "settings-agents-off", .description = "Settings, AI and MCP: the server off, a permission turned on",
        .page = Page::settings, .script = kAgentRig, .settings = "part:agents;permission:live:on"},
-      {.name = "settings-captures", .description = "Settings, capture folders: a folder added, the TONE3000 app's folder found",
+      {.name = "settings-captures", .description = "Settings, capture folders: a folder added",
        .page = Page::settings, .script = "[]", .settings = "part:captures", .nam = kCaptureFiles},
-      {.name = "settings-captures-empty", .description = "Settings, capture folders: nothing added, the TONE3000 app's folder not found",
+      {.name = "settings-captures-empty", .description = "Settings, capture folders: nothing added",
        .page = Page::settings, .script = "[]", .settings = "part:captures"},
       {.name = "settings-midi", .description = "Settings, MIDI: the defaults and three mappings, read only",
        .page = Page::settings, .script = kMidiRig, .settings = "part:midi"},
@@ -1018,9 +1018,6 @@ struct ScratchEngine {
     data.getChildFile("AppData").createDirectory();
     previousAppData = LibraryPaths::setAppDataDirForTesting(data.getChildFile("AppData"));
     NamLibrary::resetForTesting();
-    // Where the TONE3000 app would keep its downloads: nowhere that exists, unless a
-    // scenario puts a folder there.
-    NamLibrary::setTone3000FoldersForTesting(&tone3000Candidates());
     TONE3000Processor::disableMachineDefaultParametersForTesting();
     TONE3000Processor::setFootswitchSettingsFileForTesting(data.getChildFile("footswitch.settings"));
     data.getChildFile("LocalModels").createDirectory();
@@ -1056,17 +1053,9 @@ struct ScratchEngine {
     client.reset();
     commands.reset();
     processor.reset();
-    NamLibrary::setTone3000FoldersForTesting(nullptr);
     LibraryPaths::setAppDataDirForTesting(previousAppData);
     NamLibrary::resetForTesting();
     data.deleteRecursively();
-  }
-
-  static const std::vector<juce::File>& tone3000Candidates() {
-    static const std::vector<juce::File> folders{
-        juce::File("/Users/you/Library/Application Support/TONE3000"), juce::File("/Users/you/Documents/TONE3000"),
-        juce::File("/Users/you/Downloads/TONE3000")};
-    return folders;
   }
 
   juce::File previousAppData;
@@ -1424,7 +1413,12 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
   check(all.contains("Fav Northfield") && all.contains("Quill Clean") && all.contains("Cobalt Lead"),
         "the captures loaded from a file are listed by their file names");
   check(all.contains("Studio Preamp") && all.contains("Old Granite"), "a folder added in Settings is listed");
-  check(all.contains("Harbor Crunch pack - Crunch gain 5"), "the TONE3000 app's download folder is listed");
+  check(all.contains("Harbor Crunch pack - Crunch gain 5"), "a capture downloaded from TONE3000 is listed");
+  check(engine.data.getChildFile("Library").getChildFile("TONE3000").getChildFile("Harbor Crunch pack - Crunch gain 5.nam").existsAsFile(),
+        "and kept in the library's TONE3000 folder");
+  picker.setFilter({}, BlockPicker::captures, "harbor crunch pack");
+  check(picker.creditOf("Harbor Crunch pack - Crunch gain 5").creator.getWidth() >= 40, "listed with its creator and licence");
+  picker.setFilter({}, BlockPicker::captures, {});
   check(all.contains("Harbor Crunch") && all.contains("Lantern Clean"), "the library's captures are still listed");
   int count = 0;
   for (const auto& name : all)
@@ -1437,7 +1431,7 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
   picker.setFilter({}, BlockPicker::all, "grand lead");
   check(picker.shownNames().contains("Cobalt Lead"), "a search finds a capture by the model inside the file");
   picker.setFilter({}, BlockPicker::all, "n800");
-  check(picker.shownNames().contains("Harbor Crunch pack - Crunch gain 5"), "and one in the TONE3000 app's folder");
+  check(picker.shownNames().contains("Harbor Crunch pack - Crunch gain 5"), "and one downloaded from TONE3000");
   picker.setFilter({}, BlockPicker::all, "nothing like this");
   check(picker.shownNames().isEmpty(), "a search that matches nothing lists nothing");
 
@@ -1472,6 +1466,7 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
   {
     testbed::FakeTone3000Feed::Setup setup;
     setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+    setup.engine = engine.client.get();
     testbed::FakeTone3000Feed feed(setup);
     picker.setTone3000Feed(&feed);
     picker.setFilter({}, BlockPicker::tone3000, {});
@@ -1495,6 +1490,7 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
     testbed::FakeTone3000Feed::Setup setup;
     setup.signedIn = true;
     setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+    setup.engine = engine.client.get();
     testbed::FakeTone3000Feed feed(setup);
     picker.setTone3000Feed(&feed);
     picker.openFor(0, 7);
@@ -1510,6 +1506,12 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
     panel.addSelected();
     check(feed.downloads == 1 && added == before + 1, "Add downloads the capture and puts it in the slot");
     check(panel.problem().isEmpty() && panel.canAdd(), "and the page is ready again");
+    // The download is kept in the library, and the same capture is not fetched twice.
+    check(engine.client->read("nam.recent")["recent"][0]["path"].toString().contains("TONE3000"),
+          "the capture added from TONE3000 is loaded from the library's TONE3000 folder");
+    panel.addSelected();
+    check(feed.downloads == 1, "adding the same capture again downloads nothing");
+    check(added == before + 2, "and still puts it in the slot");
     picker.setTone3000Feed(nullptr);
   }
   {
@@ -1557,6 +1559,7 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
     testbed::FakeTone3000Feed::Setup setup;
     setup.signedIn = true;
     setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+    setup.engine = engine.client.get();
     testbed::FakeTone3000Feed feed(setup);
     picker.setTone3000Feed(&feed);
     picker.setSize(1120 - size::railWidth, 700 - size::headerHeight);
@@ -1604,7 +1607,6 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
   SettingsCaptures folders(*engine.client);
   folders.refresh();
   check(folders.folderCount() == 1, "the folder the scenario added is listed");
-  check(folders.tone3000FoundCount() == 1, "and the TONE3000 app's folder is found");
   const juce::File more = engine.data.getChildFile("More captures");
   more.createDirectory();
   folders.addFolderPath(more.getFullPathName());
@@ -2039,6 +2041,7 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
       setup.unreachable = kind == "down";
       setup.introSeen = kind != "first";
       setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+      setup.engine = engine.client.get();
       tone3000 = std::make_unique<pedaleira::ui::testbed::FakeTone3000Feed>(setup);
     }
     if (scenario.audio)

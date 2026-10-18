@@ -1,9 +1,9 @@
 // Captures the player loads: the architecture check (what Pedaleira can load
 // and a sentence for what it can not), the names of the files that were
-// loaded (the stash keeps content hashes), the recent list, and the folders
-// the TONE3000 app's downloads are looked for in. Through the command layer:
-// nam.inspect, nam.recent, nam.clearRecent, nam.tone3000Folders and the
-// fields assets.list gained.
+// loaded (the stash keeps content hashes), the recent list, and the captures
+// downloaded from TONE3000 (kept in the library's TONE3000 folder). Through
+// the command layer: nam.inspect, nam.recent, nam.clearRecent, nam.downloaded,
+// nam.keepDownload and the fields assets.list gained.
 
 #include "NamLibrary.h"
 #include "agent_test_helpers.h"
@@ -50,18 +50,6 @@ juce::var findAsset(const juce::var& listed, const juce::String& name) {
       return listed["assets"][i];
   return {};
 }
-
-// Puts the TONE3000 folders back to the test main's "none" when it ends.
-struct Tone3000Folders {
-  explicit Tone3000Folders(std::vector<juce::File> folders) : list(std::move(folders)) {
-    NamLibrary::setTone3000FoldersForTesting(&list);
-  }
-  ~Tone3000Folders() {
-    static const std::vector<juce::File> none;
-    NamLibrary::setTone3000FoldersForTesting(&none);
-  }
-  std::vector<juce::File> list;
-};
 
 }  // namespace
 
@@ -363,67 +351,210 @@ TEST(NamLibrary, RecentIsNewestFirstAndSeparatesIrs) {
   EXPECT_EQ(rig.mustLocal("nam.recent", R"({"limit":1})")["recent"].size(), 1);
 }
 
-TEST(NamLibrary, ListsTheCapturesInTheTone3000Folders) {
-  AgentRig rig;
-  const juce::File app = rig.dirs.dir.getChildFile("TONE3000");
-  const juce::File amps = app.getChildFile("Amps");
-  ASSERT_TRUE(amps.createDirectory().wasOk());
-  ASSERT_TRUE(testFile("a2-amp-test.nam").copyFileTo(amps.getChildFile("Brit Crunch.nam")));
-  ASSERT_TRUE(amps.getChildFile("Old Lstm.nam").replaceWithText(kBrokenLstm));
-  ASSERT_TRUE(testFile("cab-ir-test.wav").copyFileTo(amps.getChildFile("A Cab.wav")));
-  Tone3000Folders folders({app, rig.dirs.dir.getChildFile("TONE3000 not there")});
+// ---- Captures downloaded from the TONE3000 page ----
 
-  const juce::var where = rig.mustLocal("nam.tone3000Folders");
-  ASSERT_EQ(where["folders"].size(), 2);
-  EXPECT_TRUE(static_cast<bool>(where["folders"][0]["exists"]));
-  EXPECT_FALSE(static_cast<bool>(where["folders"][1]["exists"]));
+namespace {
 
-  const juce::var listed = rig.mustLocal("assets.list", R"({"limit":1000})");
-  int fromApp = 0;
-  for (int i = 0; i < listed["assets"].size(); ++i)
-    fromApp += listed["assets"][i]["source"].toString() == "tone3000" ? 1 : 0;
-  EXPECT_EQ(fromApp, 2);  // the two captures, not the IR
-
-  const juce::var good = findAsset(listed, "Brit Crunch");
-  ASSERT_FALSE(good.isVoid());
-  EXPECT_EQ(good["origin"].toString(), juce::String("tone3000"));
-  EXPECT_TRUE(static_cast<bool>(good["supported"]));
-  EXPECT_EQ(good["architectureLabel"].toString(), juce::String("Slimmable A2"));
-  EXPECT_EQ(good["tags"][0].toString(), juce::String("Amps"));
-  const juce::var old = findAsset(listed, "Old Lstm");
-  ASSERT_FALSE(old.isVoid());
-  EXPECT_FALSE(static_cast<bool>(old["supported"]));
-  EXPECT_EQ(old["architecture"].toString(), juce::String("LSTM"));
-  EXPECT_TRUE(old["unsupportedReason"].toString().contains("damaged"));
-
-  EXPECT_EQ(rig.mustLocal("assets.list", R"({"query":"brit","limit":1000})")["assets"].size(), 1);
-
-  // The same folder added as a user folder is listed once, as the user's.
-  rig.mustLocal("roots.add", "{\"path\":" + agentQuoted(app.getFullPathName()) + "}");
-  const juce::var again = rig.mustLocal("assets.list", R"({"query":"brit","limit":1000})");
-  ASSERT_EQ(again["assets"].size(), 1);
-  EXPECT_EQ(again["assets"][0]["origin"].toString(), juce::String("folder"));
-  rig.mustLocal("roots.remove", "{\"path\":" + agentQuoted(app.getFullPathName()) + "}");
+// A tone3000 attribution as the TONE3000 page sends it with a download.
+juce::String creditJson(int tone, const char* title, const char* capture, const char* username = "sample-user-a",
+                        const char* licence = "cc-by") {
+  return "{\"id\":" + juce::String(tone) + ",\"title\":" + agentQuoted(title) + ",\"gear\":\"amp\",\"format\":\"nam\"," +
+         "\"license\":" + agentQuoted(licence) + ",\"capture\":" + agentQuoted(capture) + ",\"user\":{\"username\":" +
+         agentQuoted(username) + ",\"is_verified\":true}}";
 }
 
-TEST(NamLibrary, TheTone3000FoldersOfEachPlatform) {
-  const juce::File support("/fake/Users/me/Library/Application Support");
-  const juce::File documents("/fake/Users/me/Documents");
-  const juce::File home("/fake/Users/me");
+// What the TONE3000 page does with a finished download: a temporary file handed to the engine.
+CommandResult keepDownload(AgentRig& rig, const char* fixture, int capture, const juce::String& credit) {
+  const juce::File temp = rig.dirs.scratch.getChildFile("download-" + juce::Uuid().toString() + ".nam");
+  EXPECT_TRUE(testFile(fixture).copyFileTo(temp));
+  return rig.local("nam.keepDownload", "{\"file\":" + agentQuoted(temp.getFullPathName()) + ",\"capture\":" +
+                                           juce::String(capture) + ",\"tone3000\":" + credit + "}");
+}
 
-  const auto mac = NamLibrary::tone3000Candidates(NamLibrary::Platform::mac, support, documents, home);
-  ASSERT_EQ(mac.size(), size_t(3));
-  EXPECT_EQ(mac[0].getFullPathName(), juce::String("/fake/Users/me/Library/Application Support/TONE3000"));
-  EXPECT_EQ(mac[1].getFullPathName(), juce::String("/fake/Users/me/Documents/TONE3000"));
-  EXPECT_EQ(mac[2].getFullPathName(), juce::String("/fake/Users/me/Downloads/TONE3000"));
+juce::File downloadsOf(AgentRig& rig) { return rig.dirs.library.getChildFile("TONE3000"); }
 
-  // Windows: Roaming (%APPDATA%) and the Local folder beside it.
-  const juce::File roaming("/fake/Users/me/AppData/Roaming");
-  const auto windows = NamLibrary::tone3000Candidates(NamLibrary::Platform::windows, roaming, documents, home);
-  ASSERT_EQ(windows.size(), size_t(4));
-  EXPECT_EQ(windows[0].getFullPathName(), juce::String("/fake/Users/me/AppData/Roaming/TONE3000"));
-  EXPECT_EQ(windows[1].getFullPathName(), juce::String("/fake/Users/me/AppData/Local/TONE3000"));
+}  // namespace
 
-  const auto other = NamLibrary::tone3000Candidates(NamLibrary::Platform::other, home.getChildFile(".config"), documents, home);
-  EXPECT_EQ(other[0].getFullPathName(), juce::String("/fake/Users/me/.config/TONE3000"));
+TEST(NamLibrary, DownloadFileNamesAreSafeOnEveryOs) {
+  using NamLibrary::downloadBaseName;
+  EXPECT_EQ(downloadBaseName("Harbor Crunch", "Gain 5"), juce::String("Harbor Crunch - Gain 5"));
+  EXPECT_EQ(downloadBaseName("Harbor Crunch", ""), juce::String("Harbor Crunch"));
+  // Characters Windows refuses, and control characters, become a hyphen.
+  EXPECT_EQ(downloadBaseName("A/B:C", "D?"), juce::String("A-B-C - D-"));
+  EXPECT_EQ(downloadBaseName("a\\b|c*d\"e<f>g", "x"), juce::String("a-b-c-d-e-f-g - x"));
+  EXPECT_EQ(downloadBaseName("Live\x01Tone", "x"), juce::String("Live-Tone - x"));
+  // No path can be built from a title.
+  EXPECT_FALSE(downloadBaseName("../../etc/passwd", "x").containsAnyOf("/\\"));
+  EXPECT_FALSE(downloadBaseName("../../etc/passwd", "x").startsWith("."));
+  // White space and dots at the edges, runs of spaces.
+  EXPECT_EQ(downloadBaseName("  ..x..  ", ""), juce::String("x"));
+  EXPECT_EQ(downloadBaseName("a    b", "c"), juce::String("a b - c"));
+  EXPECT_EQ(downloadBaseName("Dots...", ""), juce::String("Dots"));
+  // Windows device names, whatever the case.
+  EXPECT_EQ(downloadBaseName("CON", ""), juce::String("TONE3000 CON"));
+  EXPECT_EQ(downloadBaseName("nul", ""), juce::String("TONE3000 nul"));
+  EXPECT_EQ(downloadBaseName("COM1", ""), juce::String("TONE3000 COM1"));
+  EXPECT_EQ(downloadBaseName("Console", ""), juce::String("Console"));
+  // Nothing to name it by, and a very long title.
+  EXPECT_EQ(downloadBaseName("", ""), juce::String("TONE3000 capture"));
+  EXPECT_EQ(downloadBaseName("???", ""), juce::String("-"));
+  EXPECT_LE(downloadBaseName(juce::String::repeatedString("long ", 100), "capture").length(), 120);
+  // Letters of other scripts stay.
+  EXPECT_EQ(downloadBaseName(juce::CharPointer_UTF8("Caf\xc3\xa9 Br\xc3\xa4un"), "Gain 5"),
+            juce::String(juce::CharPointer_UTF8("Caf\xc3\xa9 Br\xc3\xa4un - Gain 5")));
+}
+
+TEST(NamLibrary, ADownloadLandsInTheLibraryFolderUnderASafeUniqueName) {
+  AgentRig rig;
+  const juce::File downloads = downloadsOf(rig);
+  EXPECT_EQ(NamLibrary::downloadsDir(rig.dirs.library), downloads);
+  EXPECT_FALSE(downloads.exists());
+
+  const CommandResult first = keepDownload(rig, "a2-amp-test.nam", 11, creditJson(101, "Harbor/Crunch: Pack", "Gain 5?"));
+  ASSERT_TRUE(first.ok) << first.errorMessage;
+  const juce::File kept(first.value["path"].toString());
+  EXPECT_TRUE(kept.existsAsFile());
+  EXPECT_EQ(kept.getParentDirectory(), downloads);
+  EXPECT_EQ(kept.getFileName(), juce::String("Harbor-Crunch- Pack - Gain 5-.nam"));
+  // Moved, not copied: the temporary file is gone and the bytes are the download's.
+  EXPECT_EQ(kept.getSize(), testFile("a2-amp-test.nam").getSize());
+  int leftovers = 0;
+  for (const auto& f : juce::RangedDirectoryIterator(rig.dirs.scratch, false, "download-*.nam"))
+    leftovers += f.getFile().existsAsFile() ? 1 : 0;
+  EXPECT_EQ(leftovers, 0);
+
+  // Another capture with the same title and name (a different id and bytes) takes
+  // a number; neither file is overwritten.
+  const CommandResult second = keepDownload(rig, "a2-amp-cab-test.nam", 12, creditJson(101, "Harbor/Crunch: Pack", "Gain 5?"));
+  ASSERT_TRUE(second.ok) << second.errorMessage;
+  const juce::File other(second.value["path"].toString());
+  EXPECT_EQ(other.getFileName(), juce::String("Harbor-Crunch- Pack - Gain 5- (2).nam"));
+  EXPECT_EQ(other.getSize(), testFile("a2-amp-cab-test.nam").getSize());
+  EXPECT_EQ(kept.getSize(), testFile("a2-amp-test.nam").getSize());
+  const CommandResult third = keepDownload(rig, "a2-amp-cab-test.nam", 13, creditJson(101, "Harbor/Crunch: Pack", "Gain 5?"));
+  ASSERT_TRUE(third.ok);
+  EXPECT_EQ(juce::File(third.value["path"].toString()).getFileName(), juce::String("Harbor-Crunch- Pack - Gain 5- (3).nam"));
+}
+
+TEST(NamLibrary, ADownloadIsRefusedWhenItIsNotACaptureOrHasNoCredit) {
+  AgentRig rig;
+  // An error page saved as .nam.
+  const juce::File page = rig.dirs.scratch.getChildFile("error.nam");
+  ASSERT_TRUE(page.replaceWithText("<html>403 Forbidden</html>"));
+  const CommandResult html = rig.local("nam.keepDownload", "{\"file\":" + agentQuoted(page.getFullPathName()) +
+                                                              ",\"capture\":1,\"tone3000\":" + creditJson(5, "T", "C") + "}");
+  EXPECT_FALSE(html.ok);
+  EXPECT_FALSE(downloadsOf(rig).getChildFile("T - C.nam").exists());
+  // No tone id: nothing to reuse it by.
+  EXPECT_FALSE(keepDownload(rig, "a2-amp-test.nam", 1, R"({"title":"No id","user":{"username":"someone"}})").ok);
+  // Not a file.
+  EXPECT_FALSE(rig.local("nam.keepDownload", "{\"file\":" + agentQuoted(rig.dirs.scratch.getChildFile("nope.nam").getFullPathName()) +
+                                                 ",\"capture\":1,\"tone3000\":" + creditJson(5, "T", "C") + "}")
+                   .ok);
+}
+
+TEST(NamLibrary, ADownloadIsListedWithItsCreditAndSurvivesARestart) {
+  AgentRig rig;
+  NamLibrary::resetForTesting();
+  ASSERT_TRUE(keepDownload(rig, "a2-amp-test.nam", 11, creditJson(101, "Harbor Crunch", "Gain 5")).ok);
+  ASSERT_TRUE(keepDownload(rig, "a2-amp-cab-test.nam", 21, creditJson(202, "Lantern Clean", "Bright", "sample-user-b", "cc0")).ok);
+
+  const auto verify = [&rig](const char* when) {
+    const juce::var listed = rig.mustLocal("assets.list", R"({"limit":1000})");
+    const juce::var asset = findAsset(listed, "Harbor Crunch - Gain 5");
+    ASSERT_FALSE(asset.isVoid()) << when;
+    EXPECT_EQ(asset["origin"].toString(), juce::String("tone3000")) << when;
+    EXPECT_EQ(asset["source"].toString(), juce::String("library")) << when;
+    EXPECT_EQ(asset["tone3000"]["title"].toString(), juce::String("Harbor Crunch")) << when;
+    EXPECT_EQ(asset["tone3000"]["user"]["username"].toString(), juce::String("sample-user-a")) << when;
+    EXPECT_EQ(asset["tone3000"]["license"].toString(), juce::String("cc-by")) << when;
+    EXPECT_TRUE(static_cast<bool>(asset["supported"])) << when;
+    const juce::var second = findAsset(listed, "Lantern Clean - Bright");
+    ASSERT_FALSE(second.isVoid()) << when;
+    EXPECT_EQ(second["tone3000"]["license"].toString(), juce::String("cc0")) << when;
+    EXPECT_EQ(second["tone3000"]["user"]["username"].toString(), juce::String("sample-user-b")) << when;
+    // Search finds it by the file name and by the creator.
+    // (Once loaded, the stash keeps a copy under a hash name, which is another row.)
+    const juce::var found = rig.mustLocal("assets.list", R"({"query":"harbor crunch","limit":1000})");
+    int fromFolder = 0;
+    for (int i = 0; i < found["assets"].size(); ++i)
+      fromFolder += found["assets"][i]["origin"].toString() == "tone3000" ? 1 : 0;
+    EXPECT_EQ(fromFolder, 1) << when;
+    EXPECT_EQ(rig.mustLocal("assets.list", R"({"query":"sample-user-b","limit":1000})")["assets"].size(), 1) << when;
+  };
+  verify("after the download");
+
+  // Loaded into the rig, it shows in Recent with the credit and the library path.
+  const juce::File kept = downloadsOf(rig).getChildFile("Harbor Crunch - Gain 5.nam");
+  rig.mustLocal("chain.addToneFromFiles", "{\"paths\":[" + agentQuoted(kept.getFullPathName()) + "],\"tone3000\":" +
+                                              creditJson(101, "Harbor Crunch", "Gain 5") + "}");
+  rig.mustLocal("state.waitUntilLoaded");
+
+  // A restart forgets everything held in memory; the files and indexes are read again.
+  NamLibrary::resetForTesting();
+  verify("after a restart");
+  const juce::var recent = rig.mustLocal("nam.recent");
+  ASSERT_GE(recent["recent"].size(), 1);
+  EXPECT_EQ(recent["recent"][0]["name"].toString(), juce::String("Harbor Crunch - Gain 5"));
+  EXPECT_EQ(juce::File(recent["recent"][0]["path"].toString()), kept);
+  EXPECT_EQ(recent["recent"][0]["tone3000"]["user"]["username"].toString(), juce::String("sample-user-a"));
+
+  // Not downloaded and not in the folder: no credit and the library origin.
+  const juce::File dropped = rig.dirs.library.getChildFile("Dropped.nam");
+  ASSERT_TRUE(testFile("a2-amp-test.nam").copyFileTo(dropped));
+  const juce::var plain = findAsset(rig.mustLocal("assets.list", R"({"limit":1000})"), "Dropped");
+  ASSERT_FALSE(plain.isVoid());
+  EXPECT_EQ(plain["origin"].toString(), juce::String("library"));
+  EXPECT_FALSE(plain.hasProperty("tone3000"));
+}
+
+TEST(NamLibrary, ADownloadedCaptureIsReusedNotDownloadedAgain) {
+  AgentRig rig;
+  const juce::String ask = R"({"tone":101,"capture":11})";
+  EXPECT_TRUE(rig.mustLocal("nam.downloaded", ask)["path"].toString().isEmpty());
+
+  const CommandResult kept = keepDownload(rig, "a2-amp-test.nam", 11, creditJson(101, "Harbor Crunch", "Gain 5, bright"));
+  ASSERT_TRUE(kept.ok);
+  const juce::String path = kept.value["path"].toString();
+  EXPECT_EQ(rig.mustLocal("nam.downloaded", ask)["path"].toString(), path);
+  // Found by tone and capture, not by the title: other captures are not it.
+  EXPECT_TRUE(rig.mustLocal("nam.downloaded", R"({"tone":101,"capture":12})")["path"].toString().isEmpty());
+  EXPECT_TRUE(rig.mustLocal("nam.downloaded", R"({"tone":102,"capture":11})")["path"].toString().isEmpty());
+
+  // Still found after a restart.
+  NamLibrary::resetForTesting();
+  EXPECT_EQ(rig.mustLocal("nam.downloaded", ask)["path"].toString(), path);
+
+  // The player deleted the file: it is downloaded again, and the new file takes
+  // the place of the old record (one entry, not two).
+  ASSERT_TRUE(juce::File(path).deleteFile());
+  EXPECT_TRUE(rig.mustLocal("nam.downloaded", ask)["path"].toString().isEmpty());
+  const CommandResult again = keepDownload(rig, "a2-amp-test.nam", 11, creditJson(101, "Harbor Crunch", "Gain 5, bright"));
+  ASSERT_TRUE(again.ok);
+  EXPECT_EQ(rig.mustLocal("nam.downloaded", ask)["path"].toString(), again.value["path"].toString());
+  const juce::var index = juce::JSON::parse(downloadsOf(rig).getChildFile("downloads.json"));
+  EXPECT_EQ(index["downloads"].size(), 1);
+
+  // An index edited to point outside the folder finds nothing there.
+  const juce::File outside = rig.dirs.library.getChildFile("Outside.nam");
+  ASSERT_TRUE(testFile("a2-amp-test.nam").copyFileTo(outside));
+  ASSERT_TRUE(downloadsOf(rig).getChildFile("downloads.json").replaceWithText(
+      R"({"v":1,"downloads":[{"file":"../Outside.nam","tone":7,"capture":8}]})"));
+  EXPECT_TRUE(rig.mustLocal("nam.downloaded", R"({"tone":7,"capture":8})")["path"].toString().isEmpty());
+
+  // Ids must be real.
+  EXPECT_FALSE(rig.local("nam.downloaded", R"({"tone":0,"capture":11})").ok);
+}
+
+TEST(NamLibrary, TheTone3000AppFoldersAreNotGuessedAnymore) {
+  AgentRig rig;
+  const CommandResult gone = rig.local("nam.tone3000Folders");
+  EXPECT_FALSE(gone.ok);
+  EXPECT_EQ(gone.errorCode, juce::String(CommandError::unknownCommand));
+  // A TONE3000 folder in the user's Documents or Downloads is not scanned: only the
+  // library, the stash and the folders the user added are.
+  const juce::File guess = rig.dirs.dir.getChildFile("Documents").getChildFile("TONE3000");
+  ASSERT_TRUE(guess.createDirectory().wasOk());
+  ASSERT_TRUE(testFile("a2-amp-test.nam").copyFileTo(guess.getChildFile("Guessed.nam")));
+  EXPECT_TRUE(findAsset(rig.mustLocal("assets.list", R"({"limit":1000})"), "Guessed").isVoid());
 }

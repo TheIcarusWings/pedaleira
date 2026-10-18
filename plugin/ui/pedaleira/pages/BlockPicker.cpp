@@ -177,8 +177,8 @@ void BlockPicker::openFor(int row, int slot) {
   grabKeyboardFocus();
 }
 
-// The library's captures and IRs, the folders added in Settings, the TONE3000
-// app's download folder and the copies of the files loaded once. The stash and
+// The library's captures and IRs (the downloads from TONE3000 among them), the
+// folders added in Settings and the copies of the files loaded once. The stash and
 // the asset store keep the same bytes under the same hash name, so a loaded
 // file is listed once, by the name it was loaded under.
 void BlockPicker::readAssets() {
@@ -249,7 +249,7 @@ void BlockPicker::readAssets() {
         if (item.detail.isEmpty())
           item.detail = tone3000::gearLabel(item.credit.gear);
       }
-      item.fromTone3000App = origin == "tone3000";
+      item.fromTone3000 = origin == "tone3000";
       item.modeledBy = asset["nam_modeled_by"].toString().trim();
       item.keywords = (item.name + " " + item.detail + " " + item.badge + " " + gear + " " + asset["nam_name"].toString() + " " +
                        item.credit.title + " " + item.credit.username + " " + item.modeledBy + " " +
@@ -668,7 +668,7 @@ void BlockPicker::paint(juce::Graphics& g) {
         const juce::String licence = type::dot() + "  Licence not in the file";
         const int licenceWidth = juce::jmin(second.getWidth() / 2, juce::roundToInt(juce::GlyphArrangement::getStringWidth(font, licence)) + 2);
         const juce::String who = item.modeledBy.isNotEmpty() ? "Modelled by " + item.modeledBy + " (per the file)"
-                                                             : juce::String("From the TONE3000 app, no creator in the file");
+                                                             : juce::String("Downloaded from TONE3000, no creator on record");
         auto line = second;
         const int whoWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(font, who)) + 2;
         const auto left = line.removeFromLeft(juce::jmin(whoWidth, line.getWidth() - licenceWidth - 6));

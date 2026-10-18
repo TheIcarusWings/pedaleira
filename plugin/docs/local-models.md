@@ -190,9 +190,25 @@ host boundary uses (the direction it lowers the rate in is the guitar input,
 which has little up there); the model bridge uses the sinc bank because
 what a capture puts out does (an 88.2 kHz capture's distortion, say).
 
-Nothing in the repo knew where a TONE3000 app keeps downloads (the plugin streams
-models into memory and stashes only local files). `NamLibrary::tone3000Candidates`
-lists the places to look, by platform: the `TONE3000` folder of the user's app data
-(`~/Library/Application Support`, `%APPDATA%` and `%LOCALAPPDATA%`, `~/.config`),
-and `TONE3000` in Documents and Downloads. They are guesses from the data-folder
-convention, not read from any app; a folder elsewhere is added in Settings.
+The TONE3000 desktop app has no downloads folder: it streams models into memory and
+embeds them in presets, and writes only content-addressed copies of the local files
+it loaded, so there is nothing of it to look for and Pedaleira does not guess.
+
+Captures downloaded on Pedaleira's own TONE3000 page are kept in the library:
+`<library>/TONE3000/<tone title> - <capture name>.nam` (the library is
+`<Documents>/Pedaleira` by default). The name is made by `NamLibrary::downloadBaseName`
+and is safe on every OS: the characters Windows refuses (`< > : " / \ | ? *`) and
+control characters become a hyphen, runs of spaces and hyphens shrink to one, a leading
+or trailing dot or space is dropped, a reserved Windows device name (`CON`, `NUL`,
+`COM1` and so on) gets a `TONE3000 ` prefix, the name is cut to 120 characters, and
+`TONE3000 capture` stands in for an empty one. A name already taken gets ` (2)`, ` (3)`
+and so on, never an overwrite. Beside the files, `downloads.json` remembers for each the
+tone id, the capture id and the credit (`tone3000`: tone, creator, licence), so:
+
+- the files persist across restarts and show in `assets.list` (`origin` `tone3000`,
+  with `tone3000`), in search and, once loaded, in `nam.recent`;
+- a capture already downloaded is reused (`nam.downloaded {tone, capture}`), not
+  downloaded again.
+
+The TONE3000 page downloads to a temporary file and hands it to `nam.keepDownload`
+(`{file, capture, tone3000}`, local only), which moves it into place and records it.

@@ -191,6 +191,14 @@ juce::var describeListed(const juce::File& file, const juce::File& tagRoot, cons
   juce::var asset = describeTaggedAsset(file, tagRoot, source, userTags);
   auto* obj = asset.getDynamicObject();
   obj->setProperty("origin", origin);
+  if (juce::String(origin) == "tone3000") {
+    // Downloaded on the TONE3000 page: the index beside the files keeps the
+    // credit, which survives the stash dropping its copy.
+    const juce::File root = file.getParentDirectory().getParentDirectory();
+    if (const juce::var credit = NamLibrary::downloadCredit(root, file); credit.isObject())
+      obj->setProperty("tone3000", credit);
+    return asset;
+  }
   if (juce::String(origin) != "loaded")
     return asset;
   const NamLibrary::Loaded record = NamLibrary::loadedFor(file.getFileName());
@@ -436,14 +444,14 @@ void AgentHub::registerGuitarCommands() {
       "chain.addToneFromFiles: the files under the library folder and the folders the user "
       "added (source library, tags from the folder names), the library's asset store (source "
       "assets: the model files of the saved presets, under content-hash names) and the local "
-      "model stash (source stash: files added before, also under content-hash names), and the "
-      "folders the TONE3000 app keeps its downloads in when they exist (source tone3000, "
-      "captures only; see nam.tone3000Folders). origin says where a file came from: library, "
-      "folder (one the user added), tone3000, or loaded (a copy kept for a file the user "
-      "loaded). A copy kept under a hash name is listed by the name the file was loaded "
-      "under (name, with loadedFrom and loadedAt, and tone3000 with the tone, creator and "
-      "licence when it was downloaded from TONE3000), else by its metadata name, and query "
-      "finds it by that name. A capture carries what its file "
+      "model stash (source stash: files added before, also under content-hash names). origin "
+      "says where a file came from: library, tone3000 (downloaded on the TONE3000 page, kept in "
+      "the library's TONE3000 folder; listed with tone3000, the tone, creator and licence), "
+      "folder (one the user added), or loaded (a copy kept for a file the user loaded). A copy "
+      "kept under a hash name is listed by the name the file was loaded under (name, with "
+      "loadedFrom and loadedAt, and tone3000 with the tone, creator and licence when it was "
+      "downloaded from TONE3000), else by its metadata name, and query finds it by that name. "
+      "A capture carries what its file "
       "says about itself as nam_name, nam_modeled_by, nam_gear_type, nam_gear_make, "
       "nam_gear_model, nam_tone_type, nam_gain and nam_loudness when present, and its architecture, "
       "architectureLabel, a2, sampleRate (when the file names the rate it was trained at) "
@@ -493,20 +501,9 @@ void AgentHub::registerGuitarCommands() {
         const std::atomic<bool>* cancel = &slowWorkCancel();
         AssetTags& tags = assetTags();
 
-        // The folders the TONE3000 app keeps downloads in, scanned for captures
-        // too (a folder that is already one of the roots is scanned once).
-        // Listed, not allowed: a client that wants to load from one adds it
-        // with roots.add, like any other folder.
         std::vector<std::pair<juce::File, const char*>> scanRoots;
         for (const auto& root : roots)
           scanRoots.emplace_back(root, root == stash ? "stash" : "library");
-        for (const auto& folder : NamLibrary::tone3000Folders()) {
-          const bool covered = std::any_of(roots.begin(), roots.end(), [&](const juce::File& r) {
-            return r == folder || LibraryPaths::isInside(folder, r);
-          });
-          if (!covered)
-            scanRoots.emplace_back(folder, "tone3000");
-        }
 
         return CommandWork::later([this, scanRoots, stash, scratch, guitarsDir, assetStore,
                                    libraryTrash, libraryRoot, kind, query, limit, untaggedOnly,
@@ -517,12 +514,9 @@ void AgentHub::registerGuitarCommands() {
             // Renders and guitar clips are WAVs too, and neither is an IR.
             if (root == scratch || !root.isDirectory())
               continue;
-            const bool tone3000Root = juce::String(rootSource) == "tone3000";
-            // The TONE3000 app's folders hold captures; the IRs there are its
-            // own and stay out of this list.
-            const char* patterns = tone3000Root ? "*.nam" : "*.nam;*.wav";
+            const juce::File downloads = NamLibrary::downloadsDir(libraryRoot);
             for (const auto& entry : juce::RangedDirectoryIterator(
-                     root, root != stash, patterns, juce::File::findFiles)) {
+                     root, root != stash, "*.nam;*.wav", juce::File::findFiles)) {
               if (shuttingDown().load() || cancel->load() || ++scanned > kMaxFilesScanned)
                 break;
               const juce::File file = entry.getFile();
@@ -532,7 +526,7 @@ void AgentHub::registerGuitarCommands() {
               const bool stored = file.isAChildOf(assetStore);
               const char* source = stored ? "assets" : rootSource;
               const char* origin = stored || root == stash ? "loaded"
-                                   : tone3000Root          ? "tone3000"
+                                   : file.isAChildOf(downloads)   ? "tone3000"
                                    : file.isAChildOf(libraryRoot) ? "library"
                                                                    : "folder";
               // No tags for the store: its one folder says nothing of a file.

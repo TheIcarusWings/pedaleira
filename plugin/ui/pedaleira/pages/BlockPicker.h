@@ -5,13 +5,13 @@
 //
 // Captures are listed by the name the player knows them by (the file name they
 // were loaded from, else the name inside the file), whether they sit in the
-// library, in a folder added in Settings, in the TONE3000 app's download
-// folder or were loaded once from a file; Recent lists the last ones loaded,
+// library (the captures downloaded from TONE3000 are kept in its TONE3000
+// folder), in a folder added in Settings or were loaded once from a file; Recent lists the last ones loaded,
 // and a capture Pedaleira cannot load says why instead of failing. The
 // Browse TONE3000 chip, always in the row of chips, browses TONE3000 itself
 // (Tone3000Panel). A capture that came from TONE3000 is listed with its image,
-// creator and licence (TONE3000's terms); one from the TONE3000 app's folder,
-// whose file says neither, says so.
+// creator and licence (TONE3000's terms); one in the TONE3000 folder whose
+// credit is not on record says so.
 #pragma once
 
 #include "../EngineClient.h"
@@ -97,11 +97,11 @@ private:
     // when it is added again so the new block keeps it; void otherwise.
     juce::var tone3000;
     Tone3000Credit credit;
-    // In the TONE3000 app's download folder, and who the file says modelled it.
-    bool fromTone3000App = false;
+    // In the library's TONE3000 downloads folder, and who the file says modelled it.
+    bool fromTone3000 = false;
     juce::String modeledBy;
-    // Two lines: a credit, or what the TONE3000 app's file does not say.
-    bool tall() const { return credit.known() || fromTone3000App; }
+    // Two lines: a credit, or what a downloaded file does not say.
+    bool tall() const { return credit.known() || fromTone3000; }
   };
   struct Row {
     bool heading = false;

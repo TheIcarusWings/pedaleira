@@ -472,68 +472,158 @@ void resetForTesting() {
 }
 
 // ####################
-// THE TONE3000 APP'S FOLDERS
+// CAPTURES DOWNLOADED FROM TONE3000
 // ####################
-std::vector<juce::File> tone3000Candidates(Platform platform, const juce::File& appData,
-                                           const juce::File& documents, const juce::File& home) {
-  std::vector<juce::File> out;
-  // The app's data folder: the one the plugin of the same family keeps its
-  // presets, its settings and its stash of local models in.
-  out.push_back(appData.getChildFile("TONE3000"));
-  // Windows keeps machine bound data in Local, beside Roaming (%APPDATA%).
-  if (platform == Platform::windows)
-    out.push_back(appData.getSiblingFile("Local").getChildFile("TONE3000"));
-  out.push_back(documents.getChildFile("TONE3000"));
-  out.push_back(home.getChildFile("Downloads").getChildFile("TONE3000"));
-  return out;
-}
-
 namespace {
-std::mutex& foldersMutex() {
+
+constexpr int kMaxBaseNameLength = 120;
+constexpr const char* kIndexName = "downloads.json";
+
+std::mutex& downloadsMutex() {
   static std::mutex m;
   return m;
 }
-std::vector<juce::File>& foldersOverride() {
-  static std::vector<juce::File> v;
-  return v;
+
+bool isReservedDeviceName(const juce::String& name) {
+  // Windows refuses these, with or without an extension.
+  const juce::String stem = name.upToFirstOccurrenceOf(".", false, false).trim().toUpperCase();
+  static const char* const fixed[] = {"CON", "PRN", "AUX", "NUL"};
+  for (const char* reserved : fixed)
+    if (stem == reserved)
+      return true;
+  return (stem.startsWith("COM") || stem.startsWith("LPT")) && stem.length() == 4 &&
+         stem[3] >= '1' && stem[3] <= '9';
 }
-bool& foldersOverridden() {
-  static bool b = false;
-  return b;
+
+juce::File indexFile(const juce::File& root) { return downloadsDir(root).getChildFile(kIndexName); }
+
+// The index's rows. Caller holds the mutex.
+juce::Array<juce::var> readIndex(const juce::File& root) {
+  juce::Array<juce::var> rows;
+  const juce::File file = indexFile(root);
+  if (!file.existsAsFile() || file.getSize() > 8 * 1024 * 1024)
+    return rows;
+  const juce::var parsed = juce::JSON::parse(file);
+  if (const auto* list = parsed["downloads"].getArray())
+    for (const auto& row : *list)
+      if (row.isObject() && row["file"].toString().isNotEmpty())
+        rows.add(row);
+  return rows;
 }
+
+// Caller holds the mutex.
+bool writeIndex(const juce::File& root, const juce::Array<juce::var>& rows) {
+  juce::DynamicObject::Ptr object = new juce::DynamicObject();
+  object->setProperty("v", 1);
+  object->setProperty("downloads", rows);
+  return indexFile(root).replaceWithText(juce::JSON::toString(juce::var(object.get()), false));
+}
+
+// A name in the downloads folder is a plain file name there: no folders.
+bool isPlainName(const juce::String& name) {
+  return name.isNotEmpty() && !name.containsAnyOf("/\\:") && !name.startsWithChar('.');
+}
+
 }  // namespace
 
-std::vector<juce::File> tone3000Folders() {
-  std::vector<juce::File> found;
-  for (const auto& folder : tone3000Searched())
-    if (folder.isDirectory())
-      found.push_back(folder);
-  return found;
-}
+juce::File downloadsDir(const juce::File& root) { return root.getChildFile(kDownloadsFolder); }
 
-std::vector<juce::File> tone3000Searched() {
-  {
-    const std::lock_guard<std::mutex> lock(foldersMutex());
-    if (foldersOverridden())
-      return foldersOverride();
+juce::String downloadBaseName(const juce::String& toneTitle, const juce::String& captureName) {
+  const juce::String title = toneTitle.trim();
+  const juce::String capture = captureName.trim();
+  const juce::String name =
+      title.isNotEmpty() && capture.isNotEmpty() ? title + " - " + capture : title + capture;
+  // Control characters and the characters Windows refuses become a hyphen.
+  juce::String safe;
+  for (auto c = name.getCharPointer(); !c.isEmpty(); ++c) {
+    const juce::juce_wchar ch = *c;
+    if (ch < 32 || ch == 127 || juce::String("<>:\"/\\|?*").containsChar(ch))
+      safe += "-";
+    else
+      safe += juce::String::charToString(ch);
   }
-  juce::File appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
-  Platform platform = Platform::other;
-#if JUCE_MAC
-  appData = appData.getChildFile("Application Support");
-  platform = Platform::mac;
-#elif JUCE_WINDOWS
-  platform = Platform::windows;
-#endif
-  return tone3000Candidates(platform, appData,
-                            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
-                            juce::File::getSpecialLocation(juce::File::userHomeDirectory));
+  // Runs of white space and of hyphens made by the replacement shrink to one.
+  while (safe.contains("  "))
+    safe = safe.replace("  ", " ");
+  while (safe.contains("--"))
+    safe = safe.replace("--", "-");
+  safe = safe.trim();
+  if (safe.length() > kMaxBaseNameLength)
+    safe = safe.substring(0, kMaxBaseNameLength);
+  // No trailing dot or space (Windows drops them), no leading dot (hidden).
+  while (safe.endsWithChar('.') || safe.endsWithChar(' '))
+    safe = safe.dropLastCharacters(1);
+  while (safe.startsWithChar('.') || safe.startsWithChar(' '))
+    safe = safe.substring(1);
+  if (safe.isEmpty())
+    return "TONE3000 capture";
+  if (isReservedDeviceName(safe))
+    return "TONE3000 " + safe;
+  return safe;
 }
 
-void setTone3000FoldersForTesting(const std::vector<juce::File>* folders) {
-  const std::lock_guard<std::mutex> lock(foldersMutex());
-  foldersOverridden() = folders != nullptr;
-  foldersOverride() = folders != nullptr ? *folders : std::vector<juce::File>();
+juce::File findDownload(const juce::File& root, int toneId, int captureId) {
+  if (toneId <= 0 || captureId <= 0)
+    return {};
+  const std::lock_guard<std::mutex> lock(downloadsMutex());
+  for (const auto& row : readIndex(root)) {
+    if (static_cast<int>(row["tone"]) != toneId || static_cast<int>(row["capture"]) != captureId)
+      continue;
+    const juce::String name = row["file"].toString();
+    const juce::File file = downloadsDir(root).getChildFile(name);
+    if (isPlainName(name) && file.existsAsFile() && file.getSize() > 0)
+      return file;
+  }
+  return {};
+}
+
+juce::Result keepDownload(const juce::File& root, const juce::File& temp, int captureId,
+                          const juce::var& tone3000, juce::File& kept) {
+  if (!temp.existsAsFile() || temp.getSize() == 0)
+    return juce::Result::fail("the downloaded file is not there or is empty");
+  const juce::String extension = temp.hasFileExtension("wav") ? ".wav" : ".nam";
+  const int toneId = tone3000.isObject() ? static_cast<int>(tone3000["id"]) : 0;
+  const std::lock_guard<std::mutex> lock(downloadsMutex());
+  const juce::File folder = downloadsDir(root);
+  if (!LibraryPaths::createPrivateDirectory(folder))
+    return juce::Result::fail("the TONE3000 downloads folder could not be made");
+  const juce::String base =
+      downloadBaseName(tone3000["title"].toString(), tone3000["capture"].toString());
+  juce::File target = folder.getChildFile(base + extension);
+  for (int n = 2; target.exists() && n < 10000; ++n)
+    target = folder.getChildFile(base + " (" + juce::String(n) + ")" + extension);
+  if (target.exists())
+    return juce::Result::fail("no free name for the download");
+  if (!temp.moveFileTo(target))
+    return juce::Result::fail("the download could not be saved in " + folder.getFullPathName());
+
+  // The same tone and capture downloaded before (its file was deleted): the
+  // new file takes its row.
+  juce::Array<juce::var> rows = readIndex(root);
+  for (int i = rows.size(); --i >= 0;)
+    if (toneId > 0 && captureId > 0 && static_cast<int>(rows[i]["tone"]) == toneId &&
+        static_cast<int>(rows[i]["capture"]) == captureId)
+      rows.remove(i);
+  juce::DynamicObject::Ptr row = new juce::DynamicObject();
+  row->setProperty("file", target.getFileName());
+  row->setProperty("tone", toneId);
+  row->setProperty("capture", captureId);
+  row->setProperty("tone3000", tone3000);
+  rows.add(juce::var(row.get()));
+  // A file without its row is still kept; it only loses the credit on a listing.
+  writeIndex(root, rows);
+  kept = target;
+  return juce::Result::ok();
+}
+
+juce::var downloadCredit(const juce::File& root, const juce::File& file) {
+  if (file.getParentDirectory() != downloadsDir(root))
+    return {};
+  const std::lock_guard<std::mutex> lock(downloadsMutex());
+  for (const auto& row : readIndex(root))
+    if (row["file"].toString() == file.getFileName() && row["tone3000"].isObject())
+      return row["tone3000"];
+  return {};
 }
 
 }  // namespace NamLibrary

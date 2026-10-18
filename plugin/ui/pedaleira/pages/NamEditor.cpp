@@ -228,6 +228,12 @@ void NamEditor::readAsset() {
   const juce::var tone = context.block["tone"];
   info.file = tone["title"].toString();
   info.source = static_cast<bool>(tone["local"]) ? "Local file" : "TONE3000";
+  // A capture from TONE3000 shows what TONE3000's terms ask: a catalog tone's
+  // summary, or what a downloaded file kept (chain.addToneFromFiles' tone3000).
+  info.credit = static_cast<bool>(tone["local"]) ? Tone3000Credit::fromAttribution(tone["tone3000"])
+                                                 : Tone3000Credit::fromSummary(tone);
+  if (info.credit.known())
+    info.source = "TONE3000";
   info.type = "Not in the file";
   info.calibration = "Not in the file";
 
@@ -339,10 +345,32 @@ void NamEditor::paint(juce::Graphics& g) {
       g.setColour(colour::text);
       g.drawText(text, row.withTrimmedTop(18).withHeight(20), juce::Justification::centredLeft, true);
     };
-    label(rows[0], "File");
-    value(rows[0], info.file + ".nam", true);
-    label(rows[1], "Source");
-    value(rows[1], info.source);
+    if (info.credit.known()) {
+      // From TONE3000: the tone's image, title, gear and format, then its
+      // creator with their avatar and its licence, over the File and Source rows.
+      const auto& credit = info.credit;
+      auto card = rows[0].getUnion(rows[1]);
+      label(card, "From TONE3000");
+      card.removeFromTop(20);
+      auto head = card.removeFromTop(40);
+      tone3000::drawArt(g, head.removeFromLeft(40).toFloat(), images.get(credit.imageUrl, false),
+                        tone3000::categoryOf(credit.gear, credit.format), 6.0f);
+      head.removeFromLeft(10);
+      g.setFont(type::sans(13.0f, type::Weight::semibold));
+      g.setColour(colour::text);
+      g.drawText(info.file, head.removeFromTop(20), juce::Justification::centredLeft, true);
+      g.setFont(type::sans(12.0f));
+      g.setColour(colour::muted);
+      g.drawText(tone3000::gearLabel(credit.gear) + "  " + type::dot() + "  " + tone3000::formatLabel(credit.format), head,
+                 juce::Justification::centredLeft, true);
+      card.removeFromTop(6);
+      tone3000::drawCreatorLine(g, card.removeFromTop(18), credit, images.get(credit.avatarUrl, true));
+    } else {
+      label(rows[0], "File");
+      value(rows[0], info.file + ".nam", true);
+      label(rows[1], "Source");
+      value(rows[1], info.source);
+    }
     label(rows[2], "Type");
     value(rows[2], info.type);
     label(rows[3], "Gain tag");

@@ -8,12 +8,16 @@
 // library, in a folder added in Settings, in the TONE3000 app's download
 // folder or were loaded once from a file; Recent lists the last ones loaded,
 // and a capture Pedaleira cannot load says why instead of failing. The
-// TONE3000 chip browses TONE3000 itself (Tone3000Panel).
+// Browse TONE3000 chip, always in the row of chips, browses TONE3000 itself
+// (Tone3000Panel). A capture that came from TONE3000 is listed with its image,
+// creator and licence (TONE3000's terms); one from the TONE3000 app's folder,
+// whose file says neither, says so.
 #pragma once
 
 #include "../EngineClient.h"
 #include "../Tokens.h"
 #include "../widgets/Controls.h"
+#include "Tone3000Credit.h"
 #include "Tone3000Feed.h"
 #include "Tone3000Panel.h"
 
@@ -63,6 +67,11 @@ public:
   void showNotice(const juce::String& text);
   // Testbed: the entries the list shows now, in order, as "name | detail".
   juce::StringArray shownEntries() const;
+  // Testbed: where a chip is, and where the listed row with this name draws
+  // its TONE3000 creator and licence (empty when it has none or is not shown).
+  juce::Rectangle<int> sourceChipBounds(int index) const { return chipBounds(index); }
+  tone3000::CreatorLine creditOf(const juce::String& name) const;
+  juce::Rectangle<int> listBounds() const { return listArea(); }
 
   // The kinds of entry the chips filter by, in the order of the chips.
   enum Source { all = 0, builtIn, captures, irs, plugins, recent, tone3000 };
@@ -84,6 +93,15 @@ private:
     int recentRank = -1;
     // Only in the recent list: its file is not one of the listed assets.
     bool recentOnly = false;
+    // Where it came from on TONE3000 (the engine's `tone3000`), given back
+    // when it is added again so the new block keeps it; void otherwise.
+    juce::var tone3000;
+    Tone3000Credit credit;
+    // In the TONE3000 app's download folder, and who the file says modelled it.
+    bool fromTone3000App = false;
+    juce::String modeledBy;
+    // Two lines: a credit, or what the TONE3000 app's file does not say.
+    bool tall() const { return credit.known() || fromTone3000App; }
   };
   struct Row {
     bool heading = false;
@@ -106,6 +124,10 @@ private:
   int rowAt(juce::Point<int> position) const;
   juce::Rectangle<int> categoryBounds(int index) const;
   juce::Rectangle<int> chipBounds(int index) const;
+  int heightOf(const Row& row) const;
+  // A listed row's place, and where its creator line goes.
+  juce::Rectangle<int> rowBounds(size_t index) const;
+  juce::Rectangle<int> nameCell(juce::Rectangle<int> row) const;
 
   EngineClient& engine;
   int targetRow = 0, targetSlot = 0;
@@ -121,6 +143,7 @@ private:
   juce::TextEditor search;
   juce::String notice;
   Tone3000Panel tonePanel;
+  Tone3000Images images{*this};
   PushButton close{"Close"};
   // A capture or IR from anywhere on the computer, without adding its folder.
   PushButton loadFile{juce::String::fromUTF8("Load a file\xe2\x80\xa6")};

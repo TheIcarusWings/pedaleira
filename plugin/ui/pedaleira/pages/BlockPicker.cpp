@@ -11,6 +11,8 @@ namespace {
 constexpr int kMargin = 24;
 constexpr int kSidebarWidth = 220;
 constexpr int kRowHeight = 38;
+// A row with a second line: a TONE3000 capture's creator and licence.
+constexpr int kTallRowHeight = 54;
 constexpr int kHeadingHeight = 30;
 constexpr int kNoticeHeight = 46;
 // The most files assets.list is asked for; a folder with more is listed in part.
@@ -28,7 +30,7 @@ const std::vector<std::pair<juce::String, Category>>& categoryList() {
 }
 
 const juce::StringArray& chipNames() {
-  static const juce::StringArray names{"All sources", "Built-in", "NAM captures", "IRs", "My plugins (VST3/AU)", "Recent", "TONE3000"};
+  static const juce::StringArray names{"All sources", "Built-in", "NAM captures", "IRs", "My plugins (VST3/AU)", "Recent", "Browse TONE3000"};
   return names;
 }
 
@@ -56,12 +58,13 @@ BlockPicker::BlockPicker(EngineClient& client) : engine(client) {
   addAndMakeVisible(loadFile);
   addChildComponent(tonePanel);
   // A capture downloaded from TONE3000 goes to the slot like any file.
-  tonePanel.onAddFile = [this](const juce::File& file, const juce::String& name,
+  tonePanel.onAddFile = [this](const juce::File& file, const juce::String& name, const juce::var& attribution,
                                std::function<void(const juce::String&)> finished) {
     Item item;
     item.id = file.getFullPathName();
     item.name = name;
     item.source = file.hasFileExtension("nam") ? captures : irs;
+    item.tone3000 = attribution;
     const bool added = add(item);
     // The panel shows the reason itself.
     const juce::String why = added ? juce::String() : notice;
@@ -70,9 +73,17 @@ BlockPicker::BlockPicker(EngineClient& client) : engine(client) {
   };
 }
 
-BlockPicker::~BlockPicker() { search.removeListener(this); }
+BlockPicker::~BlockPicker() {
+  search.removeListener(this);
+  Tone3000Feed::setShared(nullptr);
+}
 
-void BlockPicker::setTone3000Feed(Tone3000Feed* feed) { tonePanel.setFeed(feed); }
+void BlockPicker::setTone3000Feed(Tone3000Feed* feed) {
+  tonePanel.setFeed(feed);
+  images.setFeed(feed);
+  // The editors of the blocks it adds show their images through it too.
+  Tone3000Feed::setShared(feed);
+}
 
 void BlockPicker::showNotice(const juce::String& text) {
   notice = text;
@@ -219,7 +230,18 @@ void BlockPicker::readAssets() {
         item.reason = asset["unsupportedReason"].toString();
         item.model = item.unsupported ? asset["architectureLabel"].toString() : juce::String("Full, Lite");
       }
+      // Downloaded from TONE3000 through Pedaleira: its tone, creator and licence.
+      item.tone3000 = asset["tone3000"];
+      item.credit = Tone3000Credit::fromAttribution(item.tone3000);
+      if (item.credit.known()) {
+        item.badge = "TONE3000";
+        if (item.detail.isEmpty())
+          item.detail = tone3000::gearLabel(item.credit.gear);
+      }
+      item.fromTone3000App = origin == "tone3000";
+      item.modeledBy = asset["nam_modeled_by"].toString().trim();
       item.keywords = (item.name + " " + item.detail + " " + item.badge + " " + gear + " " + asset["nam_name"].toString() + " " +
+                       item.credit.title + " " + item.credit.username + " " + item.modeledBy + " " +
                        juce::File(asset["loadedFrom"].toString()).getFileName() + " " + asset["architectureLabel"].toString() + " " +
                        juce::File(path).getFileNameWithoutExtension())
                           .toLowerCase();
@@ -239,10 +261,21 @@ void BlockPicker::readRecent() {
   int rank = 0;
   for (const auto& entry : *list) {
     const juce::String path = entry["path"].toString();
+    const juce::var attribution = entry["tone3000"];
+    // The recent list knows where a file came from even when the listed copy does not say.
+    const auto credit = [&attribution](Item& item) {
+      if (!attribution.isObject() || item.credit.known())
+        return;
+      item.tone3000 = attribution;
+      item.credit = Tone3000Credit::fromAttribution(attribution);
+      if (item.source == captures)
+        item.badge = "TONE3000";
+    };
     bool found = false;
     for (auto& item : items)
       if (item.id == path && item.source != builtIn && item.source != plugins) {
         item.recentRank = rank;
+        credit(item);
         found = true;
         break;
       }
@@ -252,6 +285,7 @@ void BlockPicker::readRecent() {
         if (item.source == captures && item.recentRank < 0 && !item.recentOnly && item.name == entry["name"].toString() &&
             entry["kind"].toString() == "capture") {
           item.recentRank = rank;
+          credit(item);
           found = true;
           break;
         }
@@ -268,7 +302,8 @@ void BlockPicker::readRecent() {
         item.reason = entry["unsupportedReason"].toString();
         item.model = item.unsupported ? entry["architectureLabel"].toString() : juce::String("Full, Lite");
       }
-      item.keywords = (item.name + " " + item.badge).toLowerCase();
+      credit(item);
+      item.keywords = (item.name + " " + item.badge + " " + item.credit.title + " " + item.credit.username).toLowerCase();
       item.recentRank = rank;
       item.recentOnly = true;
       items.push_back(item);
@@ -431,12 +466,50 @@ int BlockPicker::rowAt(juce::Point<int> position) const {
     return -1;
   int y = area.getY() + 20 - scroll;
   for (size_t i = 0; i < rows.size(); ++i) {
-    const int height = rows[i].heading ? kHeadingHeight : kRowHeight;
+    const int height = heightOf(rows[i]);
     if (position.y >= y && position.y < y + height)
       return rows[i].heading ? -1 : static_cast<int>(i);
     y += height + 2;
   }
   return -1;
+}
+
+int BlockPicker::heightOf(const Row& row) const {
+  if (row.heading)
+    return kHeadingHeight;
+  return items[static_cast<size_t>(row.item)].tall() ? kTallRowHeight : kRowHeight;
+}
+
+juce::Rectangle<int> BlockPicker::rowBounds(size_t index) const {
+  const auto area = listArea();
+  int y = area.getY() + 20 - scroll;
+  for (size_t i = 0; i < index && i < rows.size(); ++i)
+    y += heightOf(rows[i]) + 2;
+  return {area.getX(), y, area.getWidth(), index < rows.size() ? heightOf(rows[index]) : 0};
+}
+
+// The name column of a row: the list's columns are fixed, the name takes the rest.
+juce::Rectangle<int> BlockPicker::nameCell(juce::Rectangle<int> row) const {
+  const int nameWidth = listArea().getWidth() - 100 - 120 - 76 - 36 - 4 * 10 - 16;
+  return row.reduced(10, 0).withWidth(nameWidth);
+}
+
+tone3000::CreatorLine BlockPicker::creditOf(const juce::String& name) const {
+  if (source == tone3000)
+    return {};
+  for (size_t i = 0; i < rows.size(); ++i) {
+    if (rows[i].heading)
+      continue;
+    const Item& item = items[static_cast<size_t>(rows[i].item)];
+    if (item.name != name || !item.credit.known())
+      continue;
+    const auto row = rowBounds(i);
+    if (!row.intersects(listArea().withTrimmedTop(20)))
+      return {};
+    auto cell = nameCell(row).withTrimmedLeft(32 + 10);
+    return tone3000::creatorLine(cell.withTop(row.getY() + 28).withHeight(18), item.credit, true);
+  }
+  return {};
 }
 
 void BlockPicker::paint(juce::Graphics& g) {
@@ -557,21 +630,53 @@ void BlockPicker::paint(juce::Graphics& g) {
       continue;
     }
     const Item& item = items[static_cast<size_t>(row.item)];
-    const auto r = juce::Rectangle<int>(area.getX(), y, area.getWidth(), kRowHeight);
+    const int height = heightOf(row);
+    const auto r = juce::Rectangle<int>(area.getX(), y, area.getWidth(), height);
     if (static_cast<int>(i) == hover) {
       g.setColour(colour::raised);
       g.fillRoundedRectangle(r.toFloat(), size::buttonRadius);
     }
     const auto c = columns(r);
     auto name = c[0];
-    const auto icon = name.removeFromLeft(24).toFloat().withSizeKeepingCentre(24.0f, 24.0f);
-    g.setColour(categoryTint(item.category));
-    g.fillRoundedRectangle(icon, 6.0f);
-    icons::draw(g, icons::path(item.category), icon.reduced(5.0f), categoryColour(item.category));
-    name.removeFromLeft(10);
-    g.setFont(type::sans(13.0f, type::Weight::semibold));
-    g.setColour(item.unsupported ? colour::dim : colour::text);
-    g.drawText(item.name, name, juce::Justification::centredLeft, true);
+    if (item.tall()) {
+      // The tone's image (or the gear's tile), the name, and under it the
+      // creator and licence TONE3000 asks to be shown, or what the file lacks.
+      const auto art = name.removeFromLeft(32).toFloat().withSizeKeepingCentre(32.0f, 32.0f);
+      const Category category = item.credit.known() ? tone3000::categoryOf(item.credit.gear, item.credit.format) : item.category;
+      tone3000::drawArt(g, art, images.get(item.credit.imageUrl, false), category, 6.0f);
+      name.removeFromLeft(10);
+      g.setFont(type::sans(13.0f, type::Weight::semibold));
+      g.setColour(item.unsupported ? colour::dim : colour::text);
+      g.drawText(item.name, name.withTop(r.getY() + 8).withHeight(18), juce::Justification::centredLeft, true);
+      const auto second = name.withTop(r.getY() + 28).withHeight(18);
+      if (item.credit.known()) {
+        tone3000::drawCreatorLine(g, second, item.credit, images.get(item.credit.avatarUrl, true));
+      } else {
+        // What the file does not say is said, the licence part in full.
+        const juce::Font font = type::sans(12.0f);
+        const juce::String licence = type::dot() + "  Licence not in the file";
+        const int licenceWidth = juce::jmin(second.getWidth() / 2, juce::roundToInt(juce::GlyphArrangement::getStringWidth(font, licence)) + 2);
+        const juce::String who = item.modeledBy.isNotEmpty() ? "Modelled by " + item.modeledBy + " (per the file)"
+                                                             : juce::String("From the TONE3000 app, no creator in the file");
+        auto line = second;
+        const int whoWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(font, who)) + 2;
+        const auto left = line.removeFromLeft(juce::jmin(whoWidth, line.getWidth() - licenceWidth - 6));
+        line.removeFromLeft(6);
+        g.setFont(font);
+        g.setColour(colour::muted);
+        g.drawText(who, left, juce::Justification::centredLeft, true);
+        g.drawText(licence, line.withWidth(licenceWidth), juce::Justification::centredLeft, true);
+      }
+    } else {
+      const auto icon = name.removeFromLeft(24).toFloat().withSizeKeepingCentre(24.0f, 24.0f);
+      g.setColour(categoryTint(item.category));
+      g.fillRoundedRectangle(icon, 6.0f);
+      icons::draw(g, icons::path(item.category), icon.reduced(5.0f), categoryColour(item.category));
+      name.removeFromLeft(10);
+      g.setFont(type::sans(13.0f, type::Weight::semibold));
+      g.setColour(item.unsupported ? colour::dim : colour::text);
+      g.drawText(item.name, name, juce::Justification::centredLeft, true);
+    }
     const juce::Font badgeFont = type::sans(11.0f, type::Weight::semibold);
     const auto badge = c[1].withWidth(juce::roundToInt(juce::GlyphArrangement::getStringWidth(badgeFont, item.badge)) + 16)
                            .withSizeKeepingCentre(juce::roundToInt(juce::GlyphArrangement::getStringWidth(badgeFont, item.badge)) + 16, 20)
@@ -589,7 +694,7 @@ void BlockPicker::paint(juce::Graphics& g) {
     if (item.unsupported)
       icons::draw(g, icons::path(icons::Icon::warning), juce::Rectangle<float>(static_cast<float>(c[3].getRight() + 8), static_cast<float>(c[3].getCentreY() - 8), 16.0f, 16.0f),
                   colour::warn);
-    y += kRowHeight + 2;
+    y += height + 2;
   }
   if (rows.empty()) {
     g.setFont(type::body());
@@ -655,7 +760,7 @@ void BlockPicker::mouseUp(const juce::MouseEvent& event) {
 void BlockPicker::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) {
   int content = 0;
   for (const auto& row : rows)
-    content += (row.heading ? kHeadingHeight : kRowHeight) + 2;
+    content += heightOf(row) + 2;
   const int maxScroll = juce::jmax(0, content + 20 - listArea().getHeight());
   scroll = juce::jlimit(0, maxScroll, scroll - juce::roundToInt(wheel.deltaY * 200.0f));
   repaint(listArea());
@@ -685,6 +790,12 @@ bool BlockPicker::add(const Item& item) {
     reply = engine.run("chain.addBlock", object({{"kind", item.id}, {"row", targetRow}, {"slot", targetSlot}}));
   else if (item.source == plugins)
     reply = engine.run("chain.addPlugin", object({{"identifier", item.id}, {"row", targetRow}, {"slot", targetSlot}}));
+  else if (item.tone3000.isObject())
+    // The block keeps where the file came from on TONE3000.
+    reply = engine.run("chain.addToneFromFiles", object({{"paths", juce::Array<juce::var>{item.id}},
+                                                         {"row", targetRow},
+                                                         {"slot", targetSlot},
+                                                         {"tone3000", item.tone3000}}));
   else
     reply = engine.run("chain.addToneFromFiles",
                        object({{"paths", juce::Array<juce::var>{item.id}}, {"row", targetRow}, {"slot", targetSlot}}));

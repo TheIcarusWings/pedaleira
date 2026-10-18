@@ -4,7 +4,8 @@
 
 set(PEDALEIRA_UI_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
-# The two typefaces of the design, both SIL OFL 1.1 (assets/README.md).
+# The two typefaces of the design, both SIL OFL 1.1 (assets/README.md), and
+# TONE3000's wordmark.
 if (NOT TARGET PedaleiraUiData)
     juce_add_binary_data(PedaleiraUiData
         NAMESPACE PedaleiraUiData
@@ -17,6 +18,9 @@ if (NOT TARGET PedaleiraUiData)
             "${PEDALEIRA_UI_DIR}/assets/HankenGrotesk-500Italic.ttf"
             "${PEDALEIRA_UI_DIR}/assets/JetBrainsMono-400.ttf"
             "${PEDALEIRA_UI_DIR}/assets/JetBrainsMono-500.ttf"
+            # TONE3000's wordmark as TONE3000 ships it (the upstream plugin's
+            # asset), for the attribution their API terms ask for.
+            "${PEDALEIRA_UI_DIR}/../assets/t3k.svg"
     )
     set_target_properties(PedaleiraUiData PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()

@@ -13,3 +13,8 @@ python3 -m fontTools.varLib.instancer "HankenGrotesk[wght].ttf" wght=600 -o Hank
 
 JUCE cannot select a weight on a variable font, so the instances are what is embedded.
 Neither font declares a Reserved Font Name.
+
+The TONE3000 wordmark is not here: the build embeds `plugin/ui/assets/t3k.svg`, the wordmark
+TONE3000 ships with its own open source plugin, as it is (no recolouring). It is TONE3000's
+mark, shown only as the attribution its API terms ask for ("Powered by TONE3000", the splash
+before sign-in).

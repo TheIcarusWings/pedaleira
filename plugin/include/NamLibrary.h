@@ -55,6 +55,10 @@ struct Loaded {
   juce::int64 loadedAt = 0;
   // Shown in the recent list; false after nam.clearRecent.
   bool recent = true;
+  // Where the file came from on TONE3000 (TONE3000Processor::
+  // tone3000Attribution), so its creator and licence stay shown; void for a
+  // file that did not come from there.
+  juce::var tone3000;
 };
 
 // Remembers that `name` was loaded from `sourcePath` and kept as `stashFile`
@@ -66,6 +70,9 @@ void noteLoaded(const juce::String& name, const juce::String& sourcePath,
 // A file that is already in the stash was loaded again by its hash name:
 // brings its record to the front of the recent list and keeps the name it has.
 void touchLoaded(const juce::String& stashFile);
+// The stash file came from TONE3000: keeps the attribution with its record
+// (and with every later load of the same bytes).
+void noteTone3000(const juce::String& stashFile, const juce::var& attribution);
 // The record for a stash file name, or an empty name when none.
 Loaded loadedFor(const juce::String& stashFileName);
 // The loaded files, newest first. `onlyRecent` leaves out the ones cleared

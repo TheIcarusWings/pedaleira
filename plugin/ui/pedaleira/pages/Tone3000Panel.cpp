@@ -12,48 +12,21 @@ namespace {
 
 constexpr int kHeaderHeight = 44;
 constexpr int kTabsHeight = 38;
-constexpr int kDetailWidth = 340;
 constexpr int kTableHead = 24;
-constexpr int kRowHeight = 56;
+// Rows with the gear, format and captures in columns, and rows that fold them
+// under the title when the table is narrow.
+constexpr int kWideRow = 60;
+constexpr int kCompactRow = 70;
+constexpr int kGearColumn = 120;
+constexpr int kFormatColumn = 76;
+constexpr int kCapturesColumn = 86;
+constexpr int kLeastNameColumn = 300;
 constexpr int kCaptureRow = 34;
 constexpr int kMaxCaptureRows = 6;
 constexpr int kMessageHeight = 92;
+// Below this the detail column drops the description and uses a smaller image.
+constexpr int kRoomyDetail = 460;
 const char* const kSite = "https://www.tone3000.com";
-
-Category categoryOfGear(const juce::String& gear) {
-  const juce::String id = gear.toLowerCase();
-  if (id == "amp" || id == "amp-cab" || id == "amp_cab" || id == "full-rig" || id == "full_rig")
-    return Category::amp;
-  if (id == "pedal")
-    return Category::drive;
-  if (id == "cab" || id == "ir")
-    return Category::cab;
-  if (id == "outboard")
-    return Category::eq;
-  if (id == "space" || id == "spaces")
-    return Category::reverb;
-  return Category::utility;
-}
-
-juce::String gearLabel(const juce::String& gear) {
-  const juce::String id = gear.toLowerCase();
-  if (id == "amp")
-    return "Amp Head";
-  if (id == "amp-cab" || id == "amp_cab" || id == "full-rig" || id == "full_rig")
-    return "Amp + Cab";
-  if (id == "cab")
-    return "Cabinet";
-  if (id == "space" || id == "spaces")
-    return "Spaces";
-  if (id.isEmpty())
-    return "Other";
-  return id.substring(0, 1).toUpperCase() + id.substring(1);
-}
-
-juce::String formatLabel(const juce::String& format) {
-  return format.equalsIgnoreCase("nam") ? juce::String("NAM A2") : format.equalsIgnoreCase("ir") ? juce::String("IR")
-                                                                                                 : format.toUpperCase();
-}
 
 juce::String capturesText(const Tone3000Tone& tone) {
   const juce::String unit = tone.format.equalsIgnoreCase("ir") ? "IR" : "capture";
@@ -69,7 +42,59 @@ juce::String reachText(const juce::String& error) {
   return "TONE3000 could not be reached. Check the connection and try again.";
 }
 
+const char* const kNoSignIn = "Signing in from Pedaleira is not available yet. Trending and Latest work without an account.";
+
 }  // namespace
+
+// ####################
+// SPLASH
+// ####################
+// TONE3000's splash: its wordmark, what it is in a line, and Continue. Shown
+// over the whole page; the page behind loads nothing until it is continued.
+class Tone3000Panel::Splash : public juce::Component {
+public:
+  Splash() {
+    setTitle("TONE3000");
+    addAndMakeVisible(go);
+    go.onClick = [this] {
+      if (onContinue)
+        onContinue();
+    };
+  }
+
+  std::function<void()> onContinue;
+
+  juce::Rectangle<int> card() const {
+    const int w = juce::jmin(520, getWidth() - 32);
+    const int h = juce::jmin(220, getHeight() - 24);
+    return getLocalBounds().withSizeKeepingCentre(w, h).withY(juce::jmax(12, (getHeight() - h) / 2 - 20));
+  }
+
+  void paint(juce::Graphics& g) override {
+    g.fillAll(colour::surface);
+    const auto box = card();
+    paint::panel(g, box.toFloat(), colour::raised);
+    auto inner = box.reduced(28, 30);
+    // The wordmark with its clear space: nothing else within half its height.
+    constexpr float markHeight = 28.0f;
+    const auto markRow = inner.removeFromTop(juce::roundToInt(markHeight)).toFloat();
+    tone3000::drawWordmark(g, markRow, juce::Justification::centred);
+    inner.removeFromTop(juce::roundToInt(tone3000::wordmarkClearSpace(markHeight)) + 8);
+    g.setFont(type::body());
+    g.setColour(colour::text);
+    g.drawFittedText("Captures and IRs from the TONE3000 community, ready to add to your rig.", inner.removeFromTop(40),
+                     juce::Justification::centredTop, 2, 0.92f);
+  }
+
+  void resized() override {
+    const auto box = card();
+    const int w = juce::jmax(140, go.idealWidth() + 32);
+    go.setBounds(box.getCentreX() - w / 2, box.getBottom() - 30 - 40, w, 40);
+  }
+
+private:
+  PushButton go{"Continue", PushButton::Kind::primary};
+};
 
 Tone3000Panel::Tone3000Panel() {
   setTitle("TONE3000");
@@ -88,15 +113,23 @@ Tone3000Panel::Tone3000Panel() {
   retry.setVisible(false);
   openTone.setVisible(false);
   add.setVisible(false);
+  splash = std::make_unique<Splash>();
+  splash->onContinue = [this] { continueSplash(); };
+  addChildComponent(*splash);
 }
+
+Tone3000Panel::~Tone3000Panel() = default;
 
 void Tone3000Panel::setFeed(Tone3000Feed* newFeed) {
   feed = newFeed;
+  images.setFeed(newFeed);
   for (auto& t : tabs)
     t = {};
   chosenTone = chosenCapture = -1;
   capturesState = CapturesState::none;
   message = {};
+  splash->setVisible(false);
+  afterSplash = nullptr;
 }
 
 void Tone3000Panel::setTarget(int row, int slot) {
@@ -109,8 +142,46 @@ void Tone3000Panel::setTarget(int row, int slot) {
 void Tone3000Panel::show() {
   scroll = 0;
   message = {};
+  // TONE3000's splash comes first, once per user.
+  if (feed != nullptr && !feed->introSeen()) {
+    showSplash([this] { show(); });
+    return;
+  }
   if (feed != nullptr)
     loadTab(tab, false);
+  resized();
+  repaint();
+}
+
+void Tone3000Panel::beginSignIn() {
+  showSplash([this] {
+    // The sign-in itself comes in a later build.
+    message = kNoSignIn;
+    resized();
+    repaint();
+  });
+}
+
+void Tone3000Panel::showSplash(std::function<void()> then) {
+  afterSplash = std::move(then);
+  splash->setVisible(true);
+  splash->toFront(false);
+  resized();
+  repaint();
+}
+
+bool Tone3000Panel::splashShown() const { return splash->isVisible(); }
+
+void Tone3000Panel::continueSplash() {
+  if (!splash->isVisible())
+    return;
+  if (feed != nullptr)
+    feed->markIntroSeen();
+  splash->setVisible(false);
+  auto then = std::move(afterSplash);
+  afterSplash = nullptr;
+  if (then)
+    then();
   resized();
   repaint();
 }
@@ -130,7 +201,8 @@ void Tone3000Panel::selectTab(Tone3000List which) {
   capturesState = CapturesState::none;
   message = {};
   scroll = 0;
-  if (feed != nullptr)
+  // Nothing is asked of TONE3000 before its splash was continued.
+  if (feed != nullptr && !splashShown() && feed->introSeen())
     loadTab(which, false);
   resized();
   repaint();
@@ -219,13 +291,16 @@ void Tone3000Panel::addSelected() {
       finish("Nothing is waiting for a capture here.");
       return;
     }
-    self->onAddFile(got.file, tone.title + " - " + capture.name, finish);
+    // The block keeps where it came from: the tone, its creator and licence.
+    self->onAddFile(got.file, tone.title + " - " + capture.name, Tone3000Credit::fromTone(tone, capture.name).toAttribution(), finish);
   });
 }
 
 // ####################
 // LAYOUT
 // ####################
+int Tone3000Panel::detailWidth() const { return juce::jlimit(272, 340, juce::roundToInt(getWidth() * 0.38f)); }
+
 juce::Rectangle<int> Tone3000Panel::headerArea() const { return getLocalBounds().removeFromTop(kHeaderHeight); }
 
 juce::Rectangle<int> Tone3000Panel::tabBounds(int index) const {
@@ -238,18 +313,50 @@ juce::Rectangle<int> Tone3000Panel::tabBounds(int index) const {
 
 juce::Rectangle<int> Tone3000Panel::tableArea() const {
   auto area = getLocalBounds().withTrimmedTop(kHeaderHeight + kTabsHeight + 8);
-  area.removeFromRight(kDetailWidth + 16);
+  area.removeFromRight(detailWidth() + 16);
   return area;
 }
 
 juce::Rectangle<int> Tone3000Panel::detailArea() const {
   auto area = getLocalBounds().withTrimmedTop(kHeaderHeight + kTabsHeight + 8);
-  return area.removeFromRight(kDetailWidth);
+  return area.removeFromRight(detailWidth());
 }
+
+bool Tone3000Panel::wideRows() const {
+  return tableArea().getWidth() - 20 - kGearColumn - kFormatColumn - kCapturesColumn - 3 * 10 >= kLeastNameColumn;
+}
+
+int Tone3000Panel::rowHeight() const { return wideRows() ? kWideRow : kCompactRow; }
 
 juce::Rectangle<int> Tone3000Panel::rowBounds(int index) const {
   const auto area = tableArea();
-  return {area.getX(), area.getY() + kTableHead + index * (kRowHeight + 2) - scroll, area.getWidth(), kRowHeight};
+  return {area.getX(), area.getY() + kTableHead + index * (rowHeight() + 2) - scroll, area.getWidth(), rowHeight()};
+}
+
+Tone3000Panel::RowLayout Tone3000Panel::rowLayout(juce::Rectangle<int> row) const {
+  RowLayout l;
+  l.columns = wideRows();
+  auto r = row.reduced(10, 0);
+  if (l.columns) {
+    l.captures = r.removeFromRight(kCapturesColumn);
+    r.removeFromRight(10);
+    l.format = r.removeFromRight(kFormatColumn);
+    r.removeFromRight(10);
+    l.gear = r.removeFromRight(kGearColumn);
+    r.removeFromRight(10);
+  }
+  const int side = l.columns ? 44 : 50;
+  l.art = r.removeFromLeft(side).withSizeKeepingCentre(side, side);
+  r.removeFromLeft(12);
+  if (l.columns) {
+    l.title = {r.getX(), row.getY() + 9, r.getWidth(), 18};
+    l.creatorLine = {r.getX(), row.getY() + 32, r.getWidth(), 18};
+  } else {
+    l.title = {r.getX(), row.getY() + 8, r.getWidth(), 18};
+    l.meta = {r.getX(), row.getY() + 27, r.getWidth(), 16};
+    l.creatorLine = {r.getX(), row.getY() + 46, r.getWidth(), 18};
+  }
+  return l;
 }
 
 int Tone3000Panel::rowAt(juce::Point<int> position) const {
@@ -262,39 +369,76 @@ int Tone3000Panel::rowAt(juce::Point<int> position) const {
   return -1;
 }
 
-namespace {
-// Where the detail column puts things, from its top.
-struct DetailLayout {
-  juce::Rectangle<int> title, creator, chips, description, licence, captureLabel;
-  int capturesTop = 0;
-};
-
-DetailLayout detailLayout(juce::Rectangle<int> area) {
+Tone3000Panel::DetailLayout Tone3000Panel::detailLayout() const {
   DetailLayout l;
-  auto r = area.reduced(16, 16);
-  l.title = r.removeFromTop(46);
+  const auto area = detailArea();
+  const bool roomy = area.getHeight() >= kRoomyDetail;
+  auto r = area.reduced(16, 14);
+  const int side = roomy ? 72 : 52;
+  auto top = r.removeFromTop(side);
+  l.art = top.removeFromLeft(side);
+  top.removeFromLeft(12);
+  l.chips = top.removeFromBottom(22);
+  l.title = top.withTrimmedBottom(4);
+  r.removeFromTop(12);
+  l.creatorLine = r.removeFromTop(20);
   r.removeFromTop(4);
-  l.creator = r.removeFromTop(20);
-  r.removeFromTop(8);
-  l.chips = r.removeFromTop(24);
-  r.removeFromTop(10);
-  l.description = r.removeFromTop(84);
-  r.removeFromTop(6);
   l.licence = r.removeFromTop(18);
-  r.removeFromTop(14);
+  r.removeFromTop(12);
+  // Above the buttons, and the line that says what went wrong with an add.
+  l.capturesBottom = openTone.getY() - 8 - (message.isNotEmpty() || adding ? 40 : 0);
+  if (roomy) {
+    l.description = r.removeFromTop(52);
+    r.removeFromTop(12);
+  }
   l.captureLabel = r.removeFromTop(16);
   r.removeFromTop(8);
   l.capturesTop = r.getY();
   return l;
 }
-}  // namespace
+
+int Tone3000Panel::capturesThatFit() const {
+  const auto l = detailLayout();
+  return juce::jlimit(1, kMaxCaptureRows, (l.capturesBottom - l.capturesTop + 4) / (kCaptureRow + 4));
+}
+
+// The chosen capture is always among those shown.
+int Tone3000Panel::firstShownCapture() const {
+  const int total = static_cast<int>(captureList.captures.size());
+  const int shown = juce::jmin(total, capturesThatFit());
+  return juce::jlimit(0, juce::jmax(0, total - shown), chosenCapture - shown + 1);
+}
 
 juce::Rectangle<int> Tone3000Panel::captureBounds(int index) const {
-  const auto l = detailLayout(detailArea());
+  const auto l = detailLayout();
   return {l.captureLabel.getX(), l.capturesTop + index * (kCaptureRow + 4), l.captureLabel.getWidth(), kCaptureRow};
 }
 
+tone3000::CreatorLine Tone3000Panel::rowCredit(int index) const {
+  if (index < 0 || index >= toneCount() || splashShown())
+    return {};
+  const auto row = rowBounds(index);
+  if (!row.intersects(tableArea().withTrimmedTop(kTableHead)))
+    return {};
+  const auto credit = Tone3000Credit::fromTone(state().result.tones[static_cast<size_t>(index)]);
+  return tone3000::creatorLine(rowLayout(row).creatorLine, credit, true);
+}
+
+tone3000::CreatorLine Tone3000Panel::detailCredit() const {
+  if (chosenTone < 0 || chosenTone >= toneCount() || splashShown())
+    return {};
+  const auto credit = Tone3000Credit::fromTone(state().result.tones[static_cast<size_t>(chosenTone)]);
+  return tone3000::creatorLine(detailLayout().creatorLine, credit, false);
+}
+
+juce::Rectangle<int> Tone3000Panel::detailLicence() const {
+  if (chosenTone < 0 || chosenTone >= toneCount() || splashShown())
+    return {};
+  return detailLayout().licence;
+}
+
 void Tone3000Panel::resized() {
+  splash->setBounds(getLocalBounds());
   const auto header = headerArea();
   const int browseWidth = browse.idealWidth() + 8;
   browse.setBounds(header.getRight() - browseWidth, header.getY() + 6, browseWidth, 32);
@@ -317,28 +461,25 @@ juce::String Tone3000Panel::emptyText() const {
   if (feed == nullptr)
     return "Browsing TONE3000 is not available in this build.";
   const TabState& s = state();
+  const juce::String needs = juce::String(tone3000ListName(tab)) + " needs a TONE3000 account. " + kNoSignIn;
   if (tone3000ListNeedsAccount(tab) && !signedIn() && !(s.loaded && s.result.ok))
-    return juce::String(tone3000ListName(tab)) + " needs a TONE3000 account. Signing in from Pedaleira is not available yet. "
-                                                 "Trending and Latest work without one.";
+    return needs;
   if (s.loading || !s.loaded)
     return juce::String::fromUTF8("Loading from TONE3000\xe2\x80\xa6");
   if (!s.result.ok)
-    return s.result.needsAccount ? juce::String(tone3000ListName(tab)) + " needs a TONE3000 account. Signing in from Pedaleira is not "
-                                                                         "available yet. Trending and Latest work without one."
-                                 : reachText(s.result.error);
+    return s.result.needsAccount ? needs : reachText(s.result.error);
   return "Nothing here yet.";
 }
 
-void Tone3000Panel::paint(juce::Graphics& g) {
-  // Who is signed in, and the attribution TONE3000 asks for.
+void Tone3000Panel::paintHeader(juce::Graphics& g) {
+  // The attribution TONE3000 asks for: its own wordmark, then who is signed in.
   const auto header = headerArea();
-  g.setFont(type::sans(12.0f, type::Weight::semibold));
-  g.setColour(colour::muted);
-  g.drawText("Powered by TONE3000", header.getX(), header.getY(), 160, header.getHeight(), juce::Justification::centredLeft, false);
+  tone3000::drawPoweredBy(g, header.withWidth(tone3000::poweredByWidth(header.getHeight())));
   const bool in = signedIn();
   const juce::String who = !in ? juce::String("Not signed in to TONE3000")
                                : feed->userName().isNotEmpty() ? "Signed in as " + feed->userName() : juce::String("Signed in to TONE3000");
-  const auto dotArea = juce::Rectangle<float>(static_cast<float>(header.getX() + 176), header.getCentreY() - 4.0f, 8.0f, 8.0f);
+  const int x = header.getX() + tone3000::poweredByWidth(header.getHeight()) + 24;
+  const auto dotArea = juce::Rectangle<float>(static_cast<float>(x), header.getCentreY() - 4.0f, 8.0f, 8.0f);
   if (in) {
     g.setColour(colour::ok);
     g.fillEllipse(dotArea);
@@ -348,9 +489,15 @@ void Tone3000Panel::paint(juce::Graphics& g) {
   }
   g.setFont(type::sans(12.0f));
   g.setColour(colour::muted);
-  g.drawText(who, header.getX() + 192, header.getY(), 260, header.getHeight(), juce::Justification::centredLeft, true);
+  g.drawText(who, x + 16, header.getY(), juce::jmax(0, browse.getX() - 12 - (x + 16)), header.getHeight(), juce::Justification::centredLeft,
+             true);
+}
+
+void Tone3000Panel::paint(juce::Graphics& g) {
+  paintHeader(g);
 
   // The tabs.
+  const bool in = signedIn();
   g.setColour(colour::line);
   g.fillRect(0, kHeaderHeight + kTabsHeight - 1, getWidth(), 1);
   for (int i = 0; i < kTabCount; ++i) {
@@ -365,23 +512,28 @@ void Tone3000Panel::paint(juce::Graphics& g) {
       g.fillRect(r.getX() + 8, r.getBottom() - 2, r.getWidth() - 16, 2);
     }
   }
-  g.setFont(type::sans(12.0f));
-  g.setColour(colour::muted);
-  const juce::String note = tab == Tone3000List::trending ? "Top tones this week" : tab == Tone3000List::latest ? "The newest tones" : "Your own tones";
-  g.drawText(note, getWidth() - kDetailWidth - 16 - 220, kHeaderHeight, 220, kTabsHeight, juce::Justification::centredRight, true);
+  // What the tab lists, where there is room after the tabs.
+  {
+    const int right = getWidth() - detailWidth() - 16;
+    const int left = tabBounds(kTabCount - 1).getRight() + 16;
+    if (right - left >= 120) {
+      g.setFont(type::sans(12.0f));
+      g.setColour(colour::muted);
+      const juce::String note = tab == Tone3000List::trending ? "Top tones this week" : tab == Tone3000List::latest ? "The newest tones" : "Your own tones";
+      g.drawText(note, left, kHeaderHeight, right - left, kTabsHeight, juce::Justification::centredRight, true);
+    }
+  }
 
   // The table.
   const auto table = tableArea();
-  const int nameWidth = table.getWidth() - 150 - 90 - 100 - 3 * 10 - 20;
   {
-    auto head = table.withHeight(kTableHead).reduced(10, 0);
-    paint::label(g, "Tone and creator", head.removeFromLeft(nameWidth));
-    head.removeFromLeft(10);
-    paint::label(g, "Gear", head.removeFromLeft(150));
-    head.removeFromLeft(10);
-    paint::label(g, "Format", head.removeFromLeft(90));
-    head.removeFromLeft(10);
-    paint::label(g, "Captures", head.removeFromLeft(100));
+    const auto l = rowLayout(table.withHeight(kTableHead));
+    paint::label(g, "Tone, creator and licence", table.withHeight(kTableHead).reduced(10, 0).withRight(l.columns ? l.gear.getX() - 10 : table.getRight()));
+    if (l.columns) {
+      paint::label(g, "Gear", l.gear.withY(table.getY()).withHeight(kTableHead));
+      paint::label(g, "Format", l.format.withY(table.getY()).withHeight(kTableHead));
+      paint::label(g, "Captures", l.captures.withY(table.getY()).withHeight(kTableHead));
+    }
   }
   {
     juce::Graphics::ScopedSaveState saved(g);
@@ -429,33 +581,30 @@ void Tone3000Panel::paintRow(juce::Graphics& g, const Tone3000Tone& tone, juce::
     g.setColour(colour::iris);
     g.drawRoundedRectangle(row.toFloat().reduced(1.0f), size::buttonRadius, 2.0f);
   }
-  const int nameWidth = row.getWidth() - 150 - 90 - 100 - 3 * 10 - 20;
-  auto r = row.reduced(10, 0);
-  auto name = r.removeFromLeft(nameWidth);
-  const Category category = categoryOfGear(tone.format.equalsIgnoreCase("ir") ? juce::String("ir") : tone.gear);
-  const auto tile = name.removeFromLeft(40).withSizeKeepingCentre(40, 40).toFloat();
-  g.setColour(categoryTint(category));
-  g.fillRoundedRectangle(tile, 8.0f);
-  icons::draw(g, icons::path(category), tile.reduced(9.0f), categoryColour(category));
-  name.removeFromLeft(12);
+  const auto l = rowLayout(row);
+  const Tone3000Credit credit = Tone3000Credit::fromTone(tone);
+  tone3000::drawArt(g, l.art.toFloat(), images.get(tone.imageUrl, false), tone3000::categoryOf(tone.gear, tone.format), 6.0f);
   g.setFont(type::sans(13.0f, type::Weight::semibold));
   g.setColour(colour::text);
-  g.drawText(tone.title, name.removeFromTop(row.getHeight() / 2 + 4).withTrimmedTop(6), juce::Justification::centredLeft, true);
-  g.setFont(type::sans(12.0f));
-  g.setColour(colour::muted);
-  g.drawText(tone.creator + (tone.creatorVerified ? juce::String("  ") + type::dot() + "  Verified" : juce::String()),
-             name.withTrimmedBottom(6), juce::Justification::centredLeft, true);
-  r.removeFromLeft(10);
-  g.setFont(type::sans(12.0f));
-  g.setColour(colour::text);
-  g.drawText(gearLabel(tone.gear), r.removeFromLeft(150), juce::Justification::centredLeft, true);
-  r.removeFromLeft(10);
-  g.setFont(type::mono(12.0f, type::Weight::regular));
-  g.setColour(colour::muted);
-  g.drawText(formatLabel(tone.format), r.removeFromLeft(90), juce::Justification::centredLeft, true);
-  r.removeFromLeft(10);
-  g.setFont(type::sans(12.0f));
-  g.drawText(capturesText(tone), r.removeFromLeft(100), juce::Justification::centredLeft, true);
+  g.drawText(tone.title, l.title, juce::Justification::centredLeft, true);
+  tone3000::drawCreatorLine(g, l.creatorLine, credit, images.get(tone.avatarUrl, true));
+  if (l.columns) {
+    g.setFont(type::sans(12.0f));
+    g.setColour(colour::text);
+    g.drawText(tone3000::gearLabel(tone.gear), l.gear, juce::Justification::centredLeft, true);
+    g.setFont(type::mono(12.0f, type::Weight::regular));
+    g.setColour(colour::muted);
+    g.drawText(tone3000::formatLabel(tone.format), l.format, juce::Justification::centredLeft, true);
+    g.setFont(type::sans(12.0f));
+    g.drawText(capturesText(tone), l.captures, juce::Justification::centredLeft, true);
+  } else {
+    // Narrow: the gear, format and captures under the title.
+    g.setFont(type::sans(12.0f));
+    g.setColour(colour::muted);
+    g.drawText(tone3000::gearLabel(tone.gear) + "  " + type::dot() + "  " + tone3000::formatLabel(tone.format) + "  " + type::dot() + "  " +
+                   capturesText(tone),
+               l.meta, juce::Justification::centredLeft, true);
+  }
 }
 
 void Tone3000Panel::paintDetail(juce::Graphics& g, juce::Rectangle<int> area) {
@@ -468,38 +617,46 @@ void Tone3000Panel::paintDetail(juce::Graphics& g, juce::Rectangle<int> area) {
     g.drawFittedText(feed == nullptr ? juce::String("Nothing to show.") : juce::String("Pick a tone to see its captures and add one to Row ") +
                                                                juce::String(targetRow + 1) + ", slot " + juce::String(targetSlot + 1) + ".",
                      box.reduced(14, 10), juce::Justification::centredLeft, 4, 1.0f);
+    if (message.isNotEmpty()) {
+      g.setFont(type::sans(12.0f));
+      g.setColour(colour::warn);
+      g.drawFittedText(message, area.reduced(16, 0).withTop(box.getBottom() + 12).withHeight(54), juce::Justification::topLeft, 3, 1.0f);
+    }
     return;
   }
   const Tone3000Tone& tone = state().result.tones[static_cast<size_t>(chosenTone)];
-  const auto l = detailLayout(area);
-  g.setFont(type::sans(18.0f, type::Weight::semibold));
+  const Tone3000Credit credit = Tone3000Credit::fromTone(tone);
+  const auto l = detailLayout();
+  tone3000::drawArt(g, l.art.toFloat(), images.get(tone.imageUrl, false), tone3000::categoryOf(tone.gear, tone.format), 8.0f);
+  g.setFont(type::sans(l.art.getHeight() >= 72 ? 18.0f : 16.0f, type::Weight::semibold));
   g.setColour(colour::text);
-  g.drawFittedText(tone.title, l.title, juce::Justification::topLeft, 2, 1.0f);
-  g.setFont(type::sans(12.0f));
-  g.setColour(colour::muted);
-  g.drawText(tone.creator + (tone.creatorVerified ? juce::String("  ") + type::dot() + "  Verified" : juce::String()), l.creator,
-             juce::Justification::centredLeft, true);
+  g.drawFittedText(tone.title, l.title, juce::Justification::topLeft, l.art.getHeight() >= 72 ? 2 : 1, 1.0f);
   {
     auto chips = l.chips;
-    for (const auto& text : {gearLabel(tone.gear), formatLabel(tone.format)}) {
-      const int w = paint::chipWidth(text);
+    for (const auto& text : {tone3000::gearLabel(tone.gear), tone3000::formatLabel(tone.format)}) {
+      const int w = juce::jmin(paint::chipWidth(text), chips.getWidth());
       paint::chip(g, text, chips.removeFromLeft(w).toFloat(), paint::ChipStyle::outline);
       chips.removeFromLeft(8);
     }
   }
+  // The creator with their avatar (and TONE3000's badge when verified), and
+  // the licence on its own line: never given up for room.
+  tone3000::drawCreatorLine(g, l.creatorLine, credit, images.get(tone.avatarUrl, true), false);
   g.setFont(type::sans(12.0f));
-  g.setColour(colour::text);
-  g.drawFittedText(tone.description.isNotEmpty() ? tone.description : juce::String("No description."), l.description,
-                   juce::Justification::topLeft, 5, 1.0f);
   g.setColour(colour::muted);
-  g.drawText("Licence: " + (tone.licence.isNotEmpty() ? tone.licence : juce::String("see the tone on TONE3000")), l.licence,
-             juce::Justification::centredLeft, true);
+  g.drawText(tone3000::licenceText(tone.licence), l.licence, juce::Justification::centredLeft, true);
+  if (!l.description.isEmpty()) {
+    g.setColour(colour::text);
+    g.drawFittedText(tone.description.isNotEmpty() ? tone.description : juce::String("No description."), l.description,
+                     juce::Justification::topLeft, 3, 1.0f);
+  }
   paint::label(g, tone.format.equalsIgnoreCase("ir") ? "IRs in this tone" : "Captures in this tone", l.captureLabel);
 
   if (capturesState == CapturesState::ready) {
-    const int shown = juce::jmin(static_cast<int>(captureList.captures.size()), kMaxCaptureRows);
-    for (int i = 0; i < shown; ++i) {
-      const auto r = captureBounds(i);
+    const int shown = juce::jmin(static_cast<int>(captureList.captures.size()), capturesThatFit());
+    const int first = firstShownCapture();
+    for (int i = first; i < first + shown; ++i) {
+      const auto r = captureBounds(i - first);
       const bool on = i == chosenCapture;
       g.setColour(on ? colour::control : colour::ground);
       g.fillRoundedRectangle(r.toFloat(), size::buttonRadius);
@@ -515,11 +672,12 @@ void Tone3000Panel::paintDetail(juce::Graphics& g, juce::Rectangle<int> area) {
       g.drawText(captureList.captures[static_cast<size_t>(i)].name, r.withTrimmedLeft(36).withTrimmedRight(10),
                  juce::Justification::centredLeft, true);
     }
+    // More than there is room for: how many are shown, beside the label.
     if (static_cast<int>(captureList.captures.size()) > shown) {
       g.setFont(type::sans(12.0f));
       g.setColour(colour::muted);
-      g.drawText("and " + juce::String(static_cast<int>(captureList.captures.size()) - shown) + " more on TONE3000",
-                 captureBounds(shown).withHeight(20), juce::Justification::centredLeft, false);
+      g.drawText(juce::String(shown) + " of " + juce::String(static_cast<int>(captureList.captures.size())) + " shown", l.captureLabel,
+                 juce::Justification::centredRight, false);
     }
     if (captureList.captures.empty()) {
       g.setFont(type::sans(12.0f));
@@ -534,7 +692,8 @@ void Tone3000Panel::paintDetail(juce::Graphics& g, juce::Rectangle<int> area) {
                                   : "The captures could not be loaded. " + reachText(captureList.error);
     g.setFont(type::sans(12.0f));
     g.setColour(capturesState == CapturesState::failed && !captureList.needsAccount ? colour::warn : colour::muted);
-    g.drawFittedText(text, juce::Rectangle<int>(l.captureLabel.getX(), l.capturesTop, l.captureLabel.getWidth(), 90),
+    g.drawFittedText(text, juce::Rectangle<int>(l.captureLabel.getX(), l.capturesTop, l.captureLabel.getWidth(),
+                                                juce::jmax(36, l.capturesBottom - l.capturesTop)),
                      juce::Justification::topLeft, 5, 1.0f);
   }
 
@@ -542,8 +701,8 @@ void Tone3000Panel::paintDetail(juce::Graphics& g, juce::Rectangle<int> area) {
   if (message.isNotEmpty()) {
     g.setFont(type::sans(12.0f));
     g.setColour(colour::warn);
-    g.drawFittedText(message, juce::Rectangle<int>(area.getX() + 16, openTone.getY() - 62, area.getWidth() - 32, 54),
-                     juce::Justification::bottomLeft, 3, 1.0f);
+    g.drawFittedText(message, juce::Rectangle<int>(area.getX() + 16, openTone.getY() - 44, area.getWidth() - 32, 36),
+                     juce::Justification::bottomLeft, 2, 1.0f);
   } else if (adding) {
     g.setFont(type::sans(12.0f));
     g.setColour(colour::muted);
@@ -572,6 +731,11 @@ void Tone3000Panel::mouseExit(const juce::MouseEvent&) {
 
 void Tone3000Panel::mouseUp(const juce::MouseEvent& event) {
   const auto at = event.getPosition();
+  // The wordmark links to tone3000.com, as it does in TONE3000's own plugin.
+  if (headerArea().withWidth(tone3000::poweredByWidth(kHeaderHeight)).contains(at)) {
+    juce::URL(kSite).launchInDefaultBrowser();
+    return;
+  }
   for (int i = 0; i < kTabCount; ++i)
     if (tabBounds(i).contains(at)) {
       selectTab(tabAt(i));
@@ -582,15 +746,15 @@ void Tone3000Panel::mouseUp(const juce::MouseEvent& event) {
     return;
   }
   if (capturesState == CapturesState::ready)
-    for (int i = 0; i < juce::jmin(static_cast<int>(captureList.captures.size()), kMaxCaptureRows); ++i)
+    for (int i = 0; i < juce::jmin(static_cast<int>(captureList.captures.size()), capturesThatFit()); ++i)
       if (captureBounds(i).contains(at)) {
-        selectCapture(i);
+        selectCapture(firstShownCapture() + i);
         return;
       }
 }
 
 void Tone3000Panel::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) {
-  const int content = toneCount() * (kRowHeight + 2);
+  const int content = toneCount() * (rowHeight() + 2);
   const int maxScroll = juce::jmax(0, content + kTableHead - tableArea().getHeight());
   scroll = juce::jlimit(0, maxScroll, scroll - juce::roundToInt(wheel.deltaY * 200.0f));
   repaint(tableArea());

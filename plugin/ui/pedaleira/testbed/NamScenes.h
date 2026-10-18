@@ -6,6 +6,7 @@
 #include "pages/Tone3000Feed.h"
 
 #include <juce_core/juce_core.h>
+#include <juce_graphics/juce_graphics.h>
 
 namespace pedaleira::ui::testbed {
 
@@ -21,6 +22,8 @@ public:
     bool unreachable = false;
     // The capture a download delivers.
     juce::File capture;
+    // The player has seen and continued TONE3000's splash before.
+    bool introSeen = true;
   };
   explicit FakeTone3000Feed(Setup newSetup) : setup(std::move(newSetup)) {}
 
@@ -29,6 +32,11 @@ public:
   void list(Tone3000List which, std::function<void(Listed)> reply) override;
   void captures(const Tone3000Tone& tone, std::function<void(Captures)> reply) override;
   void download(const Tone3000Tone& tone, const Tone3000Capture& capture, std::function<void(Downloaded)> reply) override;
+  // Stand-in artwork drawn here (the testbed has no network): a tone's image
+  // and a creator's avatar, answered at once.
+  void image(const juce::String& url, bool avatar, std::function<void(juce::Image)> reply) override;
+  bool introSeen() const override { return setup.introSeen; }
+  void markIntroSeen() override { setup.introSeen = true; }
 
   int downloads = 0;
   int lists = 0;
@@ -41,6 +49,8 @@ private:
 //   file:<folder>:<name>[:<fixture>[:<make>[:<model>]]]  a capture under the scratch folder
 //        (fixture "old" is an LSTM, which Pedaleira can not load)
 //   load:<folder>/<name>      adds that file to the rig (so it is "loaded")
+//   t3kload:<folder>/<name>   adds it to row 1, slot 1 as a download from TONE3000
+//                             (a canned tone, creator and licence)
 //   gone:<folder>/<name>      deletes the original of a loaded file
 //   root:<folder>             adds the folder as a user folder (roots.add)
 //   tone3000:<folder>         makes that folder the TONE3000 app's download folder

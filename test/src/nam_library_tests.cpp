@@ -212,6 +212,56 @@ TEST(NamLibrary, FindsALoadedFileByItsNameNotItsHash) {
   EXPECT_FALSE(findAsset(rig.mustLocal("assets.list", R"({"query":"marshall","limit":1000})"), "Fav Marshall").isVoid());
 }
 
+// A capture downloaded from TONE3000 keeps its tone, creator and licence: on
+// the block (and its summary), in the recent list and on the stash copy.
+TEST(NamLibrary, KeepsWhereATone3000DownloadCameFrom) {
+  AgentRig rig;
+  NamLibrary::resetForTesting();
+  const juce::File source = rig.dirs.outside.getChildFile("Harbor Crunch - Gain 5.nam");
+  ASSERT_TRUE(testFile("a2-amp-test.nam").copyFileTo(source));
+  const juce::String attribution =
+      R"({"id":101,"title":"Harbor Crunch","url":"https://www.tone3000.com/tones/harbor-crunch-101",)"
+      R"("gear":"amp","format":"nam","license":"cc-by","image":"https://example.invalid/art.jpg",)"
+      R"("capture":"Gain 5","secret":"dropped","user":{"username":"sample-user-a",)"
+      R"("avatar_url":"https://example.invalid/avatar.jpg","is_verified":true,"email":"dropped"}})";
+  const juce::var added = rig.mustLocal(
+      "chain.addToneFromFiles",
+      "{\"paths\":[" + agentQuoted(source.getFullPathName()) + "],\"tone3000\":" + attribution + "}");
+  rig.mustLocal("state.waitUntilLoaded");
+
+  const juce::var kept = added["block"]["tone"]["tone3000"];
+  ASSERT_TRUE(kept.isObject());
+  EXPECT_EQ(static_cast<int>(kept["id"]), 101);
+  EXPECT_EQ(kept["license"].toString(), juce::String("cc-by"));
+  EXPECT_EQ(kept["user"]["username"].toString(), juce::String("sample-user-a"));
+  EXPECT_TRUE(static_cast<bool>(kept["user"]["is_verified"]));
+  EXPECT_FALSE(kept.hasProperty("secret"));
+  EXPECT_FALSE(kept["user"].hasProperty("email"));
+  EXPECT_TRUE(static_cast<bool>(added["block"]["tone"]["local"]));
+
+  const juce::var recent = rig.mustLocal("nam.recent");
+  ASSERT_GE(recent["recent"].size(), 1);
+  EXPECT_EQ(recent["recent"][0]["tone3000"]["user"]["username"].toString(), juce::String("sample-user-a"));
+  EXPECT_EQ(recent["recent"][0]["tone3000"]["license"].toString(), juce::String("cc-by"));
+
+  // Kept in the file, and on the stash copy assets.list offers.
+  NamLibrary::resetForTesting();
+  const juce::var asset =
+      findAsset(rig.mustLocal("assets.list", R"({"query":"harbor","limit":1000})"), "Harbor Crunch - Gain 5");
+  ASSERT_FALSE(asset.isVoid());
+  EXPECT_EQ(asset["tone3000"]["title"].toString(), juce::String("Harbor Crunch"));
+
+  // Loading the same bytes again without it does not forget where they came from.
+  rig.mustLocal("chain.addToneFromFiles", "{\"paths\":[" + agentQuoted(source.getFullPathName()) + "]}");
+  EXPECT_EQ(rig.mustLocal("nam.recent")["recent"][0]["tone3000"]["title"].toString(), juce::String("Harbor Crunch"));
+
+  // Nothing to attribute is refused before anything is loaded.
+  const CommandResult empty = rig.local(
+      "chain.addToneFromFiles",
+      "{\"paths\":[" + agentQuoted(source.getFullPathName()) + "],\"tone3000\":{\"gear\":\"amp\"}}");
+  EXPECT_FALSE(empty.ok);
+}
+
 TEST(NamLibrary, RecentIsNewestFirstAndSeparatesIrs) {
   AgentRig rig;
   NamLibrary::resetForTesting();

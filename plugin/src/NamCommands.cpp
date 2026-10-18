@@ -82,7 +82,8 @@ void AgentHub::registerNamCommands() {
       "Lists the captures (or IRs) the player loaded from a file, newest first: name (the file "
       "name without its extension), path (the file to load again: the original when it is "
       "still there, else the copy the model stash kept), fromStash (true for that copy), "
-      "loadedAt (milliseconds since 1970) and, for a capture, what nam.inspect says. A file "
+      "loadedAt (milliseconds since 1970), for a capture what nam.inspect says, and tone3000 "
+      "(the tone, creator and licence on TONE3000) for a file that came from there. A file "
       "that is gone from both places is left out. The stash drops copies that were not used "
       "for a week, so an old entry whose original moved away can disappear.",
       {P::optional("kind", T::string, "Captures, IRs or both.")
@@ -119,6 +120,8 @@ void AgentHub::registerNamCommands() {
           });
           if (record.kind == "capture")
             addArchitecture(entry, NamLibrary::inspectFile(file));
+          if (record.tone3000.isObject())
+            entry.getDynamicObject()->setProperty("tone3000", record.tone3000);
           entries.add(entry);
         }
         return CommandResult::success(object({{"recent", entries}, {"gone", hidden}}));

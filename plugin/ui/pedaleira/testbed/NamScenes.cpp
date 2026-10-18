@@ -11,32 +11,42 @@ namespace {
 
 const char* const kLstm = R"({"version":"0.5.4","architecture":"LSTM","config":{"num_layers":1,"input_size":1,"hidden_size":16},"weights":[0.1,0.2,0.3]})";
 
+// A tone as the live feed makes one from TONE3000's reply: the licence as
+// TONE3000 sends it (an id), the image and avatar as URLs the fake answers.
 Tone3000Tone tone(int id, const char* title, const char* creator, const char* gear, const char* format, int captures,
-                  bool verified = false, bool favourite = false) {
+                  const char* licence, bool verified = false, bool image = true) {
   Tone3000Tone t;
   t.id = id;
   t.title = title;
   t.creator = creator;
   t.creatorVerified = verified;
+  t.avatarUrl = "testbed:avatar/" + juce::String(creator);
+  if (image)
+    t.imageUrl = "testbed:art/" + juce::String(id) + "/" + gear;
   t.gear = gear;
   t.format = format;
   t.captures = captures;
-  t.favourite = favourite;
-  t.licence = "CC BY-NC 4.0";
+  t.licence = licence;
   t.description = "Three British head captures, gain 3 to 7, recorded without a cab.";
   t.url = "https://www.tone3000.com/tones/" + juce::String(id);
   return t;
 }
 
+// One without an image and one without a licence, as TONE3000 can send them.
 std::vector<Tone3000Tone> trending() {
-  return {tone(101, "Harbor Crunch pack", "sample-user-a", "amp", "nam", 3, true),
-          tone(102, "Coastline Clean", "sample-user-b", "full-rig", "nam", 3),
-          tone(103, "Jade overdrive", "sample-user-c", "pedal", "nam", 2),
-          tone(104, "4x12 Slate cab IRs", "sample-user-d", "cab", "ir", 6),
-          tone(105, "Cobalt 100 Wall", "sample-user-a", "amp", "nam", 5, true),
-          tone(106, "Plate and Spring spaces", "sample-user-e", "space", "ir", 4),
-          tone(107, "Maple Edge of Breakup", "sample-user-b", "full-rig", "nam", 3),
-          tone(108, "Germanium fuzz", "sample-user-f", "pedal", "nam", 2)};
+  return {tone(101, "Harbor Crunch pack", "sample-user-a", "amp", "nam", 3, "cc-by", true),
+          tone(102, "Coastline Clean", "sample-user-b", "full-rig", "nam", 3, "cc0"),
+          tone(103, "Jade overdrive", "sample-user-c", "pedal", "nam", 2, "cc-by-nc"),
+          tone(104, "4x12 Slate cab IRs", "sample-user-d", "cab", "ir", 6, "cc-by-sa"),
+          tone(105, "Cobalt 100 Wall", "sample-user-a", "amp", "nam", 5, "cc-by", true),
+          tone(106, "Plate and Spring spaces", "sample-user-e", "space", "ir", 4, "cc0", false, false),
+          tone(107, "Maple Edge of Breakup", "sample-user-b", "full-rig", "nam", 3, ""),
+          tone(108, "Germanium fuzz", "sample-user-f", "pedal", "nam", 2, "cc-by-nc-sa")};
+}
+
+// A flat colour from a name, the same every run.
+juce::Colour hueOf(const juce::String& name, float saturation, float brightness) {
+  return juce::Colour::fromHSV(static_cast<float>(static_cast<juce::uint32>(name.hashCode()) % 360u) / 360.0f, saturation, brightness, 1.0f);
 }
 
 }  // namespace
@@ -101,6 +111,35 @@ void FakeTone3000Feed::download(const Tone3000Tone& tone, const Tone3000Capture&
   reply(std::move(out));
 }
 
+void FakeTone3000Feed::image(const juce::String& url, bool avatar, std::function<void(juce::Image)> reply) {
+  if (!url.startsWith("testbed:")) {
+    reply({});
+    return;
+  }
+  const int side = avatar ? 64 : 256;
+  juce::Image out(juce::Image::ARGB, side, side, true);
+  {
+    juce::Graphics g(out);
+    const auto box = out.getBounds().toFloat();
+    const float unit = static_cast<float>(side);
+    if (avatar) {
+      // A head and shoulders over a flat colour.
+      g.fillAll(hueOf(url, 0.45f, 0.55f));
+      g.setColour(hueOf(url + "x", 0.25f, 0.92f));
+      g.fillEllipse(box.getCentreX() - unit * 0.18f, unit * 0.2f, unit * 0.36f, unit * 0.36f);
+      g.fillEllipse(box.getCentreX() - unit * 0.34f, unit * 0.62f, unit * 0.68f, unit * 0.6f);
+    } else {
+      // Cover art: a dark field, a disc and a band, coloured by the tone.
+      g.fillAll(hueOf(url, 0.5f, 0.22f));
+      g.setColour(hueOf(url + "a", 0.65f, 0.78f));
+      g.fillEllipse(box.reduced(unit * 0.2f).translated(unit * 0.08f, -unit * 0.04f));
+      g.setColour(hueOf(url + "b", 0.4f, 0.4f));
+      g.fillRect(box.withTop(unit * 0.66f));
+    }
+  }
+  reply(out);
+}
+
 juce::String namVariant(const juce::File& fixtureFile, const juce::String& make, const juce::String& model) {
   const juce::String text = fixtureFile.loadFileAsString();
   if (make.isEmpty() && model.isEmpty())
@@ -135,6 +174,18 @@ juce::String prepareNam(EngineClient& client, const juce::File& scratch, const j
         return "cannot write " + step;
     } else if (key == "load") {
       const EngineReply reply = client.run("chain.addToneFromFiles", object({{"paths", juce::Array<juce::var>{scratch.getChildFile(parts[1]).getFullPathName()}}}));
+      if (!reply.ok)
+        return step + ": " + reply.errorMessage;
+    } else if (key == "t3kload") {
+      // Loaded as if downloaded from TONE3000: the tone it came from goes with it.
+      const juce::var attribution = juce::JSON::parse(
+          R"({"id":101,"title":"Harbor Crunch pack","url":"https://www.tone3000.com/tones/101","gear":"amp","format":"nam",)"
+          R"("license":"cc-by","image":"testbed:art/101/amp","capture":"Crunch, gain 5",)"
+          R"("user":{"username":"sample-user-a","avatar_url":"testbed:avatar/sample-user-a","is_verified":true}})");
+      const EngineReply reply = client.run("chain.addToneFromFiles", object({{"paths", juce::Array<juce::var>{scratch.getChildFile(parts[1]).getFullPathName()}},
+                                                                             {"row", 0},
+                                                                             {"slot", 0},
+                                                                             {"tone3000", attribution}}));
       if (!reply.ok)
         return step + ": " + reply.errorMessage;
     } else if (key == "gone") {

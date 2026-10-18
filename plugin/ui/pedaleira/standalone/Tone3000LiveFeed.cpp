@@ -5,8 +5,12 @@
 #include "model/Tone.h"
 #include "model/ToneQuery.h"
 #include "services/HttpClient.h"
+#include "services/ImageLoader.h"
 #include "services/Tone3000Client.h"
 #include "services/UiPrefs.h"
+
+#include <map>
+#include <memory>
 
 namespace pedaleira::ui {
 
@@ -16,6 +20,8 @@ using t3k::ui::Result;
 
 constexpr int kPageSize = 25;
 constexpr int kMostCaptures = 100;
+// The preference that says the TONE3000 splash was seen and continued.
+const char* const kIntroSeen = "pedaleira.tone3000IntroSeen";
 
 // Every host process shares the preferences file, so the sign-in of another
 // build or editor is this one's too; UiPrefs merges writes under the lock.
@@ -39,9 +45,14 @@ Tone3000Tone toTone(const t3k::ui::Tone& tone) {
   out.url = tone.url;
   out.captures = tone.catalogModelCount();
   out.favourite = tone.isFavorite.value_or(false);
+  if (!tone.images.empty())
+    out.imageUrl = tone.images.front();
+  // TONE3000 shows a creator by username, with the avatar.
   if (tone.user) {
-    out.creator = tone.user->name();
+    out.creator = tone.user->username.isNotEmpty() ? tone.user->username : tone.user->name();
+    out.creatorName = tone.user->displayName;
     out.creatorVerified = tone.user->isVerified;
+    out.avatarUrl = tone.user->avatarUrl;
   }
   // The licence arrives as text or as an object with a name.
   const juce::var licence = tone.raw["license"].isVoid() ? tone.raw["licence"] : tone.raw["license"];
@@ -190,11 +201,38 @@ public:
     });
   }
 
+  void image(const juce::String& url, bool avatar, std::function<void(juce::Image)> reply) override {
+    if (url.isEmpty()) {
+      reply({});
+      return;
+    }
+    // The loader calls back while its request lives; each is kept until it has
+    // answered, then let go after the call returns.
+    const juce::uint64 key = ++nextImage_;
+    auto& request = images_[key];
+    request = std::make_unique<t3k::ui::ImageLoader::Request>();
+    juce::WeakReference<LiveFeed> self(this);
+    loader_.load(url, avatar ? t3k::ui::ImageLoader::kAvatarSide : t3k::ui::ImageLoader::kArtSide, *request,
+                 [self, key, reply](const juce::Image& image) {
+                   reply(image);
+                   juce::MessageManager::callAsync([self, key] {
+                     if (self != nullptr)
+                       self->images_.erase(key);
+                   });
+                 });
+  }
+
+  bool introSeen() const override { return prefs_.getBool(kIntroSeen, false); }
+  void markIntroSeen() override { prefs_.setBool(kIntroSeen, true); }
+
 private:
   juce::SharedResourcePointer<PrefsFile> prefsFile_;
   t3k::ui::HttpClient http_;
   t3k::ui::UiPrefs prefs_;
   t3k::ui::Tone3000Client client_;
+  t3k::ui::ImageLoader loader_;
+  std::map<juce::uint64, std::unique_ptr<t3k::ui::ImageLoader::Request>> images_;
+  juce::uint64 nextImage_ = 0;
 
   JUCE_DECLARE_WEAK_REFERENCEABLE(LiveFeed)
 };

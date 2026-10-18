@@ -11,19 +11,26 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include <juce_graphics/juce_graphics.h>
 
 #include <functional>
 #include <vector>
 
 namespace pedaleira::ui {
 
-// One tone of a list, with what TONE3000 asks every list to show: title, gear,
-// format and creator.
+// One tone of a list, with what TONE3000 asks every list to show: its image,
+// title, gear, format and creator (username and avatar), and its licence.
 struct Tone3000Tone {
   int id = 0;
   juce::String title;
+  // The creator's username, as TONE3000 shows it.
   juce::String creator;
+  // The name a verified creator goes by, when there is one.
+  juce::String creatorName;
   bool creatorVerified = false;
+  juce::String avatarUrl;
+  // The tone's first image; empty when it has none.
+  juce::String imageUrl;
   // The catalog's gear id: amp, full-rig, pedal, outboard, ir, ...
   juce::String gear;
   // nam or ir.
@@ -65,6 +72,12 @@ class Tone3000Feed {
 public:
   virtual ~Tone3000Feed() = default;
 
+  // The feed of this application, for the pages that show a TONE3000 tone
+  // without browsing (a capture's editor): its images. Set by the block
+  // library when it is given one; null when there is none.
+  static Tone3000Feed* shared() { return sharedSlot(); }
+  static void setShared(Tone3000Feed* feed) { sharedSlot() = feed; }
+
   // A TONE3000 session exists on this computer (a sign-in made by this
   // application or another build that shares its preferences).
   virtual bool signedIn() const = 0;
@@ -98,6 +111,21 @@ public:
   // terms: no bulk caching). The file is a .nam or .wav in a temporary folder.
   virtual void download(const Tone3000Tone& tone, const Tone3000Capture& capture,
                         std::function<void(Downloaded)> reply) = 0;
+
+  // A tone's image or a creator's avatar, fetched when it is first shown;
+  // a null image when it can not be had (the page draws a stand-in).
+  virtual void image(const juce::String& url, bool avatar, std::function<void(juce::Image)> reply) = 0;
+
+  // The TONE3000 splash was seen and continued by this user (kept in the
+  // application's preferences), so browsing opens straight away.
+  virtual bool introSeen() const = 0;
+  virtual void markIntroSeen() = 0;
+
+private:
+  static Tone3000Feed*& sharedSlot() {
+    static Tone3000Feed* feed = nullptr;
+    return feed;
+  }
 };
 
 }  // namespace pedaleira::ui

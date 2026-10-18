@@ -28,6 +28,7 @@
 #include "pages/GigView.h"
 #include "pages/GridPage.h"
 #include "pages/ImportPage.h"
+#include "pages/NamEditor.h"
 #include "pages/LibraryPage.h"
 #include "pages/LivePage.h"
 #include "pages/SettingsPage.h"
@@ -1890,6 +1891,22 @@ int selfTest() {
     const auto atCapture = centreOf(0, 2);
     view.filesDropped({nam}, atCapture.x, atCapture.y);
     check(added == 1, "and hands on a drop that it can");
+
+    // The capture editor's Load file... replaces the block's capture in place.
+    page.openEditor(amp);
+    auto* editor = dynamic_cast<NamEditor*>(page.blockEditor().currentBody());
+    check(page.isEditorOpen() && editor != nullptr, "a capture's block opens the capture editor");
+    if (editor != nullptr) {
+      const juce::String before = slotOf(0, 2).name;
+      const juce::File other = testFiles().getChildFile("a2-am-test-2.nam");
+      editor->swapTo(other);
+      drops.client->run("state.waitUntilLoaded");
+      page.rigChanged();
+      check(slotId(0, 2) == amp && slotOf(0, 2).name == other.getFileNameWithoutExtension() && slotOf(0, 2).name != before,
+            "a file loaded from the editor replaces the capture in its block");
+      check(std::abs(paramOf(amp, "inputGain") - gainBefore) < 1.0e-6 && std::abs(paramOf(amp, "outputGain") - levelBefore) < 1.0e-6,
+            "and the editor leaves its settings");
+    }
   }
 
   std::cout << (total - failures) << " of " << total << " checks passed\n";

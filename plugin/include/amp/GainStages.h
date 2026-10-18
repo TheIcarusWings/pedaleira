@@ -83,6 +83,9 @@ public:
     divider = spec.coupling.divider();
     if (spec.coupling.capacitance > 0.0f)
       coupling.setCorner(spec.coupling.cornerHz(), rate);
+    hasBleed = spec.hasNext && spec.coupling.hasBleed();
+    if (hasBleed)
+      bleed.setup(spec.coupling, rate);
     reset();
   }
 
@@ -92,6 +95,7 @@ public:
     cathode.reset();
     pot.reset();
     coupling.reset();
+    bleed.reset();
   }
 
   void setGridTimes(double leakSeconds, double chargeSeconds) noexcept {
@@ -109,8 +113,12 @@ public:
     s = plate.lowpass(triode.process(s));
     if (spec.hasPot)
       s = pot.process(s);
-    if (spec.hasNext)
-      s = coupling.process(s) * divider;
+    if (spec.hasNext) {
+      s = coupling.process(s);
+      // A bleed capacitor across the series resistor lifts the divider to
+      // the full swing above its corner (CouplingBleed).
+      s = hasBleed ? bleed.process(s) : s * divider;
+    }
     return s;
   }
 
@@ -127,6 +135,8 @@ private:
   GainPot pot;
   CouplingHighpass coupling;
   float divider{1.0f};
+  CouplingBleed bleed;
+  bool hasBleed{false};
 };
 
 }  // namespace amp

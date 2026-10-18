@@ -447,13 +447,18 @@ public:
       if (coupling == nullptr || !coupling->is_object())
         fail(child(path, "coupling"), "missing: every stage but the last couples to the next grid");
       const std::string couplingPath = child(path, "coupling");
-      allowOnly(*coupling, couplingPath, {"capacitance_f", "series_ohm", "grid_leak_ohm"});
+      allowOnly(*coupling, couplingPath, {"capacitance_f", "series_ohm", "grid_leak_ohm", "series_capacitor_f"});
       spec.hasNext = true;
       // No capacitor until the file (or a voicing) gives one.
       spec.coupling = CouplingNetwork{0.0f, 0.0f, 1.0e6f};
       readFloat(*coupling, couplingPath, "capacitance_f", spec.coupling.capacitance, Provenance::Schematic, 1.0e-12, 1.0e-3);
       readFloat(*coupling, couplingPath, "series_ohm", spec.coupling.seriesResistance, Provenance::Schematic, 0.0, 1.0e8);
       readFloat(*coupling, couplingPath, "grid_leak_ohm", spec.coupling.gridLeak, Provenance::Schematic, 1.0e2, 1.0e8, true);
+      readFloat(*coupling, couplingPath, "series_capacitor_f", spec.coupling.seriesCapacitance, Provenance::Schematic, 1.0e-13, 1.0e-6);
+      if (spec.coupling.seriesCapacitance > 0.0f && spec.coupling.seriesResistance <= 0.0f)
+        fail(child(couplingPath, "series_capacitor_f"), "bridges the series resistor: give series_ohm too");
+      if (spec.coupling.seriesCapacitance > 0.0f && out.model == StageModel::Wdf)
+        fail(child(couplingPath, "series_capacitor_f"), "the wdf stage solver does not model it: use the classic solver");
     }
 
     // Gain pot.

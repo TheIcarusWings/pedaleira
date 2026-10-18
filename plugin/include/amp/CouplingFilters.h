@@ -65,6 +65,8 @@ struct CouplingNetwork {
   float capacitance{22.0e-9f};
   float seriesResistance{0.0f};
   float gridLeak{1.0e6f};
+  /** A capacitor across the series resistor (a treble bleed); 0 for none. */
+  float seriesCapacitance{0.0f};
 
   float totalResistance() const noexcept { return seriesResistance + gridLeak; }
   /** Time constant C (Rs + Rg), which is also the bias-shift leak time. */
@@ -73,6 +75,44 @@ struct CouplingNetwork {
   float cornerHz() const noexcept { return 1.0f / (static_cast<float>(kTwoPi) * leakSeconds()); }
   /** Pass-band voltage division Rg / (Rs + Rg). */
   float divider() const noexcept { return gridLeak / totalResistance(); }
+  /** Corner of the bleed's high shelf: the capacitor against the series
+      resistor in parallel with the grid leak. Above it the divider is
+      bypassed and the grid sees the full swing. */
+  float bleedCornerHz() const noexcept {
+    const float parallel = seriesResistance * gridLeak / totalResistance();
+    return 1.0f / (static_cast<float>(kTwoPi) * parallel * seriesCapacitance);
+  }
+  bool hasBleed() const noexcept { return seriesCapacitance > 0.0f && seriesResistance > 0.0f; }
+};
+
+/** The divider of a coupling network with a bleed capacitor, as one
+    first-order section: H(s) = (d wp + s) / (wp + s), d the divider and wp
+    the bleed corner, so d at low frequencies and 1 far above the corner. The
+    bilinear transform keeps it exact and stable for a corner above the
+    Nyquist frequency (a small capacitor), where a one-pole filter would have
+    to be clamped. */
+class CouplingBleed {
+public:
+  void setup(const CouplingNetwork& net, double sampleRate) noexcept {
+    const double d = net.divider();
+    const double wp = kTwoPi * net.bleedCornerHz();
+    const double k = 2.0 * sampleRate;
+    const double a0 = wp + k;
+    b0 = static_cast<float>((d * wp + k) / a0);
+    b1 = static_cast<float>((d * wp - k) / a0);
+    a1 = static_cast<float>((wp - k) / a0);
+  }
+  void reset() noexcept { lastIn = lastOut = 0.0f; }
+  float process(float x) noexcept {
+    const float y = b0 * x + b1 * lastIn - a1 * lastOut;
+    lastIn = x;
+    lastOut = flushTiny(y);
+    return lastOut;
+  }
+
+private:
+  float b0{1.0f}, b1{0.0f}, a1{0.0f};
+  float lastIn{0.0f}, lastOut{0.0f};
 };
 
 class CouplingHighpass {

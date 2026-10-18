@@ -278,6 +278,23 @@ TEST(AmpDescriptionLoader, TheWiperCapacitanceIsOptionalAndOffByDefault) {
                  "gain_pot.wiper_capacitance_f: must be between");
 }
 
+TEST(AmpDescriptionLoader, TheBleedCapacitorIsOptionalAndNeedsASeriesResistor) {
+  const Parsed plain = parse(shipped());
+  ASSERT_TRUE(plain.ok) << plain.error;
+  EXPECT_EQ(plain.description.stages[1].spec.coupling.seriesCapacitance, 0.0f);
+
+  const std::string from = "\"coupling\": { \"series_ohm\": 470000, \"grid_leak_ohm\": 25000 }";
+  const std::string bled = "\"coupling\": { \"series_ohm\": 470000, \"grid_leak_ohm\": 25000, \"series_capacitor_f\": 2.2e-10 }";
+  const Parsed parsed = parse(edited(shipped(), from, bled));
+  ASSERT_TRUE(parsed.ok) << parsed.error;
+  EXPECT_FLOAT_EQ(parsed.description.stages[1].spec.coupling.seriesCapacitance, 2.2e-10f);
+  expectRejected(edited(shipped(), "\"coupling\": { \"series_ohm\": 0, \"grid_leak_ohm\": 470000 }",
+                        "\"coupling\": { \"series_ohm\": 0, \"grid_leak_ohm\": 470000, \"series_capacitor_f\": 2.2e-10 }"),
+                 "series_capacitor_f: bridges the series resistor");
+  expectRejected(edited(edited(shipped(), from, bled), "\"stage_solver\": \"classic\"", "\"stage_solver\": \"wdf\""),
+                 "series_capacitor_f: the wdf stage solver");
+}
+
 TEST(AmpDescriptionLoader, RefusesWhatIsWrongAndSaysWhere) {
   const std::string good = shipped();
   expectRejected("{", "not valid JSON");

@@ -15,9 +15,9 @@
   },
   "model": {"stage_solver": "classic"},
   "input": {
-    "coupling_capacitor_f": 6.8e-09,
+    "coupling_capacitor_f": {"value": 4.53e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"},
     "grid_leak_ohm": 1000000,
-    "grid_stopper_ohm": {"value": 42500, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
+    "grid_stopper_ohm": {"value": 4050, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
     "miller_f": 1.6e-10,
     "source_ohm": {"value": 10000, "provenance": "fitted", "note": "assumed pickup impedance for the grid charge path"}
   },
@@ -26,27 +26,27 @@
       "name": "V1 input stage",
       "tube": "12AX7",
       "plate_load_ohm": 100000,
-      "plate_capacitance_f": {"value": 1.84e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
-      "cathode": {"resistor_ohm": 1500, "bias_current_a": 0.001, "bypass_capacitor_f": 6.8e-07},
+      "plate_capacitance_f": {"value": 3.31e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
+      "cathode": {"resistor_ohm": 1500, "bias_current_a": 0.001, "bypass_capacitor_f": {"value": 5.38e-07, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}},
       "grid": {"cutoff_v": 3.5, "contact_potential_v": 0.3, "conduction_ohm": 2000, "max_bias_shift_v": 10},
-      "coupling": {"capacitance_f": {"value": 8e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 0, "grid_leak_ohm": 470000},
+      "coupling": {"capacitance_f": {"value": 5.33e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 0, "grid_leak_ohm": 470000},
       "gain_pot": {"resistance_ohm": 1000000, "floor_ohm": {"value": 1700, "provenance": "fitted", "note": "fitted to the Red Forty measurements: Gs at GAIN 2, 5, 8 and 10"}, "source_ohm": 100000, "load_ohm": 470000, "taper": {"value": 3.67, "provenance": "fitted", "note": "fitted to the Red Forty measurements: Gs at GAIN 2, 5, 8 and 10"}, "bright_capacitor_f": 1e-10}
     },
     {
       "name": "V2 gain stage",
       "tube": "12AX7",
       "plate_load_ohm": 100000,
-      "plate_capacitance_f": {"value": 8.42e-11, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
+      "plate_capacitance_f": {"value": 1.35e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00104, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
-      "coupling": {"capacitance_f": {"value": 1.89e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 9070, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}}
+      "coupling": {"capacitance_f": {"value": 1.89e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 9070, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}, "series_capacitor_f": {"value": 1.57e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum (a bleed across the 470k)"}}
     },
     {
       "name": "V3 gain stage",
       "tube": "12AX7",
       "plate_load_ohm": 100000,
-      "plate_capacitance_f": {"value": 6.3e-11, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
+      "plate_capacitance_f": {"value": 1.43e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00109, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
-      "coupling": {"capacitance_f": {"value": 1.53e-08, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 8520, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}}
+      "coupling": {"capacitance_f": {"value": 4.1e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 605000, "provenance": "fitted", "note": "re-staged: the gain the first grid gave up, so the first stage no longer clips at playing level; with the full scale it keeps the Red Forty measurements (Gs, the bend and the THD at -54 dBFS)"}}
     },
     {
       "name": "V4 gain stage",
@@ -103,11 +103,11 @@
     "supply": {"b_plus_v": 450, "source_ohm": 250, "full_load_a": 0.3, "reservoir_f": 0.00022, "attack_s": 0.008, "rectifier": "tube"}
   },
   "calibration": {
-    "input_full_scale_v": {"value": 705, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the small-signal gain (Gs)"},
+    "input_full_scale_v": {"value": 36.1, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the small-signal gain (Gs), with the gain moved past the first stage so a guitar DI 36 dB down drives the first grid at under a volt"},
     "power_drive_v": {"value": 142, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the master step and the knee of the static curve"},
     "coupling_gain_rise": 1.8,
     "output_trim": {
-      "value": 0.388,
+      "value": 0.213,
       "provenance": "fitted",
       "note": "fitted to the Heavy Hot measurements: the ceiling and Gs, 2.0 dB under Red Forty's trim; everything else is Red Forty's"
     },

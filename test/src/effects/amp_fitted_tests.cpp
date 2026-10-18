@@ -59,10 +59,12 @@ struct AmpTarget {
   // The lowest band the line-level response is held to. The response is
   // measured with the test signal's sweep at line level, about 36 dB hotter
   // than a guitar into the reference (the DI run v26 played five guitar DIs
-  // 36 dB down). For the amps refitted to that run, the two disagree in the
-  // low end: what the DIs ask for (less bass into the clipping stages) takes
-  // up to 20 dB off the low sweep, and no setting of this topology meets both.
-  // The DI run is what playing sounds like, so it rules below this band.
+  // 36 dB down). With the first grid at a high full scale the input stage
+  // clips at line level and caps the drive into the later stages, so less
+  // bass into them (what the DIs ask for) takes up to 20 dB off the low
+  // sweep. A description staged with a guitar-like first grid (Red Forty,
+  // Heavy Hot) meets both from 40 Hz; for the others the DI run rules below
+  // this band.
   double responseFromHz{40.0};
 };
 
@@ -320,7 +322,7 @@ const std::vector<AmpTarget>& targets() {
         {10, 63.6, -89.7, -22.6, 71.1}},
        {8.5, 9.9, 10.9, 12.1, 13.4, 14.1, 13.0, 10.2, 7.6, 5.7, 3.7, 1.4, 0.2, -0.7,
         -0.6, 0.0, 0.8, 1.8, 2.5, 3.3, 3.9, 4.4, 4.8, 5.2, 5.4, 5.5, 5.4, 1.8},
-       3.0, 500.0},
+       3.0},
       {"modern-three.json", "Modern Three",
        {{2, 1.1, std::nullopt, -34.9, 0.2}, {5, 34.1, -56.5, -22.1, 22.1}, {8, 49.6, -71.8, -22.1, 65.8},
         {10, 56.6, -79.2, -22.2, 72.2}},
@@ -338,7 +340,7 @@ const std::vector<AmpTarget>& targets() {
         {10, 61.7, -89.7, -24.6, 71.8}},
        {7.2, 8.4, 9.3, 10.1, 11.0, 11.4, 10.8, 8.7, 6.5, 4.8, 3.0, 0.8, -0.2, -0.9,
         -0.7, 0.0, 0.9, 1.8, 2.6, 3.4, 4.0, 4.5, 4.9, 5.2, 5.5, 5.6, 5.4, 1.7},
-       3.0, 500.0},
+       3.0},
   };
   return list;
 }

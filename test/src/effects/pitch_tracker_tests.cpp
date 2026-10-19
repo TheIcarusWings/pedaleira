@@ -3,7 +3,8 @@
 // on guitar-range notes (82 Hz to 1.3 kHz), how long it takes to know a new
 // note, and how it behaves when there is no note: silence, noise, a note that
 // ends in noise, a chord. It is tested alone, fed sample by sample and stepped
-// on the 16-sample grid the kinds step it on.
+// on the 16-sample grid the kinds step it on. The bass and voice ranges
+// (pitch.correct) are tested at the end.
 #include "../../../plugin/src/effects/pitch/detail/PitchTracker.h"
 #include "effects/pitch_test_signals.h"
 
@@ -22,9 +23,10 @@ struct Trace {
   std::vector<char> hasNote;
 };
 
-Trace runTracker(const std::vector<float>& in, double sampleRate = kRate) {
+Trace runTracker(const std::vector<float>& in, double sampleRate = kRate,
+                 const pitchfx::PitchTracker::Range& range = pitchfx::PitchTracker::Range::guitar()) {
   pitchfx::PitchTracker tracker;
-  tracker.prepare(sampleRate);
+  tracker.prepare(sampleRate, range);
   Trace trace;
   const size_t n = in.size();
   trace.frequency.resize(n);
@@ -330,6 +332,119 @@ TEST(PitchTrackerTest, CostIsASmallShareOfACore) {
   std::cout << "[  TRACKER ] cost: " << static_cast<long long>(total / blocks) << " ns per 128-sample block on average ("
             << juce::String(100.0 * total / blocks / 2666667.0, 2) << " % of a core), worst block "
             << static_cast<long long>(worst) << " ns" << std::endl;
+  const bool onCi = juce::SystemStats::getEnvironmentVariable("CI", {}).isNotEmpty();
+  if (!onCi)
+    EXPECT_LT(total / blocks, 40000.0);
+}
+
+// ---------------------------------------------------------------------------
+// The other ranges
+// ---------------------------------------------------------------------------
+
+TEST(PitchTrackerTest, TheGuitarRangeIsWhatPrepareGivesWithoutOne) {
+  // The kinds that do not name a range get the guitar's, to the bit.
+  const std::vector<float> in = followedBy(harmonicTone(0.4, 110.0, 0.3f), noise(0.2, 4u, 0.2f, kRate));
+  const Trace implicit = runTracker(in);
+  pitchfx::PitchTracker tracker;
+  tracker.prepare(kRate, pitchfx::PitchTracker::Range::guitar());
+  for (size_t i = 0; i < in.size(); ++i) {
+    tracker.push(in[i]);
+    if ((i & 15u) == 15u)
+      tracker.step();
+    ASSERT_EQ(tracker.frequencyHz(), implicit.frequency[i]) << i;
+    ASSERT_EQ(tracker.confidence(), implicit.confidence[i]) << i;
+  }
+}
+
+TEST(PitchTrackerTest, TheBassRangeReadsABassDownToTheLowB) {
+  // B0 (five-string), E1, A1, D2, G2 and two higher notes, sines and
+  // bass-like tones, within a cent; and how long a new note takes.
+  const auto bass = pitchfx::PitchTracker::Range::bass();
+  const double notes[] = {30.868, 41.203, 55.0, 73.416, 97.999, 196.0, 392.0};
+  double worst = 0.0, slowest = 0.0;
+  for (const double hz : notes) {
+    for (const bool sineWave : {true, false}) {
+      const std::vector<float> in = sineWave ? sine(0.6, hz, 0.3f, kRate) : harmonicTone(0.6, hz, 0.3f, 10);
+      const Trace trace = runTracker(in, kRate, bass);
+      const double cents = centsBetween(trace.frequency.back(), hz);
+      EXPECT_TRUE(trace.voiced.back()) << hz;
+      EXPECT_EQ(trace.note.back(), midiOf(hz)) << hz;
+      EXPECT_NEAR(cents, 0.0, 1.0) << (sineWave ? "sine " : "bass tone ") << hz << " Hz";
+      worst = std::max(worst, std::abs(cents));
+    }
+    std::vector<float> in(4800, 0.0f);
+    const std::vector<float> note = guitarLike(0.5, hz, 0.4f);
+    in.insert(in.end(), note.begin(), note.end());
+    const Trace trace = runTracker(in, kRate, bass);
+    long stable = -1;
+    for (size_t i = 4800; i < in.size() && stable < 0; ++i)
+      if (trace.note[i] == midiOf(hz))
+        stable = static_cast<long>(i - 4800);
+    ASSERT_GE(stable, 0) << hz;
+    const double ms = 1000.0 * static_cast<double>(stable) / kRate;
+    slowest = std::max(slowest, ms);
+    std::cout << "[  TRACKER ] bass range, " << juce::String(hz, 2) << " Hz: stable note after "
+              << juce::String(ms, 1) << " ms" << std::endl;
+    EXPECT_LT(ms, 110.0) << hz;
+  }
+  std::cout << "[  TRACKER ] bass range: worst frequency error " << juce::String(worst, 3) << " ct, slowest note "
+            << juce::String(slowest, 1) << " ms" << std::endl;
+  // The guitar range does not reach the low E of a bass.
+  const Trace guitar = runTracker(sine(0.6, 41.203, 0.3f, kRate));
+  EXPECT_NE(guitar.note.back(), midiOf(41.203));
+}
+
+TEST(PitchTrackerTest, TheBassRangeWorksAtOtherSampleRates) {
+  for (const double rate : {44100.0, 96000.0}) {
+    pitchfx::PitchTracker tracker;
+    tracker.prepare(rate, pitchfx::PitchTracker::Range::bass());
+    for (int i = 0; i < static_cast<int>(0.6 * rate); ++i) {
+      tracker.push(0.3f * static_cast<float>(std::sin(2.0 * kPi * 41.203 * i / rate)));
+      if ((i & 15) == 15)
+        tracker.step();
+    }
+    EXPECT_NEAR(centsBetween(tracker.frequencyHz(), 41.203), 0.0, 1.0) << rate;
+    EXPECT_EQ(tracker.note(), 28) << rate;
+  }
+}
+
+TEST(PitchTrackerTest, TheBassAndVoiceRangesStillTakeNoiseForNoNote) {
+  for (const auto& [name, range] : {std::pair<const char*, pitchfx::PitchTracker::Range>{"bass", pitchfx::PitchTracker::Range::bass()},
+                                    std::pair<const char*, pitchfx::PitchTracker::Range>{"voice", pitchfx::PitchTracker::Range::voice()}}) {
+    for (const unsigned seed : {1u, 2u}) {
+      const Trace trace = runTracker(noise(2.0, seed, 0.3f, kRate), kRate, range);
+      size_t voicedFrames = 0;
+      for (const char v : trace.voiced)
+        voicedFrames += v ? 1u : 0u;
+      const double share = static_cast<double>(voicedFrames) / static_cast<double>(trace.voiced.size());
+      std::cout << "[  TRACKER ] " << name << " range, white noise seed " << seed << ": voiced "
+                << juce::String(100.0 * share, 2) << " % of the time" << std::endl;
+      EXPECT_LT(share, 0.03) << name;
+    }
+  }
+}
+
+TEST(PitchTrackerTest, CostOfTheBassRange) {
+  pitchfx::PitchTracker tracker;
+  tracker.prepare(kRate, pitchfx::PitchTracker::Range::bass());
+  const std::vector<float> in = harmonicTone(1.0, 41.203, 0.3f, 10);
+  const int blocks = 6000;
+  double worst = 0.0, total = 0.0;
+  for (int b = 0; b < blocks; ++b) {
+    const auto begin = std::chrono::steady_clock::now();
+    for (int i = 0; i < 128; ++i) {
+      tracker.push(in[static_cast<size_t>((b * 128 + i) % 48000)]);
+      if ((i & 15) == 15)
+        tracker.step();
+    }
+    const auto end = std::chrono::steady_clock::now();
+    const double ns = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count());
+    total += ns;
+    worst = std::max(worst, ns);
+  }
+  std::cout << "[  TRACKER ] bass range cost: " << static_cast<long long>(total / blocks)
+            << " ns per 128-sample block on average (" << juce::String(100.0 * total / blocks / 2666667.0, 2)
+            << " % of a core), worst block " << static_cast<long long>(worst) << " ns" << std::endl;
   const bool onCi = juce::SystemStats::getEnvironmentVariable("CI", {}).isNotEmpty();
   if (!onCi)
     EXPECT_LT(total / blocks, 40000.0);

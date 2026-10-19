@@ -47,6 +47,7 @@ jobs:
         run: |
           cmake -B build -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DPEDALEIRA_BUILD_LABEL="build ${{ github.run_number }}, $(date -u +%Y-%m-%d)" \
             -DBUILD_AAX=OFF -DBUILD_CLAP=OFF -DBUILD_LV2=OFF
       - name: Build
         run: cmake --build build --parallel --target TONE3000_Standalone TONE3000_VST3 TONE3000_AU
@@ -66,7 +67,7 @@ jobs:
           ditto -c -k --keepParent "$STAGE" "build/Pedaleira-macos-arm64.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: Pedaleira-macos-arm64
+          name: Pedaleira-macos-arm64-build${{ github.run_number }}
           path: build/Pedaleira-macos-arm64.zip
           if-no-files-found: error
 
@@ -92,6 +93,7 @@ jobs:
         run: |
           cmake -B build -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DPEDALEIRA_BUILD_LABEL="build ${{ github.run_number }}, $(date -u +%Y-%m-%d)" \
             -DBUILD_AAX=OFF -DBUILD_CLAP=OFF -DBUILD_LV2=OFF
       - name: Build
         run: cmake --build build --parallel --target TONE3000_Standalone TONE3000_VST3
@@ -107,7 +109,7 @@ jobs:
           cp -r "$ARTEFACTS/VST3/Pedaleira.vst3" "$STAGE/"
       - uses: actions/upload-artifact@v4
         with:
-          name: Pedaleira-windows-x64
+          name: Pedaleira-windows-x64-build${{ github.run_number }}
           path: build/Pedaleira-windows-x64
           if-no-files-found: error
 
@@ -138,6 +140,7 @@ jobs:
         run: |
           cmake -B build -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DPEDALEIRA_BUILD_LABEL="build ${{ github.run_number }}, $(date -u +%Y-%m-%d)" \
             -DCMAKE_TOOLCHAIN_FILE=cmake/linux-toolchain.cmake \
             -DBUILD_AAX=OFF -DBUILD_CLAP=OFF
       - name: Build
@@ -155,6 +158,6 @@ jobs:
           tar -C build -czf build/Pedaleira-linux-x64.tar.gz Pedaleira-linux-x64
       - uses: actions/upload-artifact@v4
         with:
-          name: Pedaleira-linux-x64
+          name: Pedaleira-linux-x64-build${{ github.run_number }}
           path: build/Pedaleira-linux-x64.tar.gz
           if-no-files-found: error

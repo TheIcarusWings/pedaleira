@@ -47,6 +47,7 @@ public:
 
   void paint(juce::Graphics& g) override;
   void resized() override;
+  void parentHierarchyChanged() override;
 
 private:
   // First member: it outlives every component that draws with it.

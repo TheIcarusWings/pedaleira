@@ -224,6 +224,8 @@ TEST(EngineCommandsTest, BuildsARigAndStateGetReflectsEveryChange) {
   EXPECT_EQ(state["engine"]["oversampling"].toString(), juce::String("1"));
   EXPECT_FALSE(static_cast<bool>(state["engine"]["multiCore"]));
   EXPECT_TRUE(state["engine"]["version"].toString().containsChar('.'));
+  // The test build's label; a local build has none, but always says so.
+  EXPECT_TRUE(state["engine"].hasProperty("build"));
   EXPECT_FALSE(state["engine"]["latencySamples"].isVoid());
   EXPECT_FALSE(state["engine"]["sampleRate"].isVoid());
   EXPECT_FALSE(state["engine"]["blockSize"].isVoid());

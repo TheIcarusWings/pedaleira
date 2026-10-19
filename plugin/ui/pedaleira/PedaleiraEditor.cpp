@@ -1,6 +1,7 @@
 #include "PedaleiraEditor.h"
 
 #include "AgentHub.h"
+#include "AppIdentity.h"
 #include "EngineCommands.h"
 #include "Processor.h"
 
@@ -179,6 +180,15 @@ bool PedaleiraEditor::showPluginWindow(const juce::String& blockId, const juce::
 }
 
 void PedaleiraEditor::paint(juce::Graphics& g) { g.fillAll(colour::ground); }
+
+// A test build names itself in the window title ("Pedaleira (build 38,
+// 2026-10-19)"), so an old copy is seen at a glance.
+void PedaleiraEditor::parentHierarchyChanged() {
+  if (juce::String(kBuildLabel).isEmpty())
+    return;
+  if (auto* window = dynamic_cast<juce::DocumentWindow*>(getTopLevelComponent()))
+    window->setName(juce::String("Pedaleira (") + kBuildLabel + ")");
+}
 
 void PedaleiraEditor::resized() {
   // One scale for the whole UI, from the design's 1440 x 900.

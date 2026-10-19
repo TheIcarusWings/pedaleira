@@ -66,8 +66,10 @@ Planned:
 
 The "Pedaleira test build" workflow (Actions tab, Run workflow) builds the
 app, the VST3 and, on macOS, the AU, and attaches them to the run as
-`Pedaleira-macos-arm64` and `Pedaleira-windows-x64`. They are for testing:
-not signed or notarised.
+`Pedaleira-macos-arm64-buildN`, `Pedaleira-windows-x64-buildN` and
+`Pedaleira-linux-x64-buildN`, N being the run number. The app shows the same
+number and the date in its window title and in Settings > About. They are for
+testing: not signed or notarised.
 
 - macOS (Apple silicon): unzip, move `Pedaleira.app` to Applications, then
   right-click it and choose Open the first time (or run

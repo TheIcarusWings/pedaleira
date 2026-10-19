@@ -6,6 +6,7 @@
 #include "Processor.h"
 
 #include "AgentHub.h"
+#include "AppIdentity.h"
 #include "BlockEq.h"
 #include "BlockKinds.h"
 #include "ChainDomain.h"
@@ -399,6 +400,7 @@ juce::var EngineCommands::engineInfo(const juce::var& chainState) const {
       {"outputChannels", processor.getTotalNumOutputChannels()},
       {"multiCore", processor.getMultiCoreEnabled()},
       {"version", kVersion},
+      {"build", kBuildLabel},
   });
 }
 
@@ -458,7 +460,7 @@ void EngineCommands::registerStateCommands() {
       "(the current setlist's, as preset.list), library (as library.get), "
       "grid (as grid.get), midi (the MIDI map and the fixed default controls), scenes (as scene.get), stomps (as "
       "stomp.get), footswitches (as footswitch.getState) and engine (sample rate, block size, "
-      "latency, oversampling, multi-core, version).",
+      "latency, oversampling, multi-core, version, and build: the test build's label, empty for a local build).",
       {},
       false,
       CommandPermission::read,

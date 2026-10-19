@@ -552,6 +552,13 @@ target_include_directories(${PROJECT_NAME}
 # macOS/Linux, which doesn't propagate the NAM target's definitions.
 target_compile_definitions(${PROJECT_NAME} PRIVATE NAM_ENABLE_A2_FAST)
 
+# The test build's label (AppIdentity.h kBuildLabel): the package workflow
+# sets it to the run number and date. Empty for local builds.
+set(PEDALEIRA_BUILD_LABEL "" CACHE STRING "Build label shown next to the version")
+if(PEDALEIRA_BUILD_LABEL)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC PEDALEIRA_BUILD_LABEL="${PEDALEIRA_BUILD_LABEL}")
+endif()
+
 # JUCE modules used
 target_link_libraries(${PROJECT_NAME}
     PRIVATE

@@ -239,7 +239,11 @@ SettingsAbout::SettingsAbout(EngineClient& client)
     : SettingsSection(client, "About", "What Pedaleira is, what it is made of and under which terms.") {}
 
 void SettingsAbout::refresh() {
-  versionText = engine.read("state.get")["engine"]["version"].toString();
+  const juce::var info = engine.read("state.get")["engine"];
+  versionText = info["version"].toString();
+  // A test build says which one it is: "0.0.12 (build 38, 2026-10-19)".
+  if (versionText.isNotEmpty() && info["build"].toString().isNotEmpty())
+    versionText << " (" << info["build"].toString() << ")";
   repaint();
 }
 

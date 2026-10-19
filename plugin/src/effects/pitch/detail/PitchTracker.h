@@ -1,7 +1,7 @@
 #pragma once
 // Private to the pitch family: a monophonic pitch tracker for the audio
 // thread, shared by the kinds that need to know the note being played
-// (pitch.harmony, pitch.subsynth).
+// (pitch.harmony, pitch.subsynth, pitch.correct).
 //
 // Method: the McLeod Pitch Method (P. McLeod and G. Wyvill, "A Smarter Way to
 // Find Pitch", ICMC 2005). For a window of the signal it computes the
@@ -39,6 +39,14 @@
 //  - the note a block acts on (note()) is the stable one: a new note has to be
 //    heard in two frames in a row to take over, and a bend of less than 65
 //    cents does not change it.
+//
+// The figures above are the guitar range (Range::guitar(), what prepare(rate)
+// uses). A kind may prepare the tracker for another range: the bass range
+// reaches down to 28 Hz (a five-string's low B is 30.9 Hz) with a longer
+// window (72 ms), so its low notes are known later; the voice range accepts a
+// less periodic signal (a lower clarity bar), as a sung note with breath and
+// jitter is. With Range::guitar() every number is the one the tracker always
+// had, so the kinds that do not ask for a range are unchanged to the bit.
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -55,26 +63,52 @@ public:
   static constexpr float kClarityThreshold = 0.82f;
   static constexpr float kSilenceRms = 0.001f;  // -60 dBFS
 
-  void prepare(double sampleRate) {
+  /** What the tracker listens for. */
+  struct Range {
+    double lowestHz;        // the lowest note it can read (sets the long window)
+    double highestHz;       // the highest
+    double highpassHz;      // the input's high-pass, under the lowest note
+    float clarity;          // the clarity a frame needs to be a note
+    int lagsPerStep;        // coarse lags per control step (the frame's pace)
+    bool fineWindowFollows; // the refinement window may grow to two of its periods
+
+    /** The guitar: 70 Hz to 1.4 kHz, the tracker's original setting. */
+    static constexpr Range guitar() noexcept { return {kMinHz, kMaxHz, kHighpassHz, kClarityThreshold, kLagsPerStep, false}; }
+    /** Bass: down to 28 Hz (a five-string's low B), up to 1 kHz. */
+    static constexpr Range bass() noexcept { return {28.0, 1000.0, 20.0, kClarityThreshold, 2 * kLagsPerStep, true}; }
+    /** Voice and other less periodic monophonic sources: 60 Hz to 1.4 kHz
+        with a lower clarity bar. */
+    static constexpr Range voice() noexcept { return {60.0, kMaxHz, kHighpassHz, 0.75f, kLagsPerStep, false}; }
+  };
+
+  void prepare(double sampleRate) { prepare(sampleRate, Range::guitar()); }
+
+  void prepare(double sampleRate, const Range& range) {
     rate = sampleRate;
+    clarityBar = range.clarity;
+    lagsPerStep = std::max(1, range.lagsPerStep);
     decimation = std::max(1, static_cast<int>(std::lround(sampleRate / kCoarseRate)));
     coarseRate = sampleRate / decimation;
-    lagMin = std::max(3, static_cast<int>(std::floor(coarseRate / kMaxHz)));
+    lagMin = std::max(3, static_cast<int>(std::floor(coarseRate / range.highestHz)));
     shortLagMax = static_cast<int>(std::lround(coarseRate / kShortMinHz));
-    longLagMax = static_cast<int>(std::ceil(coarseRate / kMinHz));
+    longLagMax = static_cast<int>(std::ceil(coarseRate / range.lowestHz));
     shortWindow = 2 * shortLagMax;
     longWindow = 2 * longLagMax;
     hop = std::max(1, static_cast<int>(std::lround(kHopSeconds * coarseRate)));
+    maxFineWindow = kMaxFineWindow;
+    if (range.fineWindowFollows)
+      maxFineWindow = std::max(kMaxFineWindow, 2 * longLagMax * decimation + 8);
     coarseRingSize = juce::nextPowerOfTwo(longWindow + hop + 16);
     coarseRing.assign(static_cast<size_t>(coarseRingSize), 0.0f);
-    fineRingSize = juce::nextPowerOfTwo(static_cast<int>(sampleRate * 0.17));
+    fineRingSize = juce::nextPowerOfTwo(std::max(static_cast<int>(sampleRate * 0.17),
+                                                 maxFineWindow + (longLagMax + 2) * decimation + 4 * kRefineSpan + 64));
     fineRing.assign(static_cast<size_t>(fineRingSize), 0.0f);
     frame.assign(static_cast<size_t>(longWindow), 0.0f);
     prefix.assign(static_cast<size_t>(longWindow) + 1, 0.0);
     nsdf.assign(static_cast<size_t>(longLagMax) + 3, 0.0f);
     fineNsdf.assign(static_cast<size_t>(2 * kRefineSpan) + 3, 0.0f);
-    fineSegment.assign(static_cast<size_t>(kMaxFineWindow + longLagMax * decimation + 4 * kRefineSpan + 16), 0.0f);
-    highpass.setCutoff(kHighpassHz, sampleRate);
+    fineSegment.assign(static_cast<size_t>(maxFineWindow + longLagMax * decimation + 4 * kRefineSpan + 16), 0.0f);
+    highpass.setCutoff(range.highpassHz, sampleRate);
     const fx::BiquadCoeffs low = fx::BiquadCoeffs::lowpass(kLowpassHz, 0.7071, sampleRate);
     lowpass[0].setCoeffs(low);
     lowpass[1].setCoeffs(low);
@@ -224,7 +258,7 @@ private:
   void runCoarse(int window, int lagMax, Stage current) noexcept {
     const float* base = frame.data() + (longWindow - window);
     const double* sums = prefix.data() + (longWindow - window);
-    for (int n = 0; n < kLagsPerStep && nextLag <= lagMax + 1; ++n, ++nextLag) {
+    for (int n = 0; n < lagsPerStep && nextLag <= lagMax + 1; ++n, ++nextLag) {
       const int lag = nextLag;
       const int count = window - lag;
       const float r = dot(base, base + lag, count);
@@ -237,7 +271,7 @@ private:
 
     const Peak peak = pickPeak(lagMax);
     if (current == Stage::Short) {
-      if (peak.found && peak.clarity >= kClarityThreshold &&
+      if (peak.found && peak.clarity >= clarityBar &&
           peak.lag <= kShortAcceptShare * shortLagMax) {
         startRefine(peak);
       } else {
@@ -247,7 +281,7 @@ private:
       }
       return;
     }
-    if (peak.found && peak.clarity >= kClarityThreshold)
+    if (peak.found && peak.clarity >= clarityBar)
       startRefine(peak);
     else
       finishFrame(false, 0.0, peak.found ? peak.clarity : bestLobe(lagMax));
@@ -321,7 +355,7 @@ private:
   void startRefine(const Peak& coarse) noexcept {
     coarseClarity = coarse.clarity;
     coarseLag = coarse.lag * decimation;
-    fineWindow = juce::jlimit(160, kMaxFineWindow, 2 * static_cast<int>(std::lround(coarseLag)));
+    fineWindow = juce::jlimit(160, maxFineWindow, 2 * static_cast<int>(std::lround(coarseLag)));
     fineFirstLag = std::max(lagMin * decimation, static_cast<int>(std::lround(coarseLag)) - kRefineSpan);
     fineLagCount = 2 * kRefineSpan + 1;
     fineNext = 0;
@@ -409,6 +443,8 @@ private:
   int decimation{4};
   int lagMin{8}, shortLagMax{80}, longLagMax{172}, shortWindow{160}, longWindow{344}, hop{60};
   int coarseRingSize{0}, fineRingSize{0};
+  int maxFineWindow{kMaxFineWindow}, lagsPerStep{kLagsPerStep};
+  float clarityBar{kClarityThreshold};
   std::vector<float> coarseRing, fineRing, frame, nsdf, fineNsdf, fineSegment;
   std::vector<double> prefix;
   fx::OnePole highpass;

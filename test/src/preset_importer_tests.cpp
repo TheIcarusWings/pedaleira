@@ -1837,7 +1837,7 @@ TEST(PresetImporterTest, DelaySyncNoteFollowsTheNoteListMeasuredOnTheUnit) {
   }
 }
 
-TEST(PresetImporterTest, CrystalDelayTakesTheOctaveTapWithTheShifterOffset) {
+TEST(PresetImporterTest, CrystalDelayTakesBothTapsWithTheShifterOffsets) {
   // A unit's default Crystal Delay as the dump script writes it, with the
   // 5/3 curves applied: DELAY TIME L 500 ms, R 1000 ms, HIGH PASS 50 Hz.
   const juce::var foreign = parseJson(R"j({"format":"pedaleira-foreign-preset","version":1,
@@ -1847,8 +1847,8 @@ TEST(PresetImporterTest, CrystalDelayTakesTheOctaveTapWithTheShifterOffset) {
                  "DELAY TIME L":{"value":500.0,"unit":"ms"},"DELAY TIME R":{"value":1000.0,"unit":"ms"},
                  "SYNC NOTE L":{"value":10},"SYNC NOTE R":{"value":13},
                  "CRYSTAL 1 PAN":{"value":2.5},"CRYSTAL 2 PAN":{"value":7.5},
-                 "CRYSTAL 1 GAIN":{"value":0.0,"unit":"dB"},"CRYSTAL 2 GAIN":{"value":0.0,"unit":"dB"},
-                 "MODE":{"value":1},"FEEDBACK":{"value":20.0,"unit":"%"},
+                 "CRYSTAL 1 GAIN":{"value":0.0,"unit":"dB"},"CRYSTAL 2 GAIN":{"value":-40.0,"unit":"dB"},
+                 "MODE":{"value":1},"FEEDBACK":{"value":50.0,"unit":"%"},
                  "LOW PASS":{"value":16000.0,"unit":"Hz"},"HIGH PASS":{"value":50.0,"unit":"Hz"},
                  "TRAILS":{"value":1}}}]}]})j");
   const importer::ImportResult result =
@@ -1858,13 +1858,27 @@ TEST(PresetImporterTest, CrystalDelayTakesTheOctaveTapWithTheShifterOffset) {
   ASSERT_EQ(kindOf(slot), "delay.crystal");
   const auto number = [&](const char* id) { return static_cast<double>(kindParam(slot, id)); };
   EXPECT_NEAR(number("timeMs"), 1103.6, 1e-3) << "tap 1 is heard 603.6 ms after DELAY TIME L";
+  EXPECT_NEAR(number("tap2TimeMs"), 1371.8, 1e-3) << "tap 2 is heard 371.8 ms after DELAY TIME R";
   EXPECT_NEAR(number("sync"), 0.0, 1e-6) << "the unit's echoes did not follow its notes";
+  EXPECT_NEAR(number("tap2Sync"), 0.0, 1e-6);
   EXPECT_NEAR(number("pitch"), 12.0, 1e-6);
-  EXPECT_NEAR(number("voice2"), 0.0, 1e-6);
-  EXPECT_NEAR(number("feedback"), 20.0, 1e-3);
+  EXPECT_NEAR(number("detune1"), 2.8, 1e-4);
+  EXPECT_NEAR(number("pitch2"), 0.0, 1e-6);
+  EXPECT_NEAR(number("detune2"), -5.7, 1e-4);
+  EXPECT_NEAR(number("voice2"), 0.0, 1e-6) << "no harmony on tap 1";
+  EXPECT_NEAR(number("tap1Db"), 0.0, 1e-4);
+  EXPECT_NEAR(number("tap2Db"), -40.0, 1e-4) << "true dB, not off";
+  EXPECT_NEAR(number("tap1Pan"), -50.0, 1e-3);
+  EXPECT_NEAR(number("tap2Pan"), 50.0, 1e-3);
+  EXPECT_NEAR(number("panMode"), 1.0, 1e-6) << "MODE 1 pans the taps";
+  // The unit's FEEDBACK 50 loses 13 to 19 dB a pass and its MIX 50 has the
+  // taps 9.4 dB under the dry: both are 50^2.5 here, 17.7 %.
+  EXPECT_NEAR(number("feedback"), 100.0 * std::pow(0.5, 2.5), 1e-3);
   EXPECT_NEAR(number("lowCutHz"), 50.0, 1e-3);
   EXPECT_NEAR(number("toneHz"), 16000.0, 1e-2);
-  EXPECT_NEAR(static_cast<double>(slot["mix"]), 0.5, 1e-6);
-  for (const char* param : {"DELAY TIME R", "CRYSTAL 2 GAIN", "CRYSTAL 2 PAN", "MODE", "SYNC", "SYNC NOTE L"})
+  EXPECT_NEAR(static_cast<double>(slot["mix"]), std::pow(0.5, 2.5), 1e-6);
+  for (const char* param : {"SYNC", "SYNC NOTE L", "SYNC NOTE R", "TRAILS"})
     EXPECT_TRUE(entryAt(result.report["droppedParams"], 0, 0, "param", param).isObject()) << param;
+  for (const char* param : {"DELAY TIME R", "CRYSTAL 2 GAIN", "CRYSTAL 1 PAN", "CRYSTAL 2 PAN", "MODE"})
+    EXPECT_FALSE(entryAt(result.report["droppedParams"], 0, 0, "param", param).isObject()) << param;
 }

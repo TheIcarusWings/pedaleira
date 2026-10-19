@@ -439,13 +439,19 @@
       "verified": false,
       "params": {
         "DELAY TIME L": { "param": "timeMs", "unit": "ms", "transform": { "scale": 1, "offset": 603.6 } },
-        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": "linear" },
+        "DELAY TIME R": { "param": "tap2TimeMs", "unit": "ms", "transform": { "scale": 1, "offset": 371.8 } },
+        "CRYSTAL 1 GAIN": { "param": "tap1Db", "unit": "dB", "transform": "linear" },
+        "CRYSTAL 2 GAIN": { "param": "tap2Db", "unit": "dB", "transform": "linear" },
+        "CRYSTAL 1 PAN": { "param": "tap1Pan", "transform": { "scale": 20, "offset": -100 } },
+        "CRYSTAL 2 PAN": { "param": "tap2Pan", "transform": { "scale": 20, "offset": -100 } },
+        "MODE": { "param": "panMode", "transform": "linear" },
+        "FEEDBACK": { "param": "feedback", "unit": "%", "transform": { "scale": 100, "exponent": 2.5 } },
         "HIGH PASS": { "param": "lowCutHz", "unit": "Hz", "transform": "linear" },
         "LOW PASS": { "param": "toneHz", "unit": "Hz", "transform": "linear" },
-        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 0.01, "offset": 0 } }
+        "MIX": { "param": "mix", "unit": "%", "transform": { "scale": 1, "exponent": 2.5 } }
       },
-      "defaults": { "sync": 0, "pitch": 12, "voice2": 0 },
-      "notes": "Measured on a unit (CorOS d14e, 2026-10-17). The unit's Crystal Delay has two taps: CRYSTAL 1 is +12 semitones (plus 2.7 cents) on the DELAY TIME L line and CRYSTAL 2 is near unison (5.7 cents flat) on the DELAY TIME R line, each heard as a small comb of echoes centred 604 ms (tap 1) and 372 ms (tap 2) after the line time. Ours is one octave-up line, so it takes tap 1: its time is DELAY TIME L plus the 603.6 ms the unit's shifter adds, clamped to our 2000 ms and reported. DELAY TIME L and R and HIGH PASS follow the 5/3 law (see quad-cortex-curves.json), so they arrive here in ms and Hz; MIX, FEEDBACK and the pans are linear; LOW PASS is not measured. Each pass of the feedback is shifted again and fades faster than its percentage says. The tap 2 controls (DELAY TIME R, CRYSTAL 2 GAIN and PAN), CRYSTAL 1 GAIN and PAN, MODE and TRAILS have no counterpart here and are reported as dropped. SYNC and the SYNC NOTEs did not move the echoes on the unit, so they are dropped too and our time stays free."
+      "defaults": { "sync": 0, "tap2Sync": 0, "pitch": 12, "detune1": 2.8, "pitch2": 0, "detune2": -5.7, "voice2": 0, "direct": 0, "modDepth": 0 },
+      "notes": "Measured on a unit (CorOS d14e, 2026-10-17). The unit's Crystal Delay has two taps, as ours does: CRYSTAL 1 is +12 semitones (plus 2.8 cents) on the DELAY TIME L line and CRYSTAL 2 is near unison (5.7 cents flat) on the DELAY TIME R line, each shifting again on every pass of the feedback (+12, +24, +36, +48 semitones on tap 1). The unit hears each tap a fixed time after its line time, 603.6 ms for tap 1 and 371.8 ms for tap 2 (its shifter's own delay), and our times are when the echo is heard, so the offsets are added; a time above our 6000 ms is clamped and reported. DELAY TIME L and R and HIGH PASS follow the 5/3 law (see quad-cortex-curves.json), so they arrive here in ms and Hz; LOW PASS is not measured. CRYSTAL GAIN is true dB on both (-40 dB is 40 dB down). CRYSTAL PAN 0 to 10 is our pan -100 to +100 %, with the same law (constant power, cos and sin of PAN / 10 x 90 degrees); MODE 0 puts both taps in the middle (our pan mode Centre), MODE 1 pans them. FEEDBACK and MIX act far more gently at mid travel than ours: FEEDBACK 50 lost 13 to 19 dB a pass where ours loses 6 at 50 %, and MIX 50 kept the dry at unity with the taps 9.4 dB down where ours has them at unity. One 2.5 power law of the dumped value lands both (FEEDBACK 50 is our 17.7 %, 15 dB a pass; MIX 50 is our 17.7 %, taps 9.0 dB down) and keeps 0 and 100 at the ends. If MIX and FEEDBACK are later shown to follow the 5/3 law on the wire and added to the curves file, these exponents become 1.5. On the unit each tap is heard as a small comb of echoes (about 380 ms apart on tap 1 and 506 ms on tap 2) sliding slowly with time; ours is one clean echo per tap at the comb's centre. SYNC and the SYNC NOTEs did not move the echoes on the unit, so they are dropped and our times stay free; TRAILS is dropped."
     },
     "Dual Reverse Delay": {
       "kind": "delay.dualreverse",

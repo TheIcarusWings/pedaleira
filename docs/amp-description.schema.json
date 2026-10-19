@@ -821,6 +821,40 @@
                     }
                   }
                 ]
+              },
+              "series_capacitor_f": {
+                "description": "A bleed capacitor across the series resistor: above the corner it sets against the series resistor in parallel with the grid leak, the divider is bypassed and the next grid sees the full swing (a treble boost into the next stage). Needs series_ohm; classic solver only. Unit: F.",
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 1e-13,
+                    "maximum": 1e-06
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "number",
+                        "minimum": 1e-13,
+                        "maximum": 1e-06
+                      },
+                      "provenance": {
+                        "enum": [
+                          "schematic",
+                          "measured",
+                          "fitted"
+                        ]
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
               }
             },
             "required": [

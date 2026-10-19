@@ -223,6 +223,31 @@ TEST(AmpCoupling, HighpassCornerAndSlope) {
   EXPECT_NEAR(gainDb([&](float x) { return hp.process(x); }, 2000.0, fs, 0.1f, 0.5), 0.0, 0.1);
 }
 
+TEST(AmpCoupling, BleedCapacitorLiftsTheDividerToTheFullSwing) {
+  // 470k into a 10k grid leak with 220 pF across the 470k: the divider in the
+  // lows, the analog first-order shelf above, the full swing far up.
+  const double fs = 192000.0;
+  amp::CouplingNetwork net{0.0f, 470.0e3f, 10.0e3f, 220.0e-12f};
+  ASSERT_TRUE(net.hasBleed());
+  const double parallel = 470.0e3 * 10.0e3 / 480.0e3;
+  EXPECT_NEAR(net.bleedCornerHz(), 1.0 / (2.0 * kPiValue * parallel * 220.0e-12), 1.0);
+  amp::CouplingBleed bleed;
+  bleed.setup(net, fs);
+  auto analog = [&](double hz) {
+    const std::complex<double> s(0.0, 2.0 * kPiValue * hz);
+    const double d = net.divider(), wp = 2.0 * kPiValue * net.bleedCornerHz();
+    return toDecibels(std::abs((d * wp + s) / (wp + s)));
+  };
+  EXPECT_NEAR(gainDb([&](float x) { return bleed.process(x); }, 50.0, fs, 0.1f, 1.0), toDecibels(net.divider()), 0.1);
+  for (double hz : {1000.0, 4000.0, 10000.0}) {
+    bleed.reset();
+    EXPECT_NEAR(gainDb([&](float x) { return bleed.process(x); }, hz, fs, 0.1f, 0.5), analog(hz), 0.2) << hz;
+  }
+  // No capacitor, or no series resistor to bridge: no bleed.
+  EXPECT_FALSE((amp::CouplingNetwork{0.0f, 470.0e3f, 10.0e3f}.hasBleed()));
+  EXPECT_FALSE((amp::CouplingNetwork{0.0f, 0.0f, 10.0e3f, 220.0e-12f}.hasBleed()));
+}
+
 TEST(AmpCoupling, CathodeShelfDropsTheLowsByTheRatio) {
   const double fs = 192000.0;
   const amp::TriodeCircuit circuit;

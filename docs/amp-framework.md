@@ -183,6 +183,7 @@ One entry per gain stage, in signal order, 1 to 6 of them. The first is the inpu
 | `coupling.capacitance_f` | number | F | 1e-12 to 0.001 |  |  | The coupling capacitor to the next grid; leave it out when every voicing gives it. (default provenance: schematic) |
 | `coupling.series_ohm` | number | ohm | 0 to 1e+8 | 0 |  | A series resistor into the next grid. (default provenance: schematic) |
 | `coupling.grid_leak_ohm` | number | ohm | 100 to 1e+8 |  | required | The next grid leak to ground. (default provenance: schematic) |
+| `coupling.series_capacitor_f` | number | F | 1e-13 to 1e-6 |  |  | A bleed capacitor across the series resistor. Above the corner it sets against the series resistor in parallel with the grid leak, the divider is bypassed and the next grid sees the full swing: a treble boost into the next stage, which reaches the clipping only (a cascade's interstage bleed). Needs `series_ohm`. Classic solver only. (default provenance: schematic) |
 | `gain_pot` | object |  |  |  |  | The gain pot with its bright capacitor, between this stage's plate and its coupling. |
 | `gain_pot.resistance_ohm` | number | ohm | 1000 to 1e+8 |  | required | Total resistance of the pot. (default provenance: schematic) |
 | `gain_pot.floor_ohm` | number | ohm | 0 to 1e+7 | 0 |  | A fixed resistor between the pot and ground, so the control does not reach silence. (default provenance: schematic) |

@@ -2016,6 +2016,21 @@ int selfTest() {
             "a file loaded from the editor replaces the capture in its block");
       check(std::abs(paramOf(amp, "inputGain") - gainBefore) < 1.0e-6 && std::abs(paramOf(amp, "outputGain") - levelBefore) < 1.0e-6,
             "and the editor leaves its settings");
+      page.openEditor(amp);
+      editor = dynamic_cast<NamEditor*>(page.blockEditor().currentBody());
+      check(editor != nullptr && editor->modelSizeShown(), "a slimmable capture shows its model size");
+      // A Linear capture comes in one size: the choice gives way to a note.
+      const juce::File oneSize = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("pedaleira-one-size.nam");
+      oneSize.replaceWithText(R"({"version":"0.5.4","architecture":"Linear","config":{"receptive_field":1,"bias":false},)"
+                              R"("weights":[1.0],"sample_rate":48000})");
+      if (editor != nullptr)
+        editor->swapTo(oneSize);
+      drops.client->run("state.waitUntilLoaded");
+      page.rigChanged();
+      page.openEditor(amp);
+      editor = dynamic_cast<NamEditor*>(page.blockEditor().currentBody());
+      check(editor != nullptr && !editor->modelSizeShown(), "a capture of one size hides the model size");
+      oneSize.deleteFile();
     }
   }
 

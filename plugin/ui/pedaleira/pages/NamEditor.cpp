@@ -179,6 +179,7 @@ void NamEditor::showBlock(const BlockContext& block) {
     assetKey = key;
     readAsset();
   }
+  modelSize.setVisible(info.sized);
   const double slim = block.block["params"]["slimSize"];
   modelSize.setSelected(slim < 0.25 ? 0 : slim < 0.75 ? 1 : 2);
   updateKnobs();
@@ -255,6 +256,13 @@ void NamEditor::readAsset() {
     }
   if (found.isVoid())
     found = named;
+  // Only a slimmable capture comes in sizes; asked of the file itself.
+  const juce::File file = loaded.existsAsFile() ? loaded : juce::File(found["path"].toString());
+  if (file.existsAsFile()) {
+    const juce::var inspected = engine.read("nam.inspect", object({{"path", file.getFullPathName()}}));
+    if (inspected.hasProperty("architecture"))
+      info.sized = inspected["architecture"].toString() == "SlimmableContainer";
+  }
   if (found.isVoid())
     return;
   info.type = gearTypeName(found["nam_gear_type"].toString());
@@ -388,6 +396,8 @@ void NamEditor::paint(juce::Graphics& g) {
       value(rows[3], "Not tagged");
     }
     label(rows[4], "Model size");
+    if (!info.sized)
+      value(rows[4], "One size");
     label(rows[5], "Calibration");
     value(rows[5], info.calibration, true);
   }

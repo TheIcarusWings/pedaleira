@@ -24,6 +24,8 @@ public:
   // Replaces this block's capture with a file, keeping its settings (what
   // Load file... does with the file picked; public for the testbed).
   void swapTo(const juce::File& file);
+  // Whether the model size choice is shown: only for a capture that comes in sizes.
+  bool modelSizeShown() const { return modelSize.isVisible(); }
 
   void paint(juce::Graphics& g) override;
   void resized() override;
@@ -33,6 +35,8 @@ private:
   class MeterRow;
   struct Info {
     juce::String file, source, type, gainTag, calibration;
+    // False for a capture of one size, which has no model size to choose.
+    bool sized = true;
     // Where it came from on TONE3000, when it did.
     Tone3000Credit credit;
   };

@@ -1,0 +1,59 @@
+{
+  "red-forty": {
+    "e00": "base, main 66727c8",
+    "e01": "V2-V3 cap x0.6, max_bias_shift_v 0.5",
+    "e02": "V2-V3 cap x0.6, max_bias_shift_v 0.5, V1-V2 cap x0.85",
+    "e03": "V2-V3 cap x0.6, max_bias_shift_v 0.7",
+    "e04": "V2-V3 cap x0.6, max_bias_shift_v 0.7, V1-V2 cap x0.85",
+    "e05": "V2-V3 cap x0.6, max_bias_shift_v 1",
+    "e06": "V2-V3 cap x0.6, max_bias_shift_v 1, V1-V2 cap x0.85",
+    "e07": "V2-V3 cap x0.7, max_bias_shift_v 0.5",
+    "e08": "V2-V3 cap x0.7, max_bias_shift_v 0.5, V1-V2 cap x0.85",
+    "e09": "V2-V3 cap x0.7, max_bias_shift_v 0.7",
+    "e10": "V2-V3 cap x0.7, max_bias_shift_v 0.7, V1-V2 cap x0.85",
+    "e11": "V2-V3 cap x0.7, max_bias_shift_v 1",
+    "e12": "V2-V3 cap x0.7, max_bias_shift_v 1, V1-V2 cap x0.85",
+    "e13": "V2-V3 cap x0.85, max_bias_shift_v 0.5",
+    "e14": "V2-V3 cap x0.85, max_bias_shift_v 0.5, V1-V2 cap x0.85",
+    "e15": "V2-V3 cap x0.85, max_bias_shift_v 0.7",
+    "e16": "V2-V3 cap x0.85, max_bias_shift_v 0.7, V1-V2 cap x0.85",
+    "e17": "V2-V3 cap x0.85, max_bias_shift_v 1",
+    "e18": "V2-V3 cap x0.85, max_bias_shift_v 1, V1-V2 cap x0.85",
+    "e19": "V2-V3 cap x0.5, max_bias_shift_v 0.5"
+  },
+  "heavy-hot": {
+    "e00": "base, main 66727c8",
+    "e01": "V2-V3 cap x0.6, max_bias_shift_v 0.5",
+    "e02": "V2-V3 cap x0.6, max_bias_shift_v 0.5, V1-V2 cap x0.85",
+    "e03": "V2-V3 cap x0.6, max_bias_shift_v 0.7",
+    "e04": "V2-V3 cap x0.6, max_bias_shift_v 0.7, V1-V2 cap x0.85",
+    "e05": "V2-V3 cap x0.6, max_bias_shift_v 1",
+    "e06": "V2-V3 cap x0.6, max_bias_shift_v 1, V1-V2 cap x0.85",
+    "e07": "V2-V3 cap x0.7, max_bias_shift_v 0.5",
+    "e08": "V2-V3 cap x0.7, max_bias_shift_v 0.5, V1-V2 cap x0.85",
+    "e09": "V2-V3 cap x0.7, max_bias_shift_v 0.7",
+    "e10": "V2-V3 cap x0.7, max_bias_shift_v 0.7, V1-V2 cap x0.85",
+    "e11": "V2-V3 cap x0.7, max_bias_shift_v 1",
+    "e12": "V2-V3 cap x0.7, max_bias_shift_v 1, V1-V2 cap x0.85",
+    "e13": "V2-V3 cap x0.85, max_bias_shift_v 0.5",
+    "e14": "V2-V3 cap x0.85, max_bias_shift_v 0.5, V1-V2 cap x0.85",
+    "e15": "V2-V3 cap x0.85, max_bias_shift_v 0.7",
+    "e16": "V2-V3 cap x0.85, max_bias_shift_v 0.7, V1-V2 cap x0.85",
+    "e17": "V2-V3 cap x0.85, max_bias_shift_v 1",
+    "e18": "V2-V3 cap x0.85, max_bias_shift_v 1, V1-V2 cap x0.85",
+    "e19": "V2-V3 cap x0.5, max_bias_shift_v 0.5"
+  },
+  "modern-three": {
+    "e00": "base, main 66727c8",
+    "e01": "every coupling cap x0.5, supply.source_ohm 1500",
+    "e02": "every coupling cap x0.5, supply.source_ohm 2500",
+    "e03": "every coupling cap x0.5, supply.source_ohm 4000",
+    "e04": "every coupling cap x0.6, supply.source_ohm 1500",
+    "e05": "every coupling cap x0.6, supply.source_ohm 2500",
+    "e06": "every coupling cap x0.6, supply.source_ohm 4000"
+  },
+  "cell-four": {
+    "e00": "base, main 66727c8",
+    "e01": "invert_output false (the polarity fix)"
+  }
+}

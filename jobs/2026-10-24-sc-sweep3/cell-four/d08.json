@@ -1,0 +1,397 @@
+{
+  "format": "pedaleira-amp",
+  "version": 1,
+  "metadata": {
+    "name": "Cell Four",
+    "author": "Pedaleira",
+    "licence": "MIT",
+    "summary": "A four-stage high gain channel with a deep low-end resonance (a 12AX7 input stage, a gain pot, three cascaded gain stages, a treble-middle-bass tone stack) into a push-pull power amp with presence and depth feedback. The topology and the starting values are those of the High Gain description; the gain law, the levels, the clipping points, the tone stack and the feedback network were then fitted to measurements of a reference amp (its GAIN sweep and its line-level response at GAIN 5). Every value the fit moved is marked \"fitted\" with what it was fitted to.",
+    "family": "high_gain",
+    "references": [
+      "D. T. Yeh and J. O. Smith, Discretization of the '59 Fender Bassman Tone Stack, DAFx-06, 2006",
+      "J. Pakarinen and D. T. Yeh, A review of digital techniques for modeling vacuum-tube guitar amplifiers, Computer Music Journal 33(2), 2009",
+      "Pedaleira measurements of a reference amp played through a modelling unit's USB input: GAIN sweeps with a 1 kHz staircase, THD at -54 dBFS, the test signal's sweeps at -18 dBFS (2026)"
+    ]
+  },
+  "model": {
+    "stage_solver": "classic"
+  },
+  "input": {
+    "coupling_capacitor_f": {
+      "value": 1.3e-08,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the low end of the response"
+    },
+    "grid_leak_ohm": 1000000,
+    "grid_stopper_ohm": 68000,
+    "miller_f": 1.6e-10,
+    "source_ohm": {
+      "value": 10000,
+      "provenance": "fitted",
+      "note": "assumed pickup impedance for the grid charge path"
+    }
+  },
+  "stages": [
+    {
+      "name": "V1 input stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {
+        "value": 2.95e-10,
+        "provenance": "fitted",
+        "note": "wiring plus the next Miller capacitance; sets the stage's high-frequency roll-off"
+      },
+      "cathode": {
+        "resistor_ohm": 1500,
+        "bias_current_a": 0.001,
+        "bypass_capacitor_f": 6.8e-07
+      },
+      "grid": {
+        "cutoff_v": 3.5,
+        "contact_potential_v": 0.3,
+        "conduction_ohm": 2000,
+        "max_bias_shift_v": 10
+      },
+      "coupling": {
+        "capacitance_f": {
+          "value": 7.64e-09,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: the low end of the response"
+        },
+        "series_ohm": 0,
+        "grid_leak_ohm": 470000
+      },
+      "gain_pot": {
+        "resistance_ohm": 1000000,
+        "floor_ohm": {
+          "value": 26400,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: Gs at GAIN 2, 5, 8 and 10"
+        },
+        "source_ohm": 100000,
+        "load_ohm": 470000,
+        "taper": {
+          "value": 1.45,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: Gs at GAIN 2, 5, 8 and 10"
+        },
+        "bright_capacitor_f": 1e-10
+      }
+    },
+    {
+      "name": "V2 gain stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {
+        "value": 3.45e-10,
+        "provenance": "fitted",
+        "note": "wiring plus the next Miller capacitance"
+      },
+      "cathode": {
+        "resistor_ohm": 1500,
+        "bias_current_a": {
+          "value": 0.00207,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: the bend and the THD at -54 dBFS"
+        },
+        "bypass_capacitor_f": "ideal"
+      },
+      "coupling": {
+        "capacitance_f": {
+          "value": 6.6e-09,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: the low end of the response"
+        },
+        "series_ohm": 470000,
+        "grid_leak_ohm": {
+          "value": 16000,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: the bend and the THD at -54 dBFS"
+        }
+      }
+    },
+    {
+      "name": "V3 gain stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {
+        "value": 4.13e-10,
+        "provenance": "fitted",
+        "note": "wiring plus the next Miller capacitance"
+      },
+      "cathode": {
+        "resistor_ohm": 1500,
+        "bias_current_a": {
+          "value": 0.00188,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: the bend and the THD at -54 dBFS"
+        },
+        "bypass_capacitor_f": "ideal"
+      },
+      "coupling": {
+        "capacitance_f": {
+          "value": 1.9e-08,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: the low end of the response"
+        },
+        "series_ohm": 470000,
+        "grid_leak_ohm": {
+          "value": 24600,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: the bend and the THD at -54 dBFS"
+        }
+      }
+    },
+    {
+      "name": "V4 gain stage",
+      "tube": "12AX7",
+      "plate_load_ohm": 100000,
+      "plate_capacitance_f": {
+        "value": 2.79e-11,
+        "provenance": "fitted",
+        "note": "fitted to the Cell Four measurements: the high and low ends of the response"
+      },
+      "cathode": {
+        "resistor_ohm": 1500,
+        "bias_current_a": {
+          "value": 0.00166,
+          "provenance": "fitted",
+          "note": "fitted to the Cell Four measurements: the bend and the THD at -54 dBFS"
+        },
+        "bypass_capacitor_f": "ideal"
+      }
+    }
+  ],
+  "voicings": [
+    {
+      "name": "Channel 3",
+      "supply": {
+        "source_ohm": {
+          "value": 250,
+          "provenance": "fitted",
+          "note": "tube rectifier and transformer resistance"
+        },
+        "rectifier": "tube"
+      }
+    }
+  ],
+  "default_voicing": 0,
+  "tone_stack": {
+    "type": "tmb",
+    "treble_pot_ohm": {
+      "value": 202000,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the tone knob responses"
+    },
+    "bass_pot_ohm": 1000000,
+    "middle_pot_ohm": {
+      "value": 50600,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the tone knob responses"
+    },
+    "slope_ohm": {
+      "value": 74500,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the tone knob responses"
+    },
+    "treble_cap_f": {
+      "value": 4.96e-10,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the tone knob responses"
+    },
+    "bass_cap_f": {
+      "value": 6.02e-08,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the tone knob responses"
+    },
+    "middle_cap_f": {
+      "value": 1.46e-08,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the tone knob responses"
+    }
+  },
+  "effects_loop": {
+    "present": false,
+    "note": "placeholder: the signal does not pass through a loop"
+  },
+  "power_amp": {
+    "tube": "EL34",
+    "topology": "push_pull_ab",
+    "open_loop_gain": {
+      "value": 4.43,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the presence range and the master step"
+    },
+    "feedback": {
+      "series_ohm": {
+        "value": 4590,
+        "provenance": "fitted",
+        "note": "fitted to the Cell Four measurements: the presence range and the master step"
+      },
+      "shunt_ohm": 1000
+    },
+    "presence": {
+      "pot_ohm": 5000,
+      "min_ohm": 220,
+      "capacitor_f": 4.7e-08
+    },
+    "depth": {
+      "inductance_h": {
+        "value": 0.221,
+        "provenance": "fitted",
+        "note": "fitted to the Cell Four measurements: the low-end and resonance responses"
+      },
+      "capacitance_f": 2.1e-05,
+      "resistance_ohm": {
+        "value": 1870,
+        "provenance": "fitted",
+        "note": "fitted to the Cell Four measurements: the low-end and resonance responses"
+      },
+      "max_cut": {
+        "value": 0.983,
+        "provenance": "fitted",
+        "note": "fitted to the Cell Four measurements: the low-end and resonance responses"
+      }
+    },
+    "transformer": {
+      "high_corner_hz": {
+        "value": 13400,
+        "provenance": "fitted",
+        "note": "fitted to the Cell Four measurements: the high and low ends of the response"
+      },
+      "low_corner_hz": {
+        "value": 3.62,
+        "provenance": "fitted",
+        "note": "fitted to the Cell Four measurements: the high and low ends of the response"
+      }
+    },
+    "knee_mix": {
+      "value": 0.386,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the knee of the static curve"
+    },
+    "crossover": {
+      "ratio": {
+        "value": 0.5,
+        "provenance": "fitted",
+        "note": "fitted to the Cell Four measurements: the knee of the static curve"
+      },
+      "width": 0.3
+    },
+    "supply": {
+      "b_plus_v": 450,
+      "source_ohm": 250,
+      "full_load_a": 0.3,
+      "reservoir_f": 0.00022,
+      "attack_s": 0.008,
+      "rectifier": "tube"
+    }
+  },
+  "calibration": {
+    "input_full_scale_v": {
+      "value": 271,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the small-signal gain (Gs)"
+    },
+    "power_drive_v": {
+      "value": 135.3,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the master step and the knee of the static curve"
+    },
+    "coupling_gain_rise": 1.8,
+    "output_trim": {
+      "value": 0.317,
+      "provenance": "fitted",
+      "note": "fitted to the Cell Four measurements: the ceiling"
+    },
+    "invert_output": true,
+    "control_smoothing_s": 0.02
+  },
+  "panel": {
+    "gain": {
+      "label": "Gain",
+      "target": "stages[0].gain_pot",
+      "range": [
+        0,
+        0.313
+      ],
+      "taper": 2.54
+    },
+    "bass": {
+      "label": "Bass",
+      "target": "tone_stack.bass_pot_ohm",
+      "taper": 2.0
+    },
+    "middle": {
+      "label": "Middle",
+      "target": "tone_stack.middle_pot_ohm"
+    },
+    "treble": {
+      "label": "Treble",
+      "target": "tone_stack.treble_pot_ohm"
+    },
+    "presence": {
+      "label": "Presence",
+      "target": "power_amp.presence"
+    },
+    "depth": {
+      "label": "Depth",
+      "target": "power_amp.depth"
+    },
+    "master": {
+      "label": "Master",
+      "target": "master",
+      "taper": 2.0
+    },
+    "bright": {
+      "label": "Bright",
+      "target": "stages[0].gain_pot.bright_capacitor_f"
+    },
+    "faceplate": {
+      "accent": "#B6F23A",
+      "nameplate": "right",
+      "tag": "German",
+      "character": "Four-channel German high gain, precise and dense",
+      "strip": "cells",
+      "knob_cap": "round",
+      "groups": [
+        {
+          "title": "Input",
+          "controls": [
+            "gain",
+            "bright"
+          ]
+        },
+        {
+          "title": "Shaping",
+          "controls": [
+            "bass",
+            "middle",
+            "treble"
+          ]
+        },
+        {
+          "title": "Power",
+          "controls": [
+            "presence",
+            "depth"
+          ]
+        },
+        {
+          "title": "Output",
+          "controls": [
+            "master"
+          ]
+        }
+      ]
+    }
+  },
+  "default_cab": {
+    "speaker": "Oak",
+    "size": "4x12",
+    "back": "closed",
+    "mic": "dynamic",
+    "position_percent": 35,
+    "distance_cm": 2.5
+  }
+}

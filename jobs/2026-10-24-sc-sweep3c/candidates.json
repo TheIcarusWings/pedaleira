@@ -1,0 +1,16 @@
+{
+  "red-forty": {
+    "g00": "base, main 66727c8",
+    "g01": "grid.max_bias_shift_v 0.3 on every stage (base 10)",
+    "g02": "grid.max_bias_shift_v 0.2 on every stage (base 10)",
+    "g03": "grid.max_bias_shift_v 0.15 on every stage (base 10)",
+    "g04": "grid.max_bias_shift_v 0.1 on every stage (base 10)"
+  },
+  "heavy-hot": {
+    "g00": "base, main 66727c8",
+    "g01": "grid.max_bias_shift_v 0.3 on every stage (base 10)",
+    "g02": "grid.max_bias_shift_v 0.2 on every stage (base 10)",
+    "g03": "grid.max_bias_shift_v 0.15 on every stage (base 10)",
+    "g04": "grid.max_bias_shift_v 0.1 on every stage (base 10)"
+  }
+}

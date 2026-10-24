@@ -1,0 +1,30 @@
+{
+  "red-forty": {
+    "f00": "base, main 66727c8",
+    "f01": "grid.max_bias_shift_v 1 on every stage (base 10)",
+    "f02": "grid.max_bias_shift_v 0.7 on every stage (base 10)",
+    "f03": "grid.max_bias_shift_v 0.5 on every stage (base 10)",
+    "f04": "grid.max_bias_shift_v 0.3 on every stage (base 10)"
+  },
+  "heavy-hot": {
+    "f00": "base, main 66727c8",
+    "f01": "grid.max_bias_shift_v 1 on every stage (base 10)",
+    "f02": "grid.max_bias_shift_v 0.7 on every stage (base 10)",
+    "f03": "grid.max_bias_shift_v 0.5 on every stage (base 10)",
+    "f04": "grid.max_bias_shift_v 0.3 on every stage (base 10)"
+  },
+  "modern-three": {
+    "f00": "base, main 66727c8",
+    "f01": "grid.max_bias_shift_v 1 on every stage (base 10)",
+    "f02": "grid.max_bias_shift_v 0.7 on every stage (base 10)",
+    "f03": "grid.max_bias_shift_v 0.5 on every stage (base 10)",
+    "f04": "grid.max_bias_shift_v 0.3 on every stage (base 10)"
+  },
+  "cell-four": {
+    "f00": "base, main 66727c8",
+    "f01": "grid.max_bias_shift_v 1 on every stage (base 10)",
+    "f02": "grid.max_bias_shift_v 0.7 on every stage (base 10)",
+    "f03": "grid.max_bias_shift_v 0.5 on every stage (base 10)",
+    "f04": "grid.max_bias_shift_v 0.3 on every stage (base 10)"
+  }
+}

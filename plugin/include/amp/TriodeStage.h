@@ -114,13 +114,16 @@ inline float triodeCurve(float x, float posLimit, float negLimit) noexcept {
 
 /** The antiderivative of triodeCurve from 0: Lp^2 (sqrt(1 + t^2) - 1) on the
     positive side and Ln^2 (sqrt(1 + t^2) - 1) on the negative side (the two
-    meet at 0 with value 0). */
+    meet at 0 with value 0). Written as L^2 t^2 / (sqrt(1 + t^2) + 1), the same
+    value without the cancellation of sqrt(1 + t^2) - 1, which in single
+    precision rounds to 0 once t^2 is under about 1e-7 (a small signal on a
+    side with a large limit). */
 inline float triodeCurveIntegral(float x, float posLimit, float negLimit, float invPosLimit,
                                  float invNegLimit) noexcept {
   const float limit = x >= 0.0f ? posLimit : negLimit;
   const float t = std::clamp(x * (x >= 0.0f ? invPosLimit : invNegLimit), -1.0e3f, 1.0e3f);
   const float a = 1.0f + t * t;
-  return limit * limit * (a * invSqrt(a) - 1.0f);
+  return limit * limit * t * t * recip(a * invSqrt(a) + 1.0f);
 }
 
 class TriodeStage {
@@ -148,21 +151,36 @@ public:
   void reset() noexcept {
     shift = 0.0f;
     lastGrid = 0.0f;
-    lastIntegral = 0.0f;
+    lastRoot = 1.0f;
   }
 
   /** `gridVolts` in, plate swing in volts out. */
   float process(float gridVolts) noexcept {
     const float grid = gridVolts - shift;
-    // First-order antiderivative anti-aliasing; for a step too small to
-    // divide by safely the curve is read at the midpoint.
-    const float integral = triodeCurveIntegral(grid, posLimit, negLimit, invPosLimit, invNegLimit);
-    const float step = grid - lastGrid;
-    const float shaped = std::abs(step) > smallestStep
-                             ? (integral - lastIntegral) * recip(step)
-                             : triodeCurve(0.5f * (grid + lastGrid), posLimit, negLimit);
+    // First-order antiderivative anti-aliasing: the slope of the curve's
+    // antiderivative L^2 (s - 1), s = sqrt(1 + (x / L)^2), between the
+    // previous and the current input. With both on the same side of 0 that
+    // slope is exactly (x1 + x0) / (s1 + s0): no difference of nearly equal
+    // numbers, so it holds for any step, down to a step of 0 (where it is
+    // the curve itself). Across 0 the two sides have different limits and
+    // the antiderivatives are subtracted; for a step too small to divide by
+    // safely the curve is read at the midpoint.
+    const float t = std::clamp(grid * (grid >= 0.0f ? invPosLimit : invNegLimit), -1.0e6f, 1.0e6f);
+    const float a = 1.0f + t * t;
+    const float root = a * invSqrt(a);
+    float shaped;
+    if ((grid >= 0.0f) == (lastGrid >= 0.0f)) {
+      shaped = (grid + lastGrid) * recip(root + lastRoot);
+    } else {
+      const float step = grid - lastGrid;
+      shaped = std::abs(step) > smallestStep
+                   ? (triodeCurveIntegral(grid, posLimit, negLimit, invPosLimit, invNegLimit) -
+                      triodeCurveIntegral(lastGrid, posLimit, negLimit, invPosLimit, invNegLimit)) *
+                         recip(step)
+                   : triodeCurve(0.5f * (grid + lastGrid), posLimit, negLimit);
+    }
     lastGrid = grid;
-    lastIntegral = integral;
+    lastRoot = root;
     const float y = amplification * shaped;
     const float over = grid > gridOnset ? grid - gridOnset : 0.0f;
     shift += attack * over - release * shift;
@@ -183,7 +201,7 @@ private:
   float attack{0.0f}, release{0.0f};
   float shift{0.0f};
   float smallestStep{1.0e-3f};
-  float lastGrid{0.0f}, lastIntegral{0.0f};
+  float lastGrid{0.0f}, lastRoot{1.0f};
 };
 
 }  // namespace amp

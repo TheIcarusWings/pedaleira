@@ -194,6 +194,42 @@ TEST(AmpTriode, TheShiftChangesTheAsymmetryWithDrive) {
   EXPECT_NE(dcOf(8.0f), 0.0);
 }
 
+TEST(AmpTriode, ASmallSignalOnALargeLimitStaysClean) {
+  // A cold stage: 3.37 V of bias (the positive limit) and 0.13 V to cutoff. A
+  // 6 mV sine sits far below both knees, so the stage is linear: the output is
+  // the sine times the gain and nothing else. The antiderivative's
+  // sqrt(1 + t^2) - 1 once rounded to 0 for t^2 under the float epsilon,
+  // which turned a signal like this into steps (noise 8 dB under the sine).
+  const double fs = 192000.0;
+  amp::TriodeCircuit circuit;
+  circuit.biasCurrent = 3.37f / circuit.cathodeResistor;
+  amp::TriodeStage stage;
+  stage.prepare(fs, circuit);
+  const double hz = 1377.0;
+  const size_t n = static_cast<size_t>(fs);
+  std::vector<float> out(n);
+  for (size_t i = 0; i < n; ++i)
+    out[i] = stage.process(0.006f * static_cast<float>(std::sin(2.0 * kPiValue * hz * static_cast<double>(i) / fs)));
+  // What is left after taking out the fundamental, against the fundamental.
+  const size_t from = n / 2;
+  const double fundamental = amplitudeAt(out, from, hz, fs);
+  std::complex<double> acc{0.0, 0.0};
+  for (size_t i = from; i < n; ++i)
+    acc += static_cast<double>(out[i]) *
+           std::complex<double>(std::cos(2.0 * kPiValue * hz * static_cast<double>(i) / fs),
+                                -std::sin(2.0 * kPiValue * hz * static_cast<double>(i) / fs));
+  acc *= 2.0 / static_cast<double>(n - from);
+  double residual = 0.0;
+  for (size_t i = from; i < n; ++i) {
+    const double phase = 2.0 * kPiValue * hz * static_cast<double>(i) / fs;
+    const double sine = acc.real() * std::cos(phase) - acc.imag() * std::sin(phase);
+    residual += std::pow(static_cast<double>(out[i]) - sine, 2.0);
+  }
+  residual = std::sqrt(2.0 * residual / static_cast<double>(n - from));
+  EXPECT_NEAR(fundamental, 0.006 * circuit.amplification(), 0.006 * circuit.amplification() * 0.01);
+  EXPECT_LT(toDecibels(residual / fundamental), -60.0);
+}
+
 TEST(AmpTriode, ResetClearsTheState) {
   amp::TriodeStage stage = makeStage(192000.0);
   for (int i = 0; i < 5000; ++i)

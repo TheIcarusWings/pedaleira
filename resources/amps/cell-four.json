@@ -102,7 +102,6 @@
     "power_drive_v": {"value": 90.2, "provenance": "fitted", "note": "fitted to the Cell Four measurements: the master step and the knee of the static curve"},
     "coupling_gain_rise": 1.8,
     "output_trim": {"value": 0.317, "provenance": "fitted", "note": "fitted to the Cell Four measurements: the ceiling"},
-    "invert_output": true,
     "control_smoothing_s": 0.02
   },
   "panel": {

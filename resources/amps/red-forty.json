@@ -28,7 +28,7 @@
       "plate_load_ohm": 100000,
       "plate_capacitance_f": {"value": 3.31e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": 0.001, "bypass_capacitor_f": {"value": 5.38e-07, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}},
-      "grid": {"cutoff_v": 3.5, "contact_potential_v": 0.3, "conduction_ohm": 2000, "max_bias_shift_v": 10},
+      "grid": {"cutoff_v": 3.5, "contact_potential_v": 0.3, "conduction_ohm": 2000, "max_bias_shift_v": {"value": 0.1, "provenance": "fitted", "note": "fitted to the DI run v26 (MR-STFT spectral convergence of the lead, riff and chug takes): how far the grid-leak bias shift may go"}},
       "coupling": {"capacitance_f": {"value": 5.33e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 0, "grid_leak_ohm": 470000},
       "gain_pot": {"resistance_ohm": 1000000, "floor_ohm": {"value": 1700, "provenance": "fitted", "note": "fitted to the Red Forty measurements: Gs at GAIN 2, 5, 8 and 10"}, "source_ohm": 100000, "load_ohm": 470000, "taper": {"value": 3.67, "provenance": "fitted", "note": "fitted to the Red Forty measurements: Gs at GAIN 2, 5, 8 and 10"}, "bright_capacitor_f": 1e-10}
     },
@@ -38,6 +38,7 @@
       "plate_load_ohm": 100000,
       "plate_capacitance_f": {"value": 1.35e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00104, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
+      "grid": {"max_bias_shift_v": {"value": 0.1, "provenance": "fitted", "note": "fitted to the DI run v26 (MR-STFT spectral convergence of the lead, riff and chug takes): how far the grid-leak bias shift may go"}},
       "coupling": {"capacitance_f": {"value": 1.89e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 9070, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}, "series_capacitor_f": {"value": 1.57e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum (a bleed across the 470k)"}}
     },
     {
@@ -46,6 +47,7 @@
       "plate_load_ohm": 100000,
       "plate_capacitance_f": {"value": 1.43e-10, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): the top of the long-term spectrum"},
       "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00109, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
+      "grid": {"max_bias_shift_v": {"value": 0.1, "provenance": "fitted", "note": "fitted to the DI run v26 (MR-STFT spectral convergence of the lead, riff and chug takes): how far the grid-leak bias shift may go"}},
       "coupling": {"capacitance_f": {"value": 4.1e-09, "provenance": "fitted", "note": "fitted to the DI run v26 (five guitar DIs 36 dB down): how much low end reaches the clipping stages"}, "series_ohm": 470000, "grid_leak_ohm": {"value": 605000, "provenance": "fitted", "note": "re-staged: the gain the first grid gave up, so the first stage no longer clips at playing level; with the full scale it keeps the Red Forty measurements (Gs, the bend and the THD at -54 dBFS)"}}
     },
     {
@@ -53,7 +55,8 @@
       "tube": "12AX7",
       "plate_load_ohm": 100000,
       "plate_capacitance_f": {"value": 1.24e-11, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the high and low ends of the response"},
-      "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00107, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"}
+      "cathode": {"resistor_ohm": 1500, "bias_current_a": {"value": 0.00107, "provenance": "fitted", "note": "fitted to the Red Forty measurements: the bend and the THD at -54 dBFS"}, "bypass_capacitor_f": "ideal"},
+      "grid": {"max_bias_shift_v": {"value": 0.1, "provenance": "fitted", "note": "fitted to the DI run v26 (MR-STFT spectral convergence of the lead, riff and chug takes): how far the grid-leak bias shift may go"}}
     }
   ],
   "voicings": [

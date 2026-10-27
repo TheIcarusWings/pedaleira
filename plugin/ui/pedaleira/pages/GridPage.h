@@ -303,6 +303,9 @@ public:
   // the window leaves (a small window starts collapsed).
   BlockSettingsPanel& settingsPanel() { return blockPanel; }
   void setSettingsCollapsed(bool collapsed);
+  // The expanded panel's height the player dragged its edge to; 0 goes back
+  // to the height the room gives it.
+  void setSettingsHeight(int height);
   bool settingsCollapsed() const { return blockPanel.isCollapsed(); }
   void selectPoint(GridPoint point);
   // The block library over the page, adding to that slot.
@@ -367,6 +370,24 @@ private:
   ScenesStrip scenes;
   GridView grid;
   BlockSettingsPanel blockPanel;
+  // The settings panel's top edge: dragged, it sets the panel's height, and
+  // dragged down to the bar it collapses the panel.
+  class PanelEdge : public juce::Component {
+  public:
+    std::function<bool()> active;
+    std::function<void(int)> onDrag;  // the pointer's y in the page
+    PanelEdge() {
+      setMouseCursor(juce::MouseCursor::UpDownResizeCursor);
+      setRepaintsOnMouseActivity(true);
+    }
+    bool hitTest(int, int) override { return active && active(); }
+    void mouseDrag(const juce::MouseEvent& e) override {
+      if (onDrag)
+        onDrag(e.getEventRelativeTo(getParentComponent()).getPosition().y);
+    }
+    void paint(juce::Graphics& g) override;
+  };
+  PanelEdge panelEdge;
   SplitPanel splitPanel;
   ScenePanel scenePanel;
   StompPanel stompPanel;

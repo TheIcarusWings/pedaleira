@@ -32,8 +32,30 @@ Tone3000Session::Config Tone3000Session::Config::fromBuild() {
   return {config::kApiOrigin, config::kPublishableKey, config::kArchitecture};
 }
 
+namespace {
+// The classic editor's host: the Backend.
+class BackendHost final : public Tone3000Session::Host {
+public:
+  explicit BackendHost(Backend& backend) : backend_(backend) {}
+  void setAccessToken(const juce::String& token) override { backend_.setAccessToken(token); }
+  juce::String uniqueDeviceId() override { return backend_.uniqueDeviceId(); }
+  juce::String pluginVersion() override { return backend_.pluginVersion(); }
+
+private:
+  Backend& backend_;
+};
+}  // namespace
+
 Tone3000Session::Tone3000Session(Backend& backend, UiPrefs& prefs, HttpTransport& http, Config config)
-    : backend_(backend),
+    : Tone3000Session(std::make_unique<BackendHost>(backend), nullptr, prefs, http, std::move(config)) {}
+
+Tone3000Session::Tone3000Session(Host& host, UiPrefs& prefs, HttpTransport& http, Config config)
+    : Tone3000Session(nullptr, &host, prefs, http, std::move(config)) {}
+
+Tone3000Session::Tone3000Session(std::unique_ptr<Host> owned, Host* borrowed, UiPrefs& prefs, HttpTransport& http,
+                                 Config config)
+    : ownedHost_(std::move(owned)),
+      host_(borrowed != nullptr ? *borrowed : *ownedHost_),
       prefs_(prefs),
       http_(http),
       config_(std::move(config)),
@@ -75,7 +97,7 @@ void Tone3000Session::refreshUser() {
   }));
 }
 
-void Tone3000Session::pushToken(const juce::String& token) { backend_.setAccessToken(token); }
+void Tone3000Session::pushToken(const juce::String& token) { host_.setAccessToken(token); }
 
 void Tone3000Session::ensureNativeAuth(Done done) {
   client_.getAccessToken(scope_.wrap([this, fin = std::move(done)](Result<juce::String> token) {
@@ -365,7 +387,7 @@ void Tone3000Session::probeSecureConnection(std::function<void(Probe)> reply) {
 }
 
 void Tone3000Session::fetchPluginVersion(Reply<juce::var> reply) {
-  client_.fetchPluginVersion(backend_.uniqueDeviceId(), backend_.pluginVersion(), std::move(reply));
+  client_.fetchPluginVersion(host_.uniqueDeviceId(), host_.pluginVersion(), std::move(reply));
 }
 
 }  // namespace t3k::ui

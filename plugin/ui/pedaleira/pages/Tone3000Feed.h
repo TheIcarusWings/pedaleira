@@ -84,6 +84,31 @@ public:
   // Who, when it is known; empty otherwise.
   virtual juce::String userName() const = 0;
 
+  // Signing in. The feed sends the player to TONE3000 in the system browser and
+  // waits for them to come back; the application's feed does it with the
+  // classic editor's session (a loopback redirect, no secret key anywhere).
+  // `done` is called once on the message thread: ok, or not with a sentence for
+  // the player (empty when the player gave up).
+  struct SignInState {
+    enum class Phase { idle, waiting, finishing, failed };
+    Phase phase = Phase::idle;
+    // waiting: the link to copy into any browser, and why the browser did not
+    // open by itself (empty when it did).
+    juce::String authorizeUrl;
+    juce::String browserProblem;
+    // failed: why, for the player.
+    juce::String error;
+  };
+  virtual void signIn(std::function<void(bool ok, juce::String message)> done) = 0;
+  // The player gave up waiting; the pending `done` hears it with no message.
+  virtual void cancelSignIn() = 0;
+  // Forgets the session on this computer (the browser's own TONE3000 login stays).
+  virtual void signOut() = 0;
+  virtual SignInState signInState() const = 0;
+  // The sign-in moved, or the session or the user's name changed. Set by the
+  // page that shows the account; message thread.
+  std::function<void()> onAccountChanged;
+
   struct Listed {
     bool ok = false;
     // A sentence for the player when it did not work.

@@ -5,6 +5,7 @@
 #include "../Type.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace pedaleira::ui {
 
@@ -24,8 +25,17 @@ constexpr int kLeastNameColumn = 300;
 constexpr int kCaptureRow = 34;
 constexpr int kMaxCaptureRows = 6;
 constexpr int kMessageHeight = 92;
-// Below this the detail column drops the description and uses a smaller image.
+// Below this the detail column uses a smaller image and a shorter description.
 constexpr int kRoomyDetail = 460;
+// The description has its own room in the detail column, between this much and
+// that much high (a longer text scrolls in it); it is left out when the
+// captures would be left with fewer than two rows.
+constexpr int kLeastDescription = 36;
+constexpr int kMostDescription = 56;
+constexpr int kMostRoomyDescription = 88;
+constexpr int kDescriptionBar = 8;
+constexpr int kSignInCardHeight = 200;
+const char* const kSignInHint = "Use Sign in at the top of this page.";
 const char* const kSite = "https://www.tone3000.com";
 
 juce::String capturesText(const Tone3000Tone& tone) {
@@ -42,7 +52,16 @@ juce::String reachText(const juce::String& error) {
   return "TONE3000 could not be reached. Check the connection and try again.";
 }
 
-const char* const kNoSignIn = "Signing in from Pedaleira is not available yet. Trending and Latest work without an account.";
+// A description laid out in `width`, wrapped by word.
+juce::TextLayout describe(const juce::String& text, int width) {
+  juce::AttributedString string;
+  string.append(text, type::sans(12.0f), colour::text);
+  string.setWordWrap(juce::AttributedString::byWord);
+  string.setJustification(juce::Justification::topLeft);
+  juce::TextLayout layout;
+  layout.createLayout(string, static_cast<float>(juce::jmax(1, width)));
+  return layout;
+}
 
 }  // namespace
 
@@ -108,11 +127,19 @@ Tone3000Panel::Tone3000Panel() {
     juce::URL(tone.url.isNotEmpty() ? tone.url : juce::String(kSite) + "/tones/" + juce::String(tone.id)).launchInDefaultBrowser();
   };
   add.onClick = [this] { addSelected(); };
-  for (juce::Component* c : std::initializer_list<juce::Component*>{&browse, &retry, &openTone, &add})
+  signInOut.onClick = [this] {
+    if (signedIn())
+      signOut();
+    else
+      beginSignIn();
+  };
+  copyLink.onClick = [this] { juce::SystemClipboard::copyTextToClipboard(signInLink()); };
+  closeSignIn.onClick = [this] { closeSignInCard(); };
+  trySignIn.onClick = [this] { startSignIn(); };
+  for (juce::Component* c : std::initializer_list<juce::Component*>{&browse, &retry, &openTone, &add, &signInOut, &copyLink, &closeSignIn, &trySignIn})
     addAndMakeVisible(c);
-  retry.setVisible(false);
-  openTone.setVisible(false);
-  add.setVisible(false);
+  for (juce::Component* c : std::initializer_list<juce::Component*>{&retry, &openTone, &add, &signInOut, &copyLink, &closeSignIn, &trySignIn})
+    c->setVisible(false);
   splash = std::make_unique<Splash>();
   splash->onContinue = [this] { continueSplash(); };
   addChildComponent(*splash);
@@ -123,13 +150,50 @@ Tone3000Panel::~Tone3000Panel() = default;
 void Tone3000Panel::setFeed(Tone3000Feed* newFeed) {
   feed = newFeed;
   images.setFeed(newFeed);
-  for (auto& t : tabs)
-    t = {};
-  chosenTone = chosenCapture = -1;
-  capturesState = CapturesState::none;
+  ++signInGeneration;
+  signInOpen = false;
+  signInProblem = {};
+  resetTabs();
   message = {};
   splash->setVisible(false);
   afterSplash = nullptr;
+  wasSignedIn = signedIn();
+  if (feed != nullptr) {
+    // The feed tells when the sign-in moved or the session came or went.
+    juce::Component::SafePointer<Tone3000Panel> self(this);
+    feed->onAccountChanged = [self] {
+      if (self != nullptr)
+        self->accountChanged();
+    };
+  }
+  resized();
+}
+
+void Tone3000Panel::resetTabs() {
+  ++listGeneration;
+  ++captureGeneration;
+  for (auto& t : tabs)
+    t = {};
+  chosenTone = chosenCapture = -1;
+  captureList = {};
+  capturesState = CapturesState::none;
+  adding = false;
+  descScroll = 0;
+  scroll = 0;
+}
+
+void Tone3000Panel::accountChanged() {
+  const bool in = signedIn();
+  if (in != wasSignedIn) {
+    wasSignedIn = in;
+    resetTabs();
+    message = {};
+    // Nothing is asked of TONE3000 before its splash was continued.
+    if (feed != nullptr && !splashShown() && feed->introSeen())
+      loadTab(tab, false);
+  }
+  resized();
+  repaint();
 }
 
 void Tone3000Panel::setTarget(int row, int slot) {
@@ -147,19 +211,76 @@ void Tone3000Panel::show() {
     showSplash([this] { show(); });
     return;
   }
-  if (feed != nullptr)
+  if (feed != nullptr) {
+    // Another build may have signed in or out since the page was last shown.
+    if (signedIn() != wasSignedIn) {
+      wasSignedIn = signedIn();
+      resetTabs();
+    }
     loadTab(tab, false);
+  }
   resized();
   repaint();
 }
 
 void Tone3000Panel::beginSignIn() {
-  showSplash([this] {
-    // The sign-in itself comes in a later build.
-    message = kNoSignIn;
-    resized();
-    repaint();
+  if (feed == nullptr || signedIn())
+    return;
+  showSplash([this] { startSignIn(); });
+}
+
+void Tone3000Panel::startSignIn() {
+  if (feed == nullptr || signedIn())
+    return;
+  signInOpen = true;
+  signInProblem = {};
+  message = {};
+  const int generation = ++signInGeneration;
+  resized();
+  repaint();
+  juce::Component::SafePointer<Tone3000Panel> self(this);
+  feed->signIn([self, generation](bool ok, juce::String text) {
+    if (self == nullptr || generation != self->signInGeneration)
+      return;
+    if (ok) {
+      self->signInOpen = false;
+      self->signInProblem = {};
+      self->accountChanged();
+    } else if (text.isNotEmpty()) {
+      self->signInProblem = text;
+    } else {
+      // The player gave up waiting.
+      self->signInOpen = false;
+    }
+    self->resized();
+    self->repaint();
   });
+}
+
+void Tone3000Panel::closeSignInCard() {
+  // Counted first: the feed answers a cancelled sign-in, and nobody listens.
+  ++signInGeneration;
+  signInOpen = false;
+  signInProblem = {};
+  if (feed != nullptr)
+    feed->cancelSignIn();
+  resized();
+  repaint();
+}
+
+void Tone3000Panel::signOut() {
+  if (feed == nullptr)
+    return;
+  feed->signOut();
+  accountChanged();
+}
+
+bool Tone3000Panel::signInWaiting() const {
+  return signInOpen && signInProblem.isEmpty() && feed != nullptr && feed->signInState().phase == Tone3000Feed::SignInState::Phase::waiting;
+}
+
+juce::String Tone3000Panel::signInLink() const {
+  return signInOpen && feed != nullptr ? feed->signInState().authorizeUrl : juce::String();
 }
 
 void Tone3000Panel::showSplash(std::function<void()> then) {
@@ -201,6 +322,7 @@ void Tone3000Panel::selectTab(Tone3000List which) {
   capturesState = CapturesState::none;
   message = {};
   scroll = 0;
+  descScroll = 0;
   // Nothing is asked of TONE3000 before its splash was continued.
   if (feed != nullptr && !splashShown() && feed->introSeen())
     loadTab(which, false);
@@ -214,8 +336,9 @@ void Tone3000Panel::loadTab(Tone3000List which, bool force) {
     return;
   target.loading = true;
   juce::Component::SafePointer<Tone3000Panel> self(this);
-  feed->list(which, [self, which](Tone3000Feed::Listed listed) {
-    if (self == nullptr)
+  const int generation = listGeneration;
+  feed->list(which, [self, which, generation](Tone3000Feed::Listed listed) {
+    if (self == nullptr || generation != self->listGeneration)
       return;
     TabState& done = self->tabs[static_cast<size_t>(which)];
     done.loading = false;
@@ -232,6 +355,7 @@ void Tone3000Panel::selectTone(int index) {
   chosenTone = index;
   chosenCapture = -1;
   captureList = {};
+  descScroll = 0;
   message = {};
   loadCaptures();
   resized();
@@ -361,7 +485,7 @@ Tone3000Panel::RowLayout Tone3000Panel::rowLayout(juce::Rectangle<int> row) cons
 
 int Tone3000Panel::rowAt(juce::Point<int> position) const {
   const auto area = tableArea().withTrimmedTop(kTableHead);
-  if (!area.contains(position))
+  if (signInOpen || !area.contains(position))
     return -1;
   for (int i = 0; i < toneCount(); ++i)
     if (rowBounds(i).contains(position))
@@ -373,7 +497,18 @@ Tone3000Panel::DetailLayout Tone3000Panel::detailLayout() const {
   DetailLayout l;
   const auto area = detailArea();
   const bool roomy = area.getHeight() >= kRoomyDetail;
-  auto r = area.reduced(16, 14);
+  auto r = area.reduced(16, 0).withTrimmedTop(14).withTrimmedBottom(16);
+  // From the bottom: the two buttons, and above them the line that says what
+  // went wrong with an add (or that one is on its way).
+  l.add = r.removeFromBottom(40);
+  r.removeFromBottom(8);
+  l.open = r.removeFromBottom(36);
+  r.removeFromBottom(8);
+  if (message.isNotEmpty() || adding) {
+    l.note = r.removeFromBottom(36);
+    r.removeFromBottom(8);
+  }
+  // From the top: the image, title and chips, the creator and the licence.
   const int side = roomy ? 72 : 52;
   auto top = r.removeFromTop(side);
   l.art = top.removeFromLeft(side);
@@ -385,21 +520,82 @@ Tone3000Panel::DetailLayout Tone3000Panel::detailLayout() const {
   r.removeFromTop(4);
   l.licence = r.removeFromTop(18);
   r.removeFromTop(12);
-  // Above the buttons, and the line that says what went wrong with an add.
-  l.capturesBottom = openTone.getY() - 8 - (message.isNotEmpty() || adding ? 40 : 0);
-  if (roomy) {
-    l.description = r.removeFromTop(52);
+  // What is left is the description's, when the captures keep two rows, and
+  // the captures'. A description that is longer than its room scrolls in it.
+  const int capturesNeed = 16 + 8 + 2 * kCaptureRow + 4;
+  const int spare = r.getHeight() - capturesNeed - 12;
+  if (spare >= kLeastDescription) {
+    l.description = r.removeFromTop(juce::jmin(spare, roomy ? kMostRoomyDescription : kMostDescription));
     r.removeFromTop(12);
   }
   l.captureLabel = r.removeFromTop(16);
   r.removeFromTop(8);
+  l.captureList = r;
   l.capturesTop = r.getY();
+  l.capturesBottom = r.getBottom();
   return l;
+}
+
+juce::Rectangle<int> Tone3000Panel::signInCard() const {
+  const auto area = tableArea().withTrimmedTop(kTableHead);
+  const int width = juce::jmax(0, juce::jmin(560, area.getWidth() - 40));
+  return {area.getCentreX() - width / 2, area.getY() + 30, width, kSignInCardHeight};
+}
+
+juce::Rectangle<int> Tone3000Panel::descriptionRoom() const {
+  if (chosenTone < 0 || chosenTone >= toneCount() || splashShown())
+    return {};
+  return detailLayout().description;
+}
+
+int Tone3000Panel::descriptionHeight(int width) const {
+  if (chosenTone < 0 || chosenTone >= toneCount())
+    return 0;
+  const auto& text = state().result.tones[static_cast<size_t>(chosenTone)].description;
+  return juce::roundToInt(std::ceil(describe(text.isNotEmpty() ? text : juce::String("No description."), width).getHeight()));
+}
+
+bool Tone3000Panel::descriptionScrolls() const {
+  const auto room = descriptionRoom();
+  return !room.isEmpty() && descriptionHeight(room.getWidth() - kDescriptionBar) > room.getHeight();
+}
+
+void Tone3000Panel::scrollDescription(int by) {
+  const auto room = descriptionRoom();
+  if (room.isEmpty())
+    return;
+  const int most = juce::jmax(0, descriptionHeight(room.getWidth() - kDescriptionBar) - room.getHeight());
+  descScroll = juce::jlimit(0, most, descScroll + by);
+  repaint(room);
+}
+
+std::vector<std::pair<juce::String, juce::Rectangle<int>>> Tone3000Panel::detailElements() const {
+  std::vector<std::pair<juce::String, juce::Rectangle<int>>> out;
+  if (chosenTone < 0 || chosenTone >= toneCount() || splashShown())
+    return out;
+  const auto l = detailLayout();
+  const auto put = [&out](const char* name, juce::Rectangle<int> bounds) {
+    if (!bounds.isEmpty())
+      out.emplace_back(name, bounds);
+  };
+  put("image", l.art);
+  put("title", l.title);
+  put("chips", l.chips);
+  put("creator", l.creatorLine);
+  put("licence", l.licence);
+  put("description", l.description);
+  put("captures heading", l.captureLabel);
+  put("captures", l.captureList);
+  put("note", l.note);
+  // The buttons as they are placed, not as they were meant to be.
+  put("open", openTone.getBounds());
+  put("add", add.getBounds());
+  return out;
 }
 
 int Tone3000Panel::capturesThatFit() const {
   const auto l = detailLayout();
-  return juce::jlimit(1, kMaxCaptureRows, (l.capturesBottom - l.capturesTop + 4) / (kCaptureRow + 4));
+  return juce::jlimit(0, kMaxCaptureRows, (l.capturesBottom - l.capturesTop + 4) / (kCaptureRow + 4));
 }
 
 // The chosen capture is always among those shown.
@@ -415,7 +611,7 @@ juce::Rectangle<int> Tone3000Panel::captureBounds(int index) const {
 }
 
 tone3000::CreatorLine Tone3000Panel::rowCredit(int index) const {
-  if (index < 0 || index >= toneCount() || splashShown())
+  if (index < 0 || index >= toneCount() || splashShown() || signInOpen)
     return {};
   const auto row = rowBounds(index);
   if (!row.intersects(tableArea().withTrimmedTop(kTableHead)))
@@ -442,16 +638,44 @@ void Tone3000Panel::resized() {
   const auto header = headerArea();
   const int browseWidth = browse.idealWidth() + 8;
   browse.setBounds(header.getRight() - browseWidth, header.getY() + 6, browseWidth, 32);
-  const auto detail = detailArea();
   const bool haveTone = chosenTone >= 0 && chosenTone < toneCount();
-  add.setBounds(detail.getX() + 16, detail.getBottom() - 16 - 40, detail.getWidth() - 32, 40);
-  openTone.setBounds(detail.getX() + 16, add.getY() - 8 - 36, detail.getWidth() - 32, 36);
+  const auto l = detailLayout();
+  add.setBounds(l.add);
+  openTone.setBounds(l.open);
   add.setVisible(haveTone);
   openTone.setVisible(haveTone);
   add.setEnabled(canAdd());
   const auto table = tableArea();
   retry.setBounds(table.getCentreX() - 50, table.getY() + kTableHead + 30 + kMessageHeight + 12, 100, 32);
-  retry.setVisible(feed != nullptr && state().loaded && !state().result.ok && !state().result.needsAccount);
+  retry.setVisible(feed != nullptr && !signInOpen && state().loaded && !state().result.ok && !state().result.needsAccount);
+
+  // Sign in (or out) beside the link to TONE3000 in the header.
+  signInOut.setButtonText(signedIn() ? "Sign out" : "Sign in");
+  const int inOutWidth = signInOut.idealWidth() + 8;
+  signInOut.setBounds(browse.getX() - 8 - inOutWidth, header.getY() + 6, inOutWidth, 32);
+  signInOut.setVisible(feed != nullptr);
+  signInOut.setEnabled(!signInOpen);
+
+  // The sign-in card's buttons, along its bottom edge.
+  const auto card = signInCard();
+  const bool failed = signInFailed();
+  closeSignIn.setButtonText(failed ? "Close" : "Cancel");
+  int x = card.getX() + 20;
+  const int y = card.getBottom() - 16 - 32;
+  const auto place = [&x, y](PushButton& button) {
+    const int w = button.idealWidth() + 8;
+    button.setBounds(x, y, w, 32);
+    x += w + 8;
+  };
+  const bool linked = signInWaiting() && signInLink().isNotEmpty();
+  if (failed)
+    place(trySignIn);
+  else if (linked)
+    place(copyLink);
+  place(closeSignIn);
+  copyLink.setVisible(linked);
+  trySignIn.setVisible(failed);
+  closeSignIn.setVisible(signInOpen);
 }
 
 // ####################
@@ -461,7 +685,7 @@ juce::String Tone3000Panel::emptyText() const {
   if (feed == nullptr)
     return "Browsing TONE3000 is not available in this build.";
   const TabState& s = state();
-  const juce::String needs = juce::String(tone3000ListName(tab)) + " needs a TONE3000 account. " + kNoSignIn;
+  const juce::String needs = juce::String(tone3000ListName(tab)) + " needs a TONE3000 account. " + kSignInHint;
   if (tone3000ListNeedsAccount(tab) && !signedIn() && !(s.loaded && s.result.ok))
     return needs;
   if (s.loading || !s.loaded)
@@ -471,13 +695,18 @@ juce::String Tone3000Panel::emptyText() const {
   return "Nothing here yet.";
 }
 
+juce::String Tone3000Panel::accountText() const {
+  if (!signedIn())
+    return "Not signed in to TONE3000";
+  return feed->userName().isNotEmpty() ? "Signed in as " + feed->userName() : juce::String("Signed in to TONE3000");
+}
+
 void Tone3000Panel::paintHeader(juce::Graphics& g) {
   // The attribution TONE3000 asks for: its own wordmark, then who is signed in.
   const auto header = headerArea();
   tone3000::drawPoweredBy(g, header.withWidth(tone3000::poweredByWidth(header.getHeight())));
   const bool in = signedIn();
-  const juce::String who = !in ? juce::String("Not signed in to TONE3000")
-                               : feed->userName().isNotEmpty() ? "Signed in as " + feed->userName() : juce::String("Signed in to TONE3000");
+  const juce::String who = accountText();
   const int x = header.getX() + tone3000::poweredByWidth(header.getHeight()) + 24;
   const auto dotArea = juce::Rectangle<float>(static_cast<float>(x), header.getCentreY() - 4.0f, 8.0f, 8.0f);
   if (in) {
@@ -489,8 +718,8 @@ void Tone3000Panel::paintHeader(juce::Graphics& g) {
   }
   g.setFont(type::sans(12.0f));
   g.setColour(colour::muted);
-  g.drawText(who, x + 16, header.getY(), juce::jmax(0, browse.getX() - 12 - (x + 16)), header.getHeight(), juce::Justification::centredLeft,
-             true);
+  const int whoRight = signInOut.isVisible() ? signInOut.getX() : browse.getX();
+  g.drawText(who, x + 16, header.getY(), juce::jmax(0, whoRight - 12 - (x + 16)), header.getHeight(), juce::Justification::centredLeft, true);
 }
 
 void Tone3000Panel::paint(juce::Graphics& g) {
@@ -539,7 +768,9 @@ void Tone3000Panel::paint(juce::Graphics& g) {
     juce::Graphics::ScopedSaveState saved(g);
     g.reduceClipRegion(table.withTrimmedTop(kTableHead));
     const TabState& s = state();
-    if (feed != nullptr && s.loaded && s.result.ok && !s.result.tones.empty())
+    if (signInOpen)
+      paintSignIn(g, table.withTrimmedTop(kTableHead));
+    else if (feed != nullptr && s.loaded && s.result.ok && !s.result.tones.empty())
       for (int i = 0; i < toneCount(); ++i)
         paintRow(g, s.result.tones[static_cast<size_t>(i)], rowBounds(i), i == chosenTone, i == hoverRow);
     else
@@ -569,6 +800,50 @@ void Tone3000Panel::paintMessage(juce::Graphics& g, juce::Rectangle<int> area) {
   g.setFont(type::body());
   g.setColour(colour::text);
   g.drawFittedText(text, inner, juce::Justification::centredLeft, 4, 1.0f);
+}
+
+void Tone3000Panel::paintSignIn(juce::Graphics& g, juce::Rectangle<int>) {
+  const auto box = signInCard();
+  g.setColour(colour::raised);
+  g.fillRoundedRectangle(box.toFloat(), size::buttonRadius);
+  g.setColour(colour::line);
+  g.drawRoundedRectangle(box.toFloat().reduced(0.5f), size::buttonRadius, 1.0f);
+  const auto state = feed != nullptr ? feed->signInState() : Tone3000Feed::SignInState();
+  const bool failed = signInFailed();
+  const bool finishing = !failed && state.phase == Tone3000Feed::SignInState::Phase::finishing;
+  auto inner = box.reduced(20, 16);
+  g.setFont(type::bodyStrong());
+  g.setColour(colour::text);
+  g.drawText(failed ? "Signing in did not finish" : finishing ? "Finishing sign-in" : "Signing in to TONE3000", inner.removeFromTop(22),
+             juce::Justification::centredLeft, true);
+  inner.removeFromTop(6);
+  g.setFont(type::body());
+  auto body = inner.removeFromTop(48);
+  if (failed) {
+    g.setColour(colour::warn);
+    g.drawFittedText(signInProblem, body, juce::Justification::topLeft, 3, 1.0f);
+    return;
+  }
+  g.setColour(colour::text);
+  if (finishing) {
+    g.drawFittedText(juce::String::fromUTF8("Back from TONE3000. Finishing the sign-in\xe2\x80\xa6"), body, juce::Justification::topLeft, 3, 1.0f);
+    return;
+  }
+  const juce::String ask = state.browserProblem.isNotEmpty()
+                               ? state.browserProblem + " Copy this link into a browser instead."
+                               : juce::String("Finish signing in in your browser, then come back here. If no browser opened, copy this link into one.");
+  g.drawFittedText(ask, body, juce::Justification::topLeft, 3, 1.0f);
+  inner.removeFromTop(8);
+  if (state.authorizeUrl.isNotEmpty()) {
+    const auto field = inner.removeFromTop(28);
+    g.setColour(colour::ground);
+    g.fillRoundedRectangle(field.toFloat(), size::buttonRadius);
+    g.setColour(colour::line);
+    g.drawRoundedRectangle(field.toFloat().reduced(0.5f), size::buttonRadius, 1.0f);
+    g.setFont(type::mono(11.0f, type::Weight::regular));
+    g.setColour(colour::muted);
+    g.drawText(state.authorizeUrl, field.reduced(10, 0), juce::Justification::centredLeft, true);
+  }
 }
 
 void Tone3000Panel::paintRow(juce::Graphics& g, const Tone3000Tone& tone, juce::Rectangle<int> row, bool selected,
@@ -646,9 +921,24 @@ void Tone3000Panel::paintDetail(juce::Graphics& g, juce::Rectangle<int> area) {
   g.setColour(colour::muted);
   g.drawText(tone3000::licenceText(tone.licence), l.licence, juce::Justification::centredLeft, true);
   if (!l.description.isEmpty()) {
-    g.setColour(colour::text);
-    g.drawFittedText(tone.description.isNotEmpty() ? tone.description : juce::String("No description."), l.description,
-                     juce::Justification::topLeft, 3, 1.0f);
+    // In its own room: a longer text is clipped to it and scrolls.
+    const int textWidth = l.description.getWidth() - kDescriptionBar;
+    const auto layout = describe(tone.description.isNotEmpty() ? tone.description : juce::String("No description."), textWidth);
+    const int content = juce::roundToInt(std::ceil(layout.getHeight()));
+    const int most = juce::jmax(0, content - l.description.getHeight());
+    const int offset = juce::jmin(descScroll, most);
+    {
+      juce::Graphics::ScopedSaveState saved(g);
+      g.reduceClipRegion(l.description);
+      layout.draw(g, juce::Rectangle<float>(static_cast<float>(l.description.getX()), static_cast<float>(l.description.getY() - offset),
+                                            static_cast<float>(textWidth), static_cast<float>(juce::jmax(content, l.description.getHeight()))));
+    }
+    if (most > 0) {
+      const int barHeight = juce::jmax(16, l.description.getHeight() * l.description.getHeight() / content);
+      const int barY = l.description.getY() + (l.description.getHeight() - barHeight) * offset / most;
+      g.setColour(colour::faint);
+      g.fillRoundedRectangle(static_cast<float>(l.description.getRight() - 4), static_cast<float>(barY), 3.0f, static_cast<float>(barHeight), 1.5f);
+    }
   }
   paint::label(g, tone.format.equalsIgnoreCase("ir") ? "IRs in this tone" : "Captures in this tone", l.captureLabel);
 
@@ -687,27 +977,23 @@ void Tone3000Panel::paintDetail(juce::Graphics& g, juce::Rectangle<int> area) {
   } else {
     const juce::String text = capturesState == CapturesState::loading ? juce::String::fromUTF8("Loading\xe2\x80\xa6")
                               : captureList.needsAccount
-                                  ? juce::String("Adding a capture needs a TONE3000 account. Signing in from Pedaleira is not "
-                                                 "available yet; open the tone on TONE3000 to download it, then load the file.")
+                                  ? juce::String("Adding a capture needs a TONE3000 account. ") + kSignInHint
                                   : "The captures could not be loaded. " + reachText(captureList.error);
     g.setFont(type::sans(12.0f));
     g.setColour(capturesState == CapturesState::failed && !captureList.needsAccount ? colour::warn : colour::muted);
-    g.drawFittedText(text, juce::Rectangle<int>(l.captureLabel.getX(), l.capturesTop, l.captureLabel.getWidth(),
-                                                juce::jmax(36, l.capturesBottom - l.capturesTop)),
-                     juce::Justification::topLeft, 5, 1.0f);
+    // Within the captures' room, whatever its height.
+    g.drawFittedText(text, l.captureList, juce::Justification::topLeft, juce::jmax(1, l.captureList.getHeight() / 15), 1.0f);
   }
 
   // What went wrong with the last Add, over the buttons.
   if (message.isNotEmpty()) {
     g.setFont(type::sans(12.0f));
     g.setColour(colour::warn);
-    g.drawFittedText(message, juce::Rectangle<int>(area.getX() + 16, openTone.getY() - 44, area.getWidth() - 32, 36),
-                     juce::Justification::bottomLeft, 2, 1.0f);
+    g.drawFittedText(message, l.note, juce::Justification::bottomLeft, 2, 1.0f);
   } else if (adding) {
     g.setFont(type::sans(12.0f));
     g.setColour(colour::muted);
-    g.drawText(juce::String::fromUTF8("Downloading\xe2\x80\xa6"), openTone.getX(), openTone.getY() - 28, 200, 20,
-               juce::Justification::centredLeft, false);
+    g.drawText(juce::String::fromUTF8("Downloading\xe2\x80\xa6"), l.note, juce::Justification::bottomLeft, false);
   }
 }
 
@@ -753,7 +1039,12 @@ void Tone3000Panel::mouseUp(const juce::MouseEvent& event) {
       }
 }
 
-void Tone3000Panel::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) {
+void Tone3000Panel::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) {
+  // Over a long description, the wheel moves the description.
+  if (descriptionRoom().contains(event.getPosition())) {
+    scrollDescription(-juce::roundToInt(wheel.deltaY * 120.0f));
+    return;
+  }
   const int content = toneCount() * (rowHeight() + 2);
   const int maxScroll = juce::jmax(0, content + kTableHead - tableArea().getHeight());
   scroll = juce::jlimit(0, maxScroll, scroll - juce::roundToInt(wheel.deltaY * 200.0f));

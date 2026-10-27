@@ -45,7 +45,20 @@ public:
   // useConnectionGate.ts PROBE_TIMEOUT_MS.
   static constexpr int kProbeTimeoutMs = 8000;
 
+  // What the session asks of its host: native's Bearer copy and the two
+  // identifiers the version check sends. The classic editor's Backend is one
+  // (through the constructor below); another editor with no Backend (the
+  // Pedaleira UI) gives its own.
+  class Host {
+  public:
+    virtual ~Host() = default;
+    virtual void setAccessToken(const juce::String& token) = 0;
+    virtual juce::String uniqueDeviceId() = 0;
+    virtual juce::String pluginVersion() = 0;
+  };
+
   Tone3000Session(Backend& backend, UiPrefs& prefs, HttpTransport& http, Config config);
+  Tone3000Session(Host& host, UiPrefs& prefs, HttpTransport& http, Config config);
   ~Tone3000Session() override;
 
 
@@ -86,7 +99,10 @@ private:
   void pushToken(const juce::String& token);
   void refreshUser();
 
-  Backend& backend_;
+  Tone3000Session(std::unique_ptr<Host> owned, Host* borrowed, UiPrefs& prefs, HttpTransport& http, Config config);
+
+  std::unique_ptr<Host> ownedHost_;
+  Host& host_;
   UiPrefs& prefs_;
   HttpTransport& http_;
   Config config_;

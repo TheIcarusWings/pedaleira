@@ -15,7 +15,9 @@ namespace pedaleira::ui::testbed {
 // tone. A download copies a test capture to a temporary file and, when it is given
 // the engine, does what the application's feed does: reuses a capture downloaded
 // before and has the engine keep a new one in the library's TONE3000 folder
-// (nam.downloaded, nam.keepDownload).
+// (nam.downloaded, nam.keepDownload). Its sign-in is scripted: it waits (with a
+// link and, if asked, a browser that did not open) until the test finishes it
+// with finishSignIn, or answers at once.
 class FakeTone3000Feed : public Tone3000Feed {
 public:
   struct Setup {
@@ -29,11 +31,26 @@ public:
     EngineClient* engine = nullptr;
     // The player has seen and continued TONE3000's splash before.
     bool introSeen = true;
+    // What signIn does: wait for finishSignIn, or answer at once.
+    enum class SignIn { wait, succeed, fail };
+    SignIn signIn = SignIn::wait;
+    // The browser did not open by itself (the waiting card says so).
+    bool browserProblem = false;
+    // The sentence a failed sign-in gives.
+    juce::String signInError = "TONE3000 did not confirm the sign-in. Try again.";
+    // Every tone's description (empty: the usual one).
+    juce::String description;
   };
   explicit FakeTone3000Feed(Setup newSetup) : setup(std::move(newSetup)) {}
 
   bool signedIn() const override { return setup.signedIn; }
   juce::String userName() const override { return setup.signedIn ? setup.user : juce::String(); }
+  void signIn(std::function<void(bool ok, juce::String message)> done) override;
+  void cancelSignIn() override;
+  void signOut() override;
+  SignInState signInState() const override { return state; }
+  // Ends the sign-in that is waiting: the player came back (ok) or it failed.
+  void finishSignIn(bool ok);
   void list(Tone3000List which, std::function<void(Listed)> reply) override;
   void captures(const Tone3000Tone& tone, std::function<void(Captures)> reply) override;
   void download(const Tone3000Tone& tone, const Tone3000Capture& capture, std::function<void(Downloaded)> reply) override;
@@ -45,9 +62,13 @@ public:
 
   int downloads = 0;
   int lists = 0;
+  int signIns = 0;
+  int signOuts = 0;
 
 private:
   Setup setup;
+  SignInState state;
+  std::function<void(bool, juce::String)> pending;
 };
 
 // Sets a scenario's files and loads up, steps separated by ";":

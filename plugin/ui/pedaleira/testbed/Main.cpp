@@ -61,8 +61,8 @@ struct Scenario {
   const char* point = "";
   // Or the block library: "picker:<row>:<slot>[:<category>[:<source>[:<search>]]]" (a dash
   // leaves a field out; source is the chip's number), "pickclick:<name>" (a click on the
-  // row with that name), "t3k:tab:<n>", "t3k:tone:<n>", "t3k:capture:<n>" and "t3k:add"
-  // on the TONE3000 page.
+  // row with that name), "t3k:tab:<n>", "t3k:tone:<n>", "t3k:capture:<n>", "t3k:add" and
+  // "t3k:signin" (Sign in, past the splash) on the TONE3000 page.
   // Or a block's editor: "editor:<block, as $slot:row:slot>"; "replace:<source>"
   // then presses what asks for another file (Swap capture). Several, with ";".
   // Or files dragged onto the grid: "dragover:<file>@<row>:<slot>" holds them over a
@@ -509,6 +509,18 @@ const std::vector<Scenario>& scenarios() {
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tab:2", .tone3000 = "out"},
       {.name = "picker-tone3000-in", .description = "The block library, TONE3000, signed in: Favorites, a tone and its captures",
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tab:2;t3k:tone:1;t3k:capture:1", .tone3000 = "in"},
+      {.name = "picker-tone3000-signin", .description = "The block library, TONE3000: waiting for the browser, with the link to copy",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:signin", .tone3000 = "out"},
+      {.name = "picker-tone3000-nobrowser", .description = "The block library, TONE3000: the browser did not open, the link is offered",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:signin", .width = 1120, .height = 700, .tone3000 = "nobrowser"},
+      {.name = "picker-tone3000-signin-failed", .description = "The block library, TONE3000: a sign-in that failed says why",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:signin", .tone3000 = "failing"},
+      {.name = "picker-tone3000-longdesc", .description = "The block library, TONE3000: a long description scrolls in its own room",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tone:0", .tone3000 = "long"},
+      {.name = "picker-tone3000-longdesc-mid", .description = "The block library, TONE3000: a long description at 1280 x 800",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tone:0", .width = 1280, .height = 800, .tone3000 = "long"},
+      {.name = "picker-tone3000-longdesc-narrow", .description = "The block library, TONE3000: a long description at the narrowest window",
+       .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6;t3k:tone:0", .width = 1120, .height = 700, .tone3000 = "long"},
       {.name = "picker-tone3000-down", .description = "The block library, TONE3000 can not be reached",
        .page = Page::grid, .script = "[]", .open = "picker:0:6:-:6", .tone3000 = "down"},
       {.name = "picker-tone3000-none", .description = "The block library, TONE3000 in a build without a feed",
@@ -1550,9 +1562,203 @@ void captureFindingChecks(const std::function<void(bool, const char*)>& check) {
     check(!panel.splashShown(), "the splash is shown once");
     panel.beginSignIn();
     check(panel.splashShown(), "a sign-in starts with the splash");
+    check(feed.signIns == 0 && !panel.signInShown(), "and the browser is not asked for before it is continued");
     panel.continueSplash();
-    check(!panel.splashShown() && panel.problem().contains("not available yet"), "then says signing in is not here yet");
+    check(!panel.splashShown() && panel.signInWaiting() && feed.signIns == 1, "then the page waits for the browser");
+    check(panel.problem().isEmpty() && !panel.signInLink().isEmpty(), "with no complaint, and the link to copy");
+    panel.pressCancelSignIn();
     picker.setTone3000Feed(nullptr);
+  }
+  // Signing in: signed out, the browser, signed in, then out again.
+  {
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+    setup.engine = engine.client.get();
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.openFor(0, 7);
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    auto& panel = picker.tone3000Panel();
+    check(panel.signInButtonText() == "Sign in" && panel.accountText() == "Not signed in to TONE3000", "signed out, the header offers Sign in");
+    panel.selectTab(Tone3000List::favorites);
+    check(panel.toneCount() == 0, "Favorites asks for an account");
+    check(!panel.problem().contains("not available"), "and nothing says signing in is not available");
+    panel.selectTab(Tone3000List::trending);
+    panel.selectTone(0);
+    check(!panel.canAdd(), "a capture can not be added signed out");
+    panel.pressSignInButton();
+    check(panel.splashShown() && feed.signIns == 0, "Sign in shows TONE3000's splash first");
+    panel.continueSplash();
+    check(panel.signInShown() && panel.signInWaiting() && feed.signIns == 1, "then the page waits for the browser");
+    check(panel.signInLink().startsWith("https://www.tone3000.com/"), "with the authorize link to copy into any browser");
+    check(!panel.signInFailed() && feed.signInState().browserProblem.isEmpty(), "and the browser opened by itself");
+    juce::ignoreUnused(panel.createComponentSnapshot(panel.getLocalBounds()));
+    // Giving up leaves the page as it was.
+    panel.pressCancelSignIn();
+    check(!panel.signInShown() && !feed.signedIn() && panel.signInButtonText() == "Sign in", "Cancel gives up waiting");
+    // The player comes back from the browser.
+    panel.beginSignIn();
+    panel.continueSplash();
+    check(panel.signInWaiting() && feed.signIns == 2, "a second sign-in starts again");
+    feed.finishSignIn(true);
+    check(!panel.signInShown() && feed.signedIn(), "when TONE3000 confirms, the card closes and the player is signed in");
+    check(panel.signInButtonText() == "Sign out" && panel.accountText() == "Signed in as sample-user-a", "the header says who, with Sign out");
+    check(panel.toneCount() == 8, "the shown tab is read again");
+    panel.selectTab(Tone3000List::favorites);
+    check(panel.toneCount() == 3, "Favorites lists the player's tones");
+    panel.selectTab(Tone3000List::downloaded);
+    check(panel.toneCount() == 3, "so does Downloaded");
+    panel.selectTab(Tone3000List::created);
+    check(panel.toneCount() == 0 && !panel.problem().contains("account"), "Created is the player's, and empty");
+    panel.selectTab(Tone3000List::trending);
+    panel.selectTone(2);
+    check(panel.canAdd(), "Add is possible once signed in");
+    const int before = added;
+    panel.addSelected();
+    check(feed.downloads == 1 && added == before + 1, "and Add puts the capture in the slot");
+    // Signing out.
+    panel.pressSignInButton();
+    check(feed.signOuts == 1 && !feed.signedIn() && panel.signInButtonText() == "Sign in", "Sign out forgets the session");
+    check(panel.accountText() == "Not signed in to TONE3000" && panel.toneCount() == 8, "the header says so, and Trending stays");
+    panel.selectTab(Tone3000List::favorites);
+    check(panel.toneCount() == 0, "Favorites asks for an account again");
+    panel.selectTab(Tone3000List::trending);
+    panel.selectTone(2);
+    check(!panel.canAdd(), "and Add is not possible");
+    picker.setTone3000Feed(nullptr);
+  }
+  // A sign-in that does not work says why and can be tried again; a browser
+  // that did not open is said too.
+  {
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.signIn = testbed::FakeTone3000Feed::Setup::SignIn::fail;
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.openFor(0, 7);
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    auto& panel = picker.tone3000Panel();
+    panel.beginSignIn();
+    panel.continueSplash();
+    check(panel.signInShown() && panel.signInFailed() && panel.signInError().contains("did not confirm"), "a failed sign-in says why");
+    check(!feed.signedIn(), "and nobody is signed in");
+    juce::ignoreUnused(panel.createComponentSnapshot(panel.getLocalBounds()));
+    panel.pressTrySignIn();
+    check(feed.signIns == 2 && panel.signInFailed(), "Try again asks again");
+    panel.pressCancelSignIn();
+    check(!panel.signInShown() && !panel.signInFailed(), "Close puts the page back");
+    picker.setTone3000Feed(nullptr);
+  }
+  {
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.browserProblem = true;
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.openFor(0, 7);
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    auto& panel = picker.tone3000Panel();
+    panel.beginSignIn();
+    panel.continueSplash();
+    check(panel.signInWaiting() && !panel.signInLink().isEmpty() && !feed.signInState().browserProblem.isEmpty(),
+          "a browser that did not open leaves the link to copy");
+    juce::ignoreUnused(panel.createComponentSnapshot(panel.getLocalBounds()));
+    picker.setTone3000Feed(nullptr);
+  }
+  {
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.signIn = testbed::FakeTone3000Feed::Setup::SignIn::succeed;
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.openFor(0, 7);
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    auto& panel = picker.tone3000Panel();
+    panel.beginSignIn();
+    panel.continueSplash();
+    check(!panel.signInShown() && feed.signedIn() && panel.toneCount() == 8, "a sign-in that finishes at once closes the card");
+    picker.setTone3000Feed(nullptr);
+  }
+  // The detail column at the narrowest window, and wider: a long description
+  // scrolls in its own room and nothing is drawn over anything else.
+  {
+    juce::String longText;
+    for (int i = 0; i < 30; ++i)
+      longText += "Three British head captures, gain 3 to 7, recorded without a cab, line " + juce::String(i + 1) + ".\n";
+    longText += "https://www.tone3000.com/tones/with/a/very/long/link/that/has/no/spaces/at/all/and/runs/on/and/on";
+    int tried = 0;
+    int overlaps = 0;
+    int outside = 0;
+    int scrolled = 0;
+    for (const auto& window : {juce::Point<int>(1120, 700), juce::Point<int>(1280, 800), juce::Point<int>(1440, 900), juce::Point<int>(1920, 1200)}) {
+      for (const bool signedInNow : {false, true}) {
+        for (const bool failedAdd : {false, true}) {
+          testbed::FakeTone3000Feed::Setup setup;
+          setup.signedIn = signedInNow;
+          setup.description = longText;
+          setup.engine = engine.client.get();
+          // A capture that is not there makes the Add fail, which puts a line over the buttons.
+          if (!failedAdd)
+            setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+          testbed::FakeTone3000Feed feed(setup);
+          picker.setTone3000Feed(&feed);
+          picker.setSize(window.x - size::railWidth, window.y - size::headerHeight);
+          picker.openFor(0, 7);
+          picker.setFilter({}, BlockPicker::tone3000, {});
+          auto& panel = picker.tone3000Panel();
+          panel.selectTab(Tone3000List::trending);
+          for (const int index : {0, 3, 6}) {
+            panel.selectTone(index);
+            if (failedAdd && signedInNow)
+              panel.addSelected();
+            const auto elements = panel.detailElements();
+            ++tried;
+            if (panel.descriptionScrolls())
+              ++scrolled;
+            for (size_t a = 0; a < elements.size(); ++a) {
+              if (!panel.detailBounds().contains(elements[a].second)) {
+                ++outside;
+                std::cerr << "outside the column: " << elements[a].first << " at " << window.x << "x" << window.y << "\n";
+              }
+              for (size_t b = a + 1; b < elements.size(); ++b)
+                if (elements[a].second.intersects(elements[b].second)) {
+                  ++overlaps;
+                  std::cerr << "overlap: " << elements[a].first << " and " << elements[b].first << " at " << window.x << "x" << window.y
+                            << (signedInNow ? " signed in" : " signed out") << (failedAdd ? " failed add" : "") << "\n";
+                }
+            }
+            check(elements.size() >= 8, "the detail column lists its parts");
+          }
+          picker.setTone3000Feed(nullptr);
+        }
+      }
+    }
+    check(tried == 48 && overlaps == 0, "no two parts of the detail column overlap, at any window size from 1120 px wide");
+    check(outside == 0, "and every part is inside the column");
+    check(scrolled > 0, "a long description scrolls in its own room");
+    // Where there is room for it (from 1280 x 800), the description has a room of its own and the wheel moves it.
+    testbed::FakeTone3000Feed::Setup setup;
+    setup.signedIn = true;
+    setup.description = longText;
+    setup.capture = testFiles().getChildFile("a2-amp-test.nam");
+    testbed::FakeTone3000Feed feed(setup);
+    picker.setTone3000Feed(&feed);
+    picker.setSize(1280 - size::railWidth, 800 - size::headerHeight);
+    picker.openFor(0, 7);
+    picker.setFilter({}, BlockPicker::tone3000, {});
+    auto& panel = picker.tone3000Panel();
+    panel.selectTone(0);
+    bool described = false;
+    for (const auto& element : panel.detailElements())
+      described = described || (element.first == "description" && element.second.getHeight() >= 36);
+    check(described && panel.descriptionScrolls(), "the description has a room of its own at 1280 x 800");
+    check(panel.descriptionScrollPosition() == 0, "and starts at its top");
+    panel.scrollDescription(40);
+    check(panel.descriptionScrollPosition() == 40, "it scrolls");
+    juce::ignoreUnused(panel.createComponentSnapshot(panel.getLocalBounds()));
+    panel.selectTone(1);
+    check(panel.descriptionScrollPosition() == 0, "another tone starts at its top");
+    panel.scrollDescription(100000);
+    check(panel.descriptionScrollPosition() > 40 && panel.descriptionScrollPosition() < 100000, "and the scroll stops at the end of the text");
+    picker.setTone3000Feed(nullptr);
+    picker.setSize(1440, 900);
   }
   // At the narrowest window the creator and the licence of every tone keep their room.
   {
@@ -2078,8 +2284,15 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
     std::unique_ptr<pedaleira::ui::testbed::FakeTone3000Feed> tone3000;
     if (const juce::String kind(scenario.tone3000); kind != "none") {
       pedaleira::ui::testbed::FakeTone3000Feed::Setup setup;
-      setup.signedIn = kind == "in";
+      setup.signedIn = kind == "in" || kind == "long";
       setup.unreachable = kind == "down";
+      setup.browserProblem = kind == "nobrowser";
+      if (kind == "failing")
+        setup.signIn = pedaleira::ui::testbed::FakeTone3000Feed::Setup::SignIn::fail;
+      if (kind == "long") {
+        for (int i = 0; i < 30; ++i)
+          setup.description += "Three British head captures, gain 3 to 7, recorded without a cab, line " + juce::String(i + 1) + ".\n";
+      }
       setup.introSeen = kind != "first";
       setup.capture = testFiles().getChildFile("a2-amp-test.nam");
       setup.engine = engine.client.get();
@@ -2136,6 +2349,10 @@ int capture(const juce::File& folder, float scale, const juce::StringArray& only
               panel.selectCapture(parts[1].getIntValue());
             else if (parts[0] == "add")
               panel.addSelected();
+            else if (parts[0] == "signin") {
+              panel.beginSignIn();
+              panel.continueSplash();
+            }
           } else if (open.startsWith("editor:")) {
             grid->openEditor(resolve(*engine.client, open.substring(7)).toString());
           } else if (open.startsWith("dragover:") || open.startsWith("drop:")) {

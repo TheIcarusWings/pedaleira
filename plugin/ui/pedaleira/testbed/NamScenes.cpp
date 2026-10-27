@@ -52,6 +52,56 @@ juce::Colour hueOf(const juce::String& name, float saturation, float brightness)
 
 }  // namespace
 
+void FakeTone3000Feed::signIn(std::function<void(bool ok, juce::String message)> done) {
+  ++signIns;
+  pending = std::move(done);
+  state = {};
+  state.phase = SignInState::Phase::waiting;
+  state.authorizeUrl = "https://www.tone3000.com/oauth/authorize?client_id=testbed&redirect_uri=http%3A%2F%2Flocalhost%3A49152%2F&state=abc";
+  if (setup.browserProblem)
+    state.browserProblem = "Your browser couldn't be opened.";
+  if (setup.signIn == Setup::SignIn::wait) {
+    if (onAccountChanged)
+      onAccountChanged();
+    return;
+  }
+  finishSignIn(setup.signIn == Setup::SignIn::succeed);
+}
+
+void FakeTone3000Feed::finishSignIn(bool ok) {
+  if (!pending)
+    return;
+  auto done = std::move(pending);
+  pending = nullptr;
+  state = {};
+  if (ok) {
+    setup.signedIn = true;
+    if (onAccountChanged)
+      onAccountChanged();
+    done(true, {});
+    return;
+  }
+  state.phase = SignInState::Phase::failed;
+  state.error = setup.signInError;
+  done(false, setup.signInError);
+}
+
+void FakeTone3000Feed::cancelSignIn() {
+  state = {};
+  if (!pending)
+    return;
+  auto done = std::move(pending);
+  pending = nullptr;
+  done(false, {});
+}
+
+void FakeTone3000Feed::signOut() {
+  ++signOuts;
+  setup.signedIn = false;
+  if (onAccountChanged)
+    onAccountChanged();
+}
+
 void FakeTone3000Feed::list(Tone3000List which, std::function<void(Listed)> reply) {
   ++lists;
   Listed out;
@@ -68,6 +118,9 @@ void FakeTone3000Feed::list(Tone3000List which, std::function<void(Listed)> repl
   }
   out.ok = true;
   out.tones = trending();
+  if (setup.description.isNotEmpty())
+    for (auto& t : out.tones)
+      t.description = setup.description;
   if (which == Tone3000List::latest) {
     std::reverse(out.tones.begin(), out.tones.end());
     out.tones.resize(6);

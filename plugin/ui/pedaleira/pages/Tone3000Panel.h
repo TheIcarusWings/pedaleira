@@ -2,7 +2,10 @@
 // free tier's lists as tabs (Trending, Latest, Favorites, Downloaded,
 // Created), a table of tones and on the right the chosen tone with its
 // captures and the button that adds one to the slot. Signed out, Trending and
-// Latest still work; the tabs of the player's own tones say what they need.
+// Latest still work; the tabs of the player's own tones say what they need,
+// and the header has Sign in (Sign out once signed in). Signing in goes to
+// TONE3000 in the system browser; while the page waits it shows the link to
+// copy into any browser.
 // Search is on tone3000.com (the free tier has none), one button away.
 //
 // What TONE3000's API terms ask is kept at every width: each tone shows its
@@ -25,6 +28,7 @@
 
 #include <array>
 #include <functional>
+#include <utility>
 #include <vector>
 
 namespace pedaleira::ui {
@@ -41,9 +45,11 @@ public:
   // again and loads the shown tab.
   void show();
 
-  // Where a sign-in starts: TONE3000's splash comes first, then the sign-in
-  // (not in Pedaleira yet; the page says so).
+  // Where a sign-in starts: TONE3000's splash comes first, then the browser.
   void beginSignIn();
+  // Forgets the session on this computer; the tabs of the player's own tones
+  // go back to asking for an account.
+  void signOut();
 
   // A capture was downloaded to this file, named by tone and capture; the owner
   // adds it to the slot with `attribution` (chain.addToneFromFiles' tone3000),
@@ -75,6 +81,26 @@ public:
   tone3000::CreatorLine detailCredit() const;
   juce::Rectangle<int> detailLicence() const;
   juce::Rectangle<int> tableBounds() const { return tableArea(); }
+  // The sign-in card is up (waiting, finishing or failed), and what it says.
+  bool signInShown() const { return signInOpen; }
+  bool signInWaiting() const;
+  bool signInFailed() const { return signInOpen && signInProblem.isNotEmpty(); }
+  const juce::String& signInError() const { return signInProblem; }
+  juce::String signInLink() const;
+  // What the header says of the account, and its button (Sign out when signed in).
+  juce::String accountText() const;
+  juce::String signInButtonText() const { return signInOut.getButtonText(); }
+  void pressSignInButton() { signInOut.onClick(); }
+  void pressCancelSignIn() { closeSignIn.onClick(); }
+  void pressTrySignIn() { trySignIn.onClick(); }
+  // Every part of the detail column and where it is drawn, in the panel's
+  // coordinates (empty ones left out). None of them overlap.
+  std::vector<std::pair<juce::String, juce::Rectangle<int>>> detailElements() const;
+  juce::Rectangle<int> detailBounds() const { return detailArea(); }
+  // The description is longer than its room and scrolls within it.
+  bool descriptionScrolls() const;
+  int descriptionScrollPosition() const { return descScroll; }
+  void scrollDescription(int by);
 
   void paint(juce::Graphics& g) override;
   void resized() override;
@@ -98,8 +124,11 @@ private:
     bool columns = false;
   };
   // Where the detail column puts things, from its top.
+  // Every rectangle is inside the column and apart from the others: the top
+  // (image, title, chips, creator, licence), the description in its own room,
+  // the captures, then what went wrong with an Add and the two buttons.
   struct DetailLayout {
-    juce::Rectangle<int> art, title, chips, creatorLine, licence, description, captureLabel;
+    juce::Rectangle<int> art, title, chips, creatorLine, licence, description, captureLabel, captureList, note, open, add;
     int capturesTop = 0;
     int capturesBottom = 0;
   };
@@ -113,6 +142,16 @@ private:
   void loadCaptures();
   bool signedIn() const { return feed != nullptr && feed->signedIn(); }
   void showSplash(std::function<void()> then);
+  void startSignIn();
+  void closeSignInCard();
+  // The session came or went (here, in another build, or it expired): the
+  // tabs are read again and the header says who.
+  void accountChanged();
+  void resetTabs();
+  juce::Rectangle<int> signInCard() const;
+  void paintSignIn(juce::Graphics& g, juce::Rectangle<int> area);
+  juce::Rectangle<int> descriptionRoom() const;
+  int descriptionHeight(int width) const;
 
   int detailWidth() const;
   bool wideRows() const;
@@ -142,6 +181,16 @@ private:
   int chosenCapture = -1;
   int hoverRow = -1;
   int scroll = 0;
+  int descScroll = 0;
+  // The sign-in card: shown from the moment a sign-in starts until it ends in
+  // success, or the player closes it. `signInProblem` is set when it failed.
+  bool signInOpen = false;
+  juce::String signInProblem;
+  bool wasSignedIn = false;
+  // A sign-in answered after the page moved on (or was started again) is dropped.
+  int signInGeneration = 0;
+  // A list that arrives after the account changed is dropped.
+  int listGeneration = 0;
   CapturesState capturesState = CapturesState::none;
   Tone3000Feed::Captures captureList;
   bool adding = false;
@@ -154,6 +203,10 @@ private:
   PushButton retry{"Try again"};
   PushButton openTone{"Open on TONE3000"};
   PushButton add{"Add", PushButton::Kind::primary};
+  PushButton signInOut{"Sign in"};
+  PushButton copyLink{"Copy link"};
+  PushButton closeSignIn{"Cancel"};
+  PushButton trySignIn{"Try again", PushButton::Kind::primary};
   std::unique_ptr<Splash> splash;
   // What Continue on the splash leads to.
   std::function<void()> afterSplash;

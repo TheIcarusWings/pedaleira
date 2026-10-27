@@ -7,6 +7,7 @@
 #include "services/HttpClient.h"
 #include "services/ImageLoader.h"
 #include "services/Tone3000Client.h"
+#include "services/Tone3000Session.h"
 #include "services/UiPrefs.h"
 
 #include "../EngineClient.h"
@@ -68,12 +69,28 @@ bool refusedForAccount(const juce::String& error) {
   return error.endsWith(": 401") || error.endsWith(": 403") || error == "token_refresh_failed" || error.contains("sign in");
 }
 
-class LiveFeed final : public Tone3000Feed {
+// What the classic session wants of its host. Pedaleira's downloads carry the
+// token the feed's own client has, so native's Bearer copy has nowhere to go.
+class SessionHost final : public t3k::ui::Tone3000Session::Host {
+public:
+  void setAccessToken(const juce::String&) override {}
+  juce::String uniqueDeviceId() override { return juce::SystemStats::getUniqueDeviceID(); }
+  juce::String pluginVersion() override { return JucePlugin_VersionString; }
+};
+
+class LiveFeed final : public Tone3000Feed, private t3k::ui::ToneSession::Listener {
 public:
   explicit LiveFeed(EngineClient& engine)
       : engine_(engine),
         prefs_(&prefsFile_->file, &prefsFile_->lock),
-        client_(http_, prefs_, t3k::ui::config::kApiOrigin, t3k::ui::config::kPublishableKey) {}
+        client_(http_, prefs_, t3k::ui::config::kApiOrigin, t3k::ui::config::kPublishableKey),
+        // The same preferences file holds the token store of both, so a sign-in
+        // made through the session is the client's the moment it lands.
+        session_(host_, prefs_, http_, t3k::ui::Tone3000Session::Config::fromBuild()) {
+    session_.addListener(this);
+  }
+
+  ~LiveFeed() override { session_.removeListener(this); }
 
   bool signedIn() const override { return client_.authenticated(); }
 
@@ -82,6 +99,62 @@ public:
       return {};
     const juce::var cached = prefs_.getJson(t3k::ui::UiPrefs::kCachedUser);
     return cached.isObject() ? t3k::ui::User::parse(cached).name() : juce::String();
+  }
+
+  void signIn(std::function<void(bool ok, juce::String message)> done) override {
+    // One at a time: a second ask hears the first one's outcome too.
+    const bool running = static_cast<bool>(pendingSignIn_);
+    pendingSignIn_ = [previous = std::move(pendingSignIn_), done = std::move(done)](bool ok, juce::String message) {
+      if (previous)
+        previous(ok, message);
+      if (done)
+        done(ok, message);
+    };
+    if (running)
+      return;
+    session_.login(t3k::ui::ToneSession::LoginIntent::plain);
+    // login() settles at once when it can not start (no key, no listener).
+    settleSignIn();
+  }
+
+  void cancelSignIn() override {
+    // Nothing asked: the page is closing a failure the session still holds.
+    if (!pendingSignIn_) {
+      session_.clearAuthError();
+      return;
+    }
+    session_.cancelFlow();
+    // cancelFlow() ends in idle, which settles as not signed in; make sure a
+    // flow that was already over still answers.
+    finishSignIn(false, {});
+  }
+
+  void signOut() override {
+    session_.logout();
+    changed();
+  }
+
+  SignInState signInState() const override {
+    SignInState out;
+    const auto& flow = session_.authFlow();
+    using Phase = t3k::ui::ToneSession::AuthFlow::Phase;
+    switch (flow.phase) {
+      case Phase::leaving:
+        out.phase = SignInState::Phase::waiting;
+        out.authorizeUrl = flow.authorizeUrl;
+        out.browserProblem = flow.browserProblem;
+        break;
+      case Phase::returning:
+        out.phase = SignInState::Phase::finishing;
+        break;
+      case Phase::error:
+        out.phase = SignInState::Phase::failed;
+        out.error = flow.error;
+        break;
+      case Phase::idle:
+        break;
+    }
+    return out;
   }
 
   void list(Tone3000List which, std::function<void(Listed)> reply) override {
@@ -253,11 +326,50 @@ public:
   void markIntroSeen() override { prefs_.setBool(kIntroSeen, true); }
 
 private:
+  // t3k::ui::ToneSession::Listener
+  void sessionChanged() override { changed(); }
+  void authFlowChanged() override {
+    settleSignIn();
+    changed();
+  }
+
+  void changed() {
+    if (onAccountChanged)
+      onAccountChanged();
+  }
+
+  // The flow ended: signed in, given up, or failed. Only a sign-in the page
+  // asked for is answered.
+  void settleSignIn() {
+    if (!pendingSignIn_)
+      return;
+    const auto& flow = session_.authFlow();
+    using Phase = t3k::ui::ToneSession::AuthFlow::Phase;
+    if (flow.phase == Phase::leaving || flow.phase == Phase::returning)
+      return;
+    if (flow.phase == Phase::error) {
+      // The card keeps the error until the player closes or retries it.
+      finishSignIn(false, flow.error.isNotEmpty() ? flow.error : juce::String("Signing in did not work. Try again."));
+      return;
+    }
+    finishSignIn(session_.authenticated(), {});
+  }
+
+  void finishSignIn(bool ok, juce::String message) {
+    auto done = std::move(pendingSignIn_);
+    pendingSignIn_ = nullptr;
+    if (done)
+      done(ok, std::move(message));
+  }
+
   EngineClient& engine_;
   juce::SharedResourcePointer<PrefsFile> prefsFile_;
   t3k::ui::HttpClient http_;
   t3k::ui::UiPrefs prefs_;
   t3k::ui::Tone3000Client client_;
+  SessionHost host_;
+  t3k::ui::Tone3000Session session_;
+  std::function<void(bool, juce::String)> pendingSignIn_;
   t3k::ui::ImageLoader loader_;
   std::map<juce::uint64, std::unique_ptr<t3k::ui::ImageLoader::Request>> images_;
   juce::uint64 nextImage_ = 0;

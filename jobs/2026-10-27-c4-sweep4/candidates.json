@@ -1,0 +1,9 @@
+{
+  "cell-four": {
+    "h00": "base, main f2a82c9",
+    "h01": "input_full_scale_v x0.85 with output_trim / 0.85 (Gs kept)",
+    "h02": "input_full_scale_v x0.7 with output_trim / 0.7 (Gs kept)",
+    "h03": "input_full_scale_v x0.5 with output_trim / 0.5 (Gs kept)",
+    "h04": "input_full_scale_v x0.35 with output_trim / 0.35 (Gs kept)"
+  }
+}

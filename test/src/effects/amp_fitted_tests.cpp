@@ -66,7 +66,22 @@ struct AmpTarget {
   // Heavy Hot) meets both from 40 Hz; for the others the DI run rules below
   // this band.
   double responseFromHz{40.0};
+  // Bands of the line-level response the DI run decides instead (0 for none).
+  // At line level the low sweep drives the grids into conduction, so these
+  // bands read the bias shift, a large-signal behaviour; for large-signal
+  // behaviour the DI recordings win over the bench sweep (decision of
+  // 2026-10-27).
+  double largeSignalFromHz{0.0};
+  double largeSignalToHz{0.0};
+  // The small-signal response (the same sweep 36 dB down), held within 1 dB.
+  // A regression baseline taken from the description on main when the bands
+  // above left the line-level check, not a measurement of the reference: it
+  // keeps the small-signal behaviour the bench fit gave.
+  std::optional<std::array<double, EffectMatch::kNumBands>> smallSignalBaseline;
 };
+
+constexpr double kSmallSignalOffsetDb = 36.0;
+constexpr double kSmallSignalToleranceDb = 1.0;
 
 const std::vector<AmpTarget>& targets();
 
@@ -111,8 +126,13 @@ void checkResponse(const AmpTarget& amp) {
   // converter's as much as the amp's (and the fit was made with steady sines,
   // which read the top bands up to 1.5 dB higher than the sweep).
   for (int b = 1; b < EffectMatch::kNumBands - 2; ++b) {
-    if (EffectMatch::kBandCentresHz[static_cast<size_t>(b)] < amp.responseFromHz - 1.0)
+    const double hz = EffectMatch::kBandCentresHz[static_cast<size_t>(b)];
+    if (hz < amp.responseFromHz - 1.0)
       continue;
+    if (hz > amp.largeSignalFromHz - 1.0 && hz < amp.largeSignalToHz + 1.0) {
+      line << " (DI)";
+      continue;
+    }
     const double diff = (*r)[static_cast<size_t>(b)] - amp.responseGain5[static_cast<size_t>(b)];
     worst = std::max(worst, std::abs(diff));
     line << " " << diff;
@@ -121,6 +141,25 @@ void checkResponse(const AmpTarget& amp) {
   }
   std::cout << "[  FITTED  ] " << amp.name << " GAIN 5 response minus target, " << amp.responseFromHz << " Hz to 10 kHz:" << line.str()
             << " (worst " << worst << " dB)" << std::endl;
+  if (!amp.smallSignalBaseline)
+    return;
+  const auto s = ampfit::measureSweeps(shipped(amp.file), atGain(5.0), error, kSmallSignalOffsetDb);
+  ASSERT_TRUE(s.has_value()) << error;
+  double drift = 0.0;
+  std::ostringstream small;
+  small << std::fixed << std::setprecision(1);
+  for (int b = 1; b < EffectMatch::kNumBands - 2; ++b) {
+    if (EffectMatch::kBandCentresHz[static_cast<size_t>(b)] < amp.responseFromHz - 1.0)
+      continue;
+    const double diff = s->responseLow[static_cast<size_t>(b)] - (*amp.smallSignalBaseline)[static_cast<size_t>(b)];
+    drift = std::max(drift, std::abs(diff));
+    small << " " << diff;
+    EXPECT_NEAR(s->responseLow[static_cast<size_t>(b)], (*amp.smallSignalBaseline)[static_cast<size_t>(b)],
+                kSmallSignalToleranceDb)
+        << amp.name << " small-signal response at " << EffectMatch::kBandCentresHz[static_cast<size_t>(b)] << " Hz";
+  }
+  std::cout << "[  FITTED  ] " << amp.name << " GAIN 5 small-signal response minus baseline, " << amp.responseFromHz
+            << " Hz to 10 kHz:" << small.str() << " (worst " << drift << " dB)" << std::endl;
 }
 
 const AmpTarget& target(const char* file) {
@@ -309,6 +348,12 @@ TEST(AmpFitHarness, Measure) {
 
 namespace {
 
+// Red Forty's small-signal response at GAIN 5 on main (b39eaca), the
+// regression baseline of Red Forty and Heavy Hot (one circuit, so one curve).
+constexpr std::array<double, EffectMatch::kNumBands> kRedFortySmallSignal = {
+    -14.96, -8.29, -2.67, 2.26, 5.81, 7.52, 8.10, 7.55, 6.21, 4.52, 2.59, 0.32, -0.94, -1.57,
+    -1.03,  0.00,  1.21,  2.46, 3.42, 4.18, 4.76, 5.17, 5.40, 5.52, 5.52, 5.39, 5.12, 4.56};
+
 const std::vector<AmpTarget>& targets() {
   static const std::vector<AmpTarget> list = {
       {"lead-100.json", "Lead 100",
@@ -322,7 +367,8 @@ const std::vector<AmpTarget>& targets() {
         {10, 63.6, -89.7, -22.6, 71.1}},
        {8.5, 9.9, 10.9, 12.1, 13.4, 14.1, 13.0, 10.2, 7.6, 5.7, 3.7, 1.4, 0.2, -0.7,
         -0.6, 0.0, 0.8, 1.8, 2.5, 3.3, 3.9, 4.4, 4.8, 5.2, 5.4, 5.5, 5.4, 1.8},
-       3.0},
+       3.0, 40.0, 80.0, 160.0,
+       kRedFortySmallSignal},
       {"modern-three.json", "Modern Three",
        {{2, 1.1, std::nullopt, -34.9, 0.2}, {5, 34.1, -56.5, -22.1, 22.1}, {8, 49.6, -71.8, -22.1, 65.8},
         {10, 56.6, -79.2, -22.2, 72.2}},
@@ -340,7 +386,8 @@ const std::vector<AmpTarget>& targets() {
         {10, 61.7, -89.7, -24.6, 71.8}},
        {7.2, 8.4, 9.3, 10.1, 11.0, 11.4, 10.8, 8.7, 6.5, 4.8, 3.0, 0.8, -0.2, -0.9,
         -0.7, 0.0, 0.9, 1.8, 2.6, 3.4, 4.0, 4.5, 4.9, 5.2, 5.5, 5.6, 5.4, 1.7},
-       3.0},
+       3.0, 40.0, 80.0, 160.0,
+       kRedFortySmallSignal},
   };
   return list;
 }

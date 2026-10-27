@@ -794,6 +794,14 @@ the numbers for any file, for a fitting loop:
 PEDALEIRA_AMP_FIT=my-amp.json build/test/DspTests_artefacts/Release/DspTests --gtest_filter='AmpFitHarness.*'
 ```
 
+The line-level sweep drives these amps hard, so its response is partly a large-signal reading. For
+large-signal behaviour the DI run (guitars played through the reference) wins over the bench
+sweep. Where the two disagree, those bands leave the line-level check and the DI run sets them. In
+their place, a small-signal check holds the same sweep played 36 dB down within 1 dB of a baseline
+taken from the description before the change. That baseline is a regression guard, not a
+measurement. Red Forty and Heavy Hot leave 80 to 160 Hz to the DI run: there the line-level sweep
+reads the grid-leak bias shift, and `max_bias_shift_v` was fitted to the DI takes.
+
 ### The clean and crunch amps
 
 Ten more descriptions were fitted the same way to clean and crunch reference amps, each with the

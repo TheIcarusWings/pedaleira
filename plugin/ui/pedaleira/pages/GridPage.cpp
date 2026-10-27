@@ -20,6 +20,15 @@ std::optional<bool>& sessionCollapsed() {
   static std::optional<bool> collapsed;
   return collapsed;
 }
+// The expanded panel's height, once the player drags its edge.
+std::optional<int>& sessionHeight() {
+  static std::optional<int> height;
+  return height;
+}
+// The grid keeps at least this much in view over a tall panel.
+constexpr int kGridKept = 120;
+// Dragged lower than this over the bar, the panel collapses.
+constexpr int kCollapseBelow = BlockSettingsPanel::kBarHeight + 60;
 const juce::Colour kCable = colour::faint;
 
 // How far from a point or a cable the mouse may be and still take it.
@@ -1259,6 +1268,9 @@ GridPage::GridPage(EngineClient& client)
   addAndMakeVisible(scenes);
   addAndMakeVisible(grid);
   addAndMakeVisible(blockPanel);
+  addAndMakeVisible(panelEdge);
+  panelEdge.active = [this] { return blockPanel.isVisible() && !editorShown; };
+  panelEdge.onDrag = [this](int y) { setSettingsHeight(getHeight() - y); };
   addChildComponent(splitPanel);
   addChildComponent(scenePanel);
   addChildComponent(stompPanel);
@@ -1833,6 +1845,28 @@ void GridPage::setSettingsCollapsed(bool collapsed) {
   resized();
 }
 
+void GridPage::setSettingsHeight(int height) {
+  if (height <= 0) {
+    sessionHeight().reset();
+    resized();
+    return;
+  }
+  if (height < kCollapseBelow) {
+    setSettingsCollapsed(true);
+    return;
+  }
+  sessionCollapsed() = false;
+  sessionHeight() = height;
+  resized();
+}
+
+void GridPage::PanelEdge::paint(juce::Graphics& g) {
+  if (active && active() && isMouseOverOrDragging()) {
+    g.setColour(colour::iris);
+    g.fillRect(getLocalBounds().withSizeKeepingCentre(getWidth(), 2));
+  }
+}
+
 void GridPage::openPicker(int row, int slot) {
   ensureGrid();
   library.openFor(row, slot);
@@ -1854,20 +1888,31 @@ void GridPage::resized() {
   scenes.setBounds(area.removeFromTop(kScenesHeight));
   shownRows = juce::jlimit(1, 4, static_cast<int>(model.visibleRows().size()));
   grid.setBounds(area.removeFromTop(GridView::heightForRows(shownRows)));
-  // The settings: docked in the room under the grid, a slim bar when there is
-  // little room (or the player collapsed it), or over the bottom of the grid
-  // when they expanded it in a small window.
+  // The settings: docked in the room under the grid, a slim bar along the
+  // bottom of the page when there is little room (or the player collapsed it),
+  // or over the bottom of the grid when they expanded it in a small window.
   const bool tight = area.getHeight() < kRoomForSettings;
   const bool collapsed = sessionCollapsed().value_or(tight);
   blockPanel.setCollapsed(collapsed);
   if (collapsed) {
-    blockPanel.setBounds(area.withHeight(BlockSettingsPanel::kBarHeight));
+    blockPanel.setBounds(area.withTrimmedTop(juce::jmax(0, area.getHeight() - BlockSettingsPanel::kBarHeight)));
+  } else if (sessionHeight()) {
+    // The height the player dragged it to, along the bottom; taller than the
+    // room under the grid it covers the grid's bottom, keeping some in view.
+    const int tallest = juce::jmax(kCollapseBelow, getHeight() - kScenesHeight - kGridKept);
+    const int height = juce::jlimit(kCollapseBelow, tallest, *sessionHeight());
+    blockPanel.setBounds(getLocalBounds().removeFromBottom(height));
+    if (height > area.getHeight())
+      blockPanel.toFront(false);
   } else if (tight) {
     blockPanel.setBounds(getLocalBounds().removeFromBottom(BlockSettingsPanel::kExpandedHeight));
     blockPanel.toFront(false);
   } else {
     blockPanel.setBounds(area);
   }
+  // Its top edge, a few pixels either side, is the handle.
+  panelEdge.setBounds(blockPanel.getX(), blockPanel.getY() - 4, blockPanel.getWidth(), 8);
+  panelEdge.toFront(false);
   splitPanel.setBounds(area);
   scenePanel.setBounds(area);
   stompPanel.setBounds(area);

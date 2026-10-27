@@ -1719,6 +1719,18 @@ int selfTest() {
   check(!page.settingsCollapsed(), "and the choice is kept");
   page.setSettingsCollapsed(true);
   check(page.settingsCollapsed(), "collapsing in a large window is kept too");
+  check(page.settingsPanel().getHeight() == BlockSettingsPanel::kBarHeight &&
+            page.settingsPanel().getBottom() == page.getHeight(),
+        "collapsed, the panel is a bar along the bottom of the page");
+  page.setSettingsHeight(400);
+  check(!page.settingsCollapsed() && page.settingsPanel().getHeight() == 400 &&
+            page.settingsPanel().getBottom() == page.getHeight(),
+        "dragging the panel's edge sets its height");
+  page.setSettingsHeight(5000);
+  check(page.settingsPanel().getY() >= 56 + 120, "and never past the top of the grid");
+  page.setSettingsHeight(60);
+  check(page.settingsCollapsed(), "dragged down to the bar, it collapses");
+  page.setSettingsHeight(0);
 
   // The curves and the grouping.
   check(std::abs(blockmath::peakDb(1000.0, 1000.0, 6.0, 1.0) - 6.0) < 0.1, "a peak band reaches its gain at its centre");
